@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { DesignIndex, LockedDeclaration, LockLevel } from "./design-model.ts";
 import { compareText, type Diagnostic } from "./diagnostic.ts";
-import { stripBom } from "./location.ts";
+import { isText, parseRecordText, readRecordFile } from "./record-file.ts";
 
 /** Relative to the project root. */
 export const LOCK_FILE = ".design/design.lock.json";
@@ -22,30 +22,10 @@ export interface LockEntry {
 const keyOf = ({ module, kind, name }: Pick<LockEntry, "module" | "kind" | "name">) => `${module}\n${kind}\n${name}`;
 
 /** The recorded locks; none when there is no lock file yet. */
-export function readLockFile(root: string): { entries: LockEntry[]; diagnostics: Diagnostic[] } {
-  const invalid = (message: string): { entries: LockEntry[]; diagnostics: Diagnostic[] } => ({
-    entries: [],
-    diagnostics: [{ code: "E_CONFIG", severity: "error", message: `The lock file is not usable: ${message}`, file: LOCK_FILE }],
-  });
-  let text: string;
-  try {
-    text = fs.readFileSync(path.join(root, LOCK_FILE), "utf8");
-  } catch (cause) {
-    return (cause as NodeJS.ErrnoException).code === "ENOENT" ? { entries: [], diagnostics: [] } : invalid((cause as Error).message);
-  }
-  const parsed = parseLockFile(text);
-  return typeof parsed === "string" ? invalid(parsed) : { entries: parsed, diagnostics: [] };
-}
+export const readLockFile = (root: string) => readRecordFile(root, LOCK_FILE, "lock file", parseLockEntries);
 
-/** The entries of a lock file's text, or what is wrong with it. */
-function parseLockFile(text: string): LockEntry[] | string {
-  let value: unknown;
-  try {
-    value = JSON.parse(stripBom(text));
-  } catch (cause) {
-    return (cause as Error).message;
-  }
-  const isText = (item: unknown): item is string => typeof item === "string";
+/** The entries of a parsed lock file, or what is wrong with it. */
+function parseLockEntries(value: unknown): LockEntry[] | string {
   const isEntry = (item: unknown): item is LockEntry => {
     if (typeof item !== "object" || item === null) return false;
     const { module, name, kind, level, members, invariants } = item as Record<string, unknown>;
@@ -90,7 +70,7 @@ export function readBaseLocks(root: string, ref: string): { entries: LockEntry[]
   if (listed.stdout.trim() === "") return { entries: [], diagnostics: [] };
   const shown = git("show", `${sha}:./${LOCK_FILE}`);
   if (shown.status !== 0) return failure("E_ENVIRONMENT", `${cannot}: ${shown.stderr.trim() || "git show failed"}.`);
-  const parsed = parseLockFile(shown.stdout);
+  const parsed = parseRecordText(shown.stdout, parseLockEntries);
   return typeof parsed === "string" ? failure("E_CONFIG", `The lock file of "${ref}" is not usable: ${parsed}`) : { entries: parsed, diagnostics: [] };
 }
 

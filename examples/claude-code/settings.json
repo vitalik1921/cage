@@ -5,8 +5,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "sh ./examples/claude-code/design-gate.sh",
-            "timeout": 120
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/design-gate.mjs\"",
+            "timeout": 180
           }
         ]
       }

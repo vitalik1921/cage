@@ -15,7 +15,7 @@ export function formatDiagnostic(diagnostic: Diagnostic): string {
   return lines.join("\n");
 }
 
-const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
+export const plural = (count: number, one: string, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 
 function countBySeverity(diagnostics: readonly Diagnostic[]) {
   const errors = diagnostics.filter(isError).length;

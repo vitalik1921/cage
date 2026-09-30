@@ -83,6 +83,7 @@ test("the fingerprint changes with any file of the packet and with nothing else"
   const fingerprint = () => review(root, "Send").report.contracts[0].fingerprint;
   const first = fingerprint();
   assert.equal(fingerprint(), first);
+  const sender = review(root, "Sender").report.contracts[0].fingerprint;
 
   editFile(root, "src/modules/quota/quota.test.ts", (s) => `${s}// a change to a test of another contract\n`);
   assert.equal(fingerprint(), first);
@@ -91,8 +92,14 @@ test("the fingerprint changes with any file of the packet and with nothing else"
   assert.notEqual(afterTest, first);
   // Prose of a dependency's design is material too.
   editFile(root, QUOTA, (s) => s.replace("# ", "# Модуль: "));
-  assert.notEqual(fingerprint(), afterTest);
-  assert.equal(review(root, "Sender").report.contracts[0].fingerprint, review(root, "Sender").report.contracts[0].fingerprint);
+  const afterDependency = fingerprint();
+  assert.notEqual(afterDependency, afterTest);
+  // None of that is material of Sender.
+  assert.equal(review(root, "Sender").report.contracts[0].fingerprint, sender);
+  // Line endings are not material: a checkout with CRLF reads the same.
+  editFile(root, SEND_TEST, (s) => s.replaceAll("\n", "\r\n"));
+  assert.equal(fingerprint(), afterDependency);
+  assert.equal(review(root, "Send").report.files.find((file) => file.path === SEND_TEST)?.text.includes("\r"), false);
 });
 
 test("the markdown document lists the contracts and every file once, in fences longer than any run of backticks inside", (t) => {
@@ -217,6 +224,14 @@ test("a recorded verdict makes check content with the contract, and the review f
     { module: "src/modules/campaigns", contract: "Send", fingerprint, assessments: { adequate: 4, weak: 0, unrelated: 0, "insufficient-context": 0 } },
   ]);
   assert.equal(cli(root, "review", "--record", VERDICTS).stdout, `recorded  Send (4 adequate)\nreview --record: 1 recorded in ${REVIEW_FILE}.\n`);
+  // The verdicts file is named relative to the current directory, and appears as a project path in diagnostics.
+  fs.mkdirSync(path.join(root, "out"));
+  fs.renameSync(path.join(root, VERDICTS), path.join(root, "out", VERDICTS));
+  assert.equal(cli(path.join(root, "out"), "review", "--record", VERDICTS, "--root", "..").code, 0);
+  writeFile(root, "out/broken.json", "{ nope");
+  const broken = cli(path.join(root, "out"), "review", "--record", "broken.json", "--root", "..", "--format", "json");
+  assert.equal(broken.code, 2);
+  assert.equal((JSON.parse(broken.stdout) as RecordReport).diagnostics[0].file, "out/broken.json");
 
   const file = JSON.parse(readFile(root, REVIEW_FILE));
   assert.deepEqual(Object.keys(file.reviews[0]), ["module", "contract", "fingerprint", "files", "findings"]);
@@ -265,6 +280,14 @@ test("a change to the material makes the review stale, naming the file, and the 
   assert.deepEqual(refused.report.recorded, []);
   assert.match(refused.report.diagnostics.find(({ code }) => code === "E_REVIEW_VERDICT")?.message ?? "", /is for fingerprint sha256:[0-9a-f]+, but the material is now sha256:[0-9a-f]+: it changed since the review/);
   assert.equal(readFile(root, REVIEW_FILE), reviewFile);
+
+  // A recorded fingerprint that does not match its own digests is stale too, and the message says so.
+  const tampered = JSON.parse(reviewFile);
+  writeFile(root, REVIEW_FILE, JSON.stringify({ ...tampered, reviews: [{ ...tampered.reviews[0], fingerprint: "sha256:0" }] }));
+  editFile(root, SEND_TEST, (s) => s.replace("// the test file changed after the review\n", ""));
+  assert.match(reviewDiagnostics(root).find(({ contract }) => contract === "Send")?.message ?? "", /for other material; its recorded fingerprint does not match its files\. Review it again\./);
+  writeFile(root, REVIEW_FILE, reviewFile);
+  editFile(root, SEND_TEST, (s) => `${s}// the test file changed after the review\n`);
 
   // A dependency's design is material too; a file of another contract is not.
   assert.equal(record(root, { ...verdicts, verdicts: [{ ...verdicts.verdicts[0], fingerprint: fingerprintOf(root, "Send") }] }).code, 0);
@@ -336,12 +359,19 @@ test("findings other than adequate are reported where the invariant is, with the
 test("a verdict is refused when it is not about the designs as they are, and then nothing is recorded", (t) => {
   const root = extracted(t);
   const good = { contract: "Send", fingerprint: fingerprintOf(root, "Send"), findings: SEND_INVARIANTS.map((id) => finding(id)) };
+  const quota = { contract: "Quota", fingerprint: fingerprintOf(root, "Quota"), findings: ["accounts", "empty", "consume", "race"].map((id) => finding(id)) };
+  // A sound verdict for another contract goes with each refused one: nothing of it is recorded either.
   const refusals = (verdict: object) => {
-    const { code, report } = record(root, { version: 1, verdicts: [verdict, good] });
+    const { code, report } = record(root, { version: 1, verdicts: [verdict, quota] });
     assert.deepEqual(report.recorded, []);
     return { code, codes: report.diagnostics.filter(isError).map(({ code }) => code), messages: report.diagnostics.filter(isError).map(({ message }) => message) };
   };
   assert.deepEqual(refusals({ ...good, contract: "Nobody" }).codes, ["E_REFERENCE_UNKNOWN"]);
+  const twice = record(root, { version: 1, verdicts: [good, good] });
+  assert.deepEqual(twice.report.diagnostics.map(({ message }) => message), ['There is more than one verdict for "Send"; one contract gets one verdict.']);
+  assert.deepEqual(twice.report.recorded, []);
+  assert.equal(record(root, { version: 1, verdicts: [] }).code, 2);
+  assert.match(record(root, { version: 1, verdicts: [] }).report.diagnostics[0].message, /it has no verdict/);
   assert.deepEqual(refusals({ ...good, findings: [...good.findings, finding("nothing")] }).messages, ['The verdict for "Send" assesses invariants it does not have: `nothing`.']);
   assert.deepEqual(refusals({ ...good, findings: good.findings.slice(1) }).messages, ['The verdict for "Send" leaves invariants unassessed: `quota`.']);
   assert.deepEqual(refusals({ contract: "Sender", fingerprint: fingerprintOf(root, "Sender"), findings: [] }).messages, [
@@ -358,4 +388,33 @@ test("a verdict is refused when it is not about the designs as they are, and the
   assert.equal(usage.code, 2);
   assert.match(usage.stderr, /--record takes the verdicts file only/);
   assert.match(cli(root, "check", "--record", VERDICTS).stderr, /--record is an option of the review command/);
+});
+
+test("a review of a contract that no longer exists is reported by check and removed by the next record", (t) => {
+  const root = extracted(t);
+  assert.equal(record(root, { version: 1, verdicts: [{ contract: "Sender", fingerprint: fingerprintOf(root, "Sender"), findings: [finding(null)] }] }).code, 0);
+  // The contract moves to another module: its old entry answers to nothing.
+  const mail = readFile(root, MAIL);
+  const callbackSender = readFile(root, CALLBACK_SENDER);
+  fs.rmSync(path.join(root, "src/modules/mail"), { recursive: true });
+  writeFile(root, "src/modules/post/.design/design.mdx", mail);
+  writeFile(root, "src/modules/post/callback-sender.ts", callbackSender);
+  editFile(root, SEND_SERVICE, (s) => s.replace("../mail/", "../post/"));
+  editFile(root, SEND_TEST, (s) => s.replace("../mail/", "../post/"));
+  assert.equal(cli(root, "extract").code, 0);
+  assert.deepEqual(
+    reviewDiagnostics(root).filter(({ file }) => file === REVIEW_FILE).map(({ code, message }) => ({ code, message })),
+    [{ code: "W_REVIEW_STALE", message: 'The review file has a review of contract "Sender" of src/modules/mail, which no longer exists there. `design review --record` removes it.' }],
+  );
+  const withDeadEntry = readFile(root, REVIEW_FILE);
+  const recorded = record(root, { version: 1, verdicts: [{ contract: "Sender", fingerprint: fingerprintOf(root, "Sender"), findings: [finding(null)] }] });
+  assert.equal(recorded.code, 0);
+  assert.deepEqual(recorded.report.removed, [{ module: "src/modules/mail", contract: "Sender" }]);
+  assert.deepEqual(JSON.parse(readFile(root, REVIEW_FILE)).reviews.map((entry: { module: string }) => entry.module), ["src/modules/post"]);
+  writeFile(root, REVIEW_FILE, withDeadEntry);
+  assert.deepEqual(cli(root, "review", "--record", VERDICTS).stdout.split("\n").slice(0, 3), [
+    "recorded  Sender (1 adequate)",
+    "removed   Sender (no longer in src/modules/mail)",
+    `review --record: 1 recorded, 1 removed in ${REVIEW_FILE}.`,
+  ]);
 });

@@ -28,7 +28,7 @@ Commands:
   lock                  Record the declarations marked @final or @extendable in .design/design.lock.json
   review [name...]      The material of the named contracts for a reviewer: markdown (default) or json;
                         without names, the contracts without a fresh recorded review; --all for every contract
-  review --record <f>   Record the verdicts in <f> (json, the shape the review asks for) in .design/review.json
+  review --record <f>   Record the verdicts in <f> (json, the shape the review asks for; relative to the current directory) in .design/review.json
 
 Options:
   --root <path>     Project root (default: the current directory)
@@ -147,7 +147,7 @@ function run(argv: readonly string[], io: CliIo): number {
     const sources = diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
     const phaseOptions = { ...scope, sources, testAdapter: config.testAdapter, generatedFiles: config.generatedFiles };
     if (values.record !== undefined) {
-      const report = recordVerdicts(phaseOptions, values.record);
+      const report = recordVerdicts(phaseOptions, path.resolve(io.cwd, values.record));
       return print(report, formatRecordReport(report));
     }
     const report = runReview(phaseOptions, extra.length > 0 ? extra : values.all ? "all" : "needed");

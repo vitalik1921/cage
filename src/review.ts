@@ -4,7 +4,7 @@ import type { DesignModule } from "./design-phase.ts";
 import { compareDiagnostics, compareText, hasErrors, type Diagnostic } from "./diagnostic.ts";
 import { checkImplementationPhase, type ImplementationPhaseOptions, type ImplementationPhaseResult } from "./implementation-phase.ts";
 import { toProjectPath } from "./location.ts";
-import { collectMaterial, createFileReader, fingerprintOf, type FileReader, type PacketFile } from "./review-material.ts";
+import { collectMaterial, createFileReader, fingerprintOf, type Material, type PacketFile } from "./review-material.ts";
 import { readReviewFile, VERDICTS_SCHEMA } from "./review-record.ts";
 import type { Overlay, TypeScript } from "./typescript.ts";
 
@@ -129,13 +129,18 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
 
   let ok = true;
   let selected: Contract[];
+  const materials = new Map<string, Material>();
+  const materialOf = (name: string) => {
+    if (!materials.has(name)) materials.set(name, collectMaterial(result, name, read));
+    return materials.get(name)!;
+  };
   if (names === "needed") {
     // Without a usable review file every contract needs a review; its problem is reported.
     const reviews = readReviewFile(root);
     diagnostics.push(...reviews.diagnostics);
     selected = index.contracts.filter((contract) => {
       const recorded = reviews.entries.find((entry) => entry.module === contract.module && entry.contract === contract.name);
-      return !recorded || recorded.fingerprint !== fingerprintOf(collectMaterial(result, contract.name, read).files).fingerprint;
+      return !recorded || recorded.fingerprint !== fingerprintOf(materialOf(contract.name).files).fingerprint;
     });
   } else {
     selected = names === "all" ? [...index.contracts] : [];
@@ -151,15 +156,15 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
   }
   selected.sort((a, b) => compareText(a.module, b.module) || compareText(a.name, b.name));
 
-  const packets = selected.map((contract) => packetOf(root, result, contract.name, read));
+  const packets = selected.map((contract) => packetOf(root, result, materialOf(contract.name)));
   const used = new Set(packets.flatMap((packet) => [packet.design, ...packet.dependencies.designs, ...packet.implementations.map((i) => i.location.file), ...packet.tests.map((t) => t.file)]));
   return report(ok, packets, [...files.values()].filter((file) => used.has(file.path)).sort((a, b) => compareText(a.path, b.path)));
 }
 
-function packetOf(root: string, result: ImplementationPhaseResult, name: string, read: FileReader): ContractPacket {
+function packetOf(root: string, result: ImplementationPhaseResult, material: Material): ContractPacket {
   const { modules, compiler, diagnostics } = result;
-  const material = collectMaterial(result, name, read);
   const { contract, own, dependencyDesigns, uses, usedBy, implementations, declarations, testFiles, files } = material;
+  const name = contract.name;
   const loaded = new Set(files.map((file) => file.path));
   const unloaded = compiler ? importsOutside(root, compiler.ts, compiler.overlay, modules, files, loaded) : [];
 

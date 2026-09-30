@@ -7,11 +7,13 @@ import { compareText, type Diagnostic } from "./diagnostic.ts";
 import type { ImplementationPhaseResult } from "./implementation-phase.ts";
 import { stripBom } from "./location.ts";
 
-/** A file the reviewer reads, once, whatever number of contracts it serves. */
+/** A file the reviewer reads, once, whatever number of contracts it serves. Its text has `\n` line endings whatever the disk has. */
 export interface PacketFile {
   path: string;
   role: "design" | "implementation" | "test";
   text: string;
+  /** Of the normalized text, so that the line endings of a checkout do not count as a change. */
+  digest: string;
 }
 
 /** The files a contract's review is made of, and what they were found for. */
@@ -36,7 +38,8 @@ export function createFileReader(root: string, diagnostics: Diagnostic[]): { rea
     const known = files.get(file);
     if (known) return known;
     try {
-      const loaded = { path: file, role, text: text ?? stripBom(fs.readFileSync(path.join(root, file), "utf8")) };
+      const normalized = (text ?? stripBom(fs.readFileSync(path.join(root, file), "utf8"))).replace(/\r\n?/g, "\n");
+      const loaded = { path: file, role, text: normalized, digest: digestOf(normalized) };
       files.set(file, loaded);
       return loaded;
     } catch (cause) {
@@ -97,7 +100,7 @@ export const digestOf = (text: string) => `sha256:${crypto.createHash("sha256").
 export function fingerprintOf(files: readonly PacketFile[]): { fingerprint: string; digests: Record<string, string> } {
   const sorted = [...files].sort((a, b) => compareText(a.path, b.path));
   const hash = crypto.createHash("sha256");
-  for (const file of sorted) hash.update(`${file.path}\n${file.text}\0`);
-  return { fingerprint: `sha256:${hash.digest("hex")}`, digests: Object.fromEntries(sorted.map((file) => [file.path, digestOf(file.text)])) };
+  for (const file of sorted) hash.update(`${file.path}\n${file.digest}\0`);
+  return { fingerprint: `sha256:${hash.digest("hex")}`, digests: Object.fromEntries(sorted.map((file) => [file.path, file.digest])) };
 }
 
