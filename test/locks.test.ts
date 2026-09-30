@@ -39,12 +39,18 @@ test("a declaration is open unless it is marked: the index records the lock leve
   assert.deepEqual(index.contracts.map(({ name, lock }) => [name, lock]), [["Quota", "final"], ["Store", "extendable"], ["Open", null]]);
   assert.deepEqual(index.data.map(({ name, lock }) => [name, lock]), [["AccountId", "final"], ["Row", "extendable"]]);
   assert.deepEqual(
-    index.locked.map(({ name, kind, level, members }) => ({ name, kind, level, members })),
+    index.locked.map(({ name, kind, level, members, invariants }) => ({ name, kind, level, members, invariants })),
     [
-      { name: "AccountId", kind: "data", level: "final", members: { ":type": "string" } },
-      { name: "Quota", kind: "contract", level: "final", members: { take: "take(account: AccountId): boolean;", left: "left(account: AccountId): number;" } },
-      { name: "Store", kind: "contract", level: "extendable", members: { get: "get(key: string): string | null;" } },
-      { name: "Row", kind: "data", level: "extendable", members: { id: "id: string;" } },
+      { name: "AccountId", kind: "data", level: "final", members: { ":type": "string" }, invariants: {} },
+      {
+        name: "Quota",
+        kind: "contract",
+        level: "final",
+        members: { take: "take(account: AccountId): boolean;", left: "left(account: AccountId): number;" },
+        invariants: { empty: "Порожня квота відмовляє." },
+      },
+      { name: "Store", kind: "contract", level: "extendable", members: { get: "get(key: string): string | null;" }, invariants: { miss: "Невідомий ключ дає null." } },
+      { name: "Row", kind: "data", level: "extendable", members: { id: "id: string;" }, invariants: {} },
     ],
   );
 });
@@ -139,8 +145,8 @@ test("an @extendable declaration may grow, and what it has must stay", (t) => {
   change(root, "  get(key: string): string | null;", "  get(key: string): string;");
   change(root, "  label?: string;\n", "");
   assert.deepEqual(problems(root).map(({ code, message }) => ({ code, message })), [
-    { code: "E_LOCK_VIOLATION", message: 'Contract "Store" is `@extendable`: what it has must not change; only members may be added.\n`get` changed; it was: get(key: string): string | null;' },
-    { code: "E_LOCK_VIOLATION", message: 'Data type "Row" is `@extendable`: what it has must not change; only members may be added.\n`label` was removed; it was: label?: string;' },
+    { code: "E_LOCK_VIOLATION", message: 'Contract "Store" is `@extendable`: what it has must not change; only members and invariants may be added.\n`get` changed; it was: get(key: string): string | null;' },
+    { code: "E_LOCK_VIOLATION", message: 'Data type "Row" is `@extendable`: what it has must not change; only members and invariants may be added.\n`label` was removed; it was: label?: string;' },
   ]);
 });
 
@@ -168,7 +174,7 @@ test("a lock is not lifted by taking the tag off or deleting the declaration", (
     },
     {
       code: "E_LOCK_VIOLATION",
-      message: 'Data type "Row" is `@extendable`: what it has must not change; only members may be added.\nit is recorded as `@extendable` and is now marked `@final`',
+      message: 'Data type "Row" is `@extendable`: what it has must not change; only members and invariants may be added.\nit is recorded as `@extendable` and is now marked `@final`',
       ...position(root, "interface Row", "interface ".length),
     },
   ]);
@@ -257,7 +263,13 @@ test("type parameters, a base type and a call signature are not additions to an 
       {
         code: "E_LOCK_VIOLATION",
         // The property named `extends` is a member like any other; what the interface extends is not.
-        message: 'Data type "Row" is `@extendable`: what it has must not change; only members may be added.\nits type parameters was added\nwhat it extends was added\nits call signature was added',
+        message:
+          'Data type "Row" is `@extendable`: what it has must not change; only members and invariants may be added.\nits type parameters was added\nwhat it extends was added\nits call signature was added',
+      },
+      // The base type is also an open type inside a locked declaration.
+      {
+        code: "W_LOCK_OPEN_TYPE",
+        message: 'Data type "Row" is `@extendable`, but it uses data type "Base", which is not locked: a change to "Base" changes it too. Mark "Base" `@final` or `@extendable`.',
       },
     ],
   );
@@ -287,4 +299,94 @@ test("extract does not look at locks; check and lock do", (t) => {
   change(root, "take(account: AccountId): boolean;", "take(account: AccountId): number;");
   assert.equal(cli(root, "extract").code, 0);
   assert.equal(cli(root, "check", "--phase", "design").code, 1);
+});
+
+test("a lock covers the invariants of a contract: a @final one keeps them as they are, an @extendable one may get more", (t) => {
+  const root = project(t);
+  lock(root);
+  const recorded = JSON.parse(readFile(root, LOCK_FILE)).locks as { name: string; invariants?: Record<string, string> }[];
+  assert.deepEqual(recorded.map(({ name, invariants }) => [name, invariants]), [
+    ["Quota", { empty: "Порожня квота відмовляє." }],
+    ["Store", { miss: "Невідомий ключ дає null." }],
+    // A data type has no invariants, and no such field.
+    ["AccountId", undefined],
+    ["Row", undefined],
+  ]);
+
+  // How the text is laid out does not matter; what it says does.
+  change(root, "@invariant empty Порожня квота відмовляє.", "@invariant empty Порожня квота\n *   відмовляє.");
+  assert.deepEqual(problems(root), []);
+  change(root, "Порожня квота\n *   відмовляє.", "Порожня квота чекає.\n * @invariant fair Квота однакова для всіх.");
+  change(root, " * @invariant miss Невідомий ключ дає null.", " * @invariant miss Невідомий ключ дає null.\n * @invariant trim Ключ порівнюється без пробілів.");
+  assert.deepEqual(problems(root).map(({ code, message }) => ({ code, message })), [
+    { code: "E_LOCK_VIOLATION", message: 'Contract "Quota" is `@final`: it must not change.\ninvariant `empty` changed; it was: Порожня квота відмовляє.\ninvariant `fair` was added' },
+    { code: "W_LOCK_UNRECORDED", message: 'Contract "Store" has additions that are not locked yet: invariant `trim`. Run `design lock` to record them.' },
+  ]);
+
+  change(root, "Порожня квота чекає.\n * @invariant fair Квота однакова для всіх.", "Порожня квота відмовляє.");
+  assert.deepEqual(lock(root).report.locks.map(({ name, status }) => [name, status]), [["AccountId", "unchanged"], ["Quota", "unchanged"], ["Store", "extended"], ["Row", "unchanged"]]);
+  assert.deepEqual(problems(root), []);
+
+  // Once recorded, the added invariant is locked like the first one.
+  change(root, " * @invariant miss Невідомий ключ дає null.\n", "");
+  change(root, "Ключ порівнюється без пробілів.", "Ключ порівнюється як є.");
+  assert.deepEqual(problems(root).map(({ code, message }) => ({ code, message })), [
+    {
+      code: "E_LOCK_VIOLATION",
+      message:
+        'Contract "Store" is `@extendable`: what it has must not change; only members and invariants may be added.\ninvariant `miss` was removed; it was: Невідомий ключ дає null.\ninvariant `trim` changed; it was: Ключ порівнюється без пробілів.',
+    },
+  ]);
+});
+
+test("a lock file written before invariants were locked is not usable", (t) => {
+  const root = project(t);
+  lock(root);
+  const file = JSON.parse(readFile(root, LOCK_FILE));
+  writeFile(root, LOCK_FILE, JSON.stringify({ ...file, locks: file.locks.map(({ invariants, ...entry }: { invariants?: unknown }) => entry) }));
+  assert.deepEqual(problems(root).map(({ code, message, file }) => ({ code, message, file })), [
+    {
+      code: "E_CONFIG",
+      // Entries are sorted by module, kind and name, so the first contract is the first entry.
+      message: 'The lock file is not usable: entry 1 ("Quota") is not as `design lock` writes it: a contract has "members" and "invariants", a data type only "members".',
+      file: LOCK_FILE,
+    },
+  ]);
+});
+
+test("a locked declaration that uses an open type is warned about, once per type, where it first uses it", (t) => {
+  const open = (name: string) => data(name);
+  const final = (declaration: string) => declaration.replace(" * @description", " * @final\n * @description");
+  const shared = mdx(open("Money"), open("Currency"), final(data("Code")), contract("Rates", "rate(): number;", "@invariant ok Працює."));
+  const orders = mdx(
+    ['import type { Money as Amount, Code } from "../../shared/.design/design.generated.ts";', 'import type * as shared from "../../shared/.design/design.generated.ts";'].join("\n"),
+    open("Note"),
+    open("Id"),
+    final(data("Line", "{ price: Amount; code: Code; currency: shared.Currency; rates: shared.Rates; note: Note; again: Note }")),
+    // Its own type parameter, a global type and a locked type are not open types of a design.
+    final(contract("Orders", "total<Id>(id: Id, lines: Array<Line>): Promise<Amount>;", "@invariant sum Сума всіх рядків.")),
+    // A type that is open on purpose does not make an open declaration worth a warning.
+    contract("Open", "note(): Note;", "@invariant ok Працює."),
+  );
+  const root = designProject(t, { shared, orders });
+  const where = (needle: string) => inFile(root, designFile("orders"), needle);
+  const warning = (subject: string, level: string, kind: string, name: string, position: { file: string; line: number; column: number }) => ({
+    code: "W_LOCK_OPEN_TYPE",
+    message: `${subject} is \`@${level}\`, but it uses ${kind} "${name}", which is not locked: a change to "${name}" changes it too. Mark "${name}" \`@final\` or \`@extendable\`.`,
+    ...position,
+  });
+  assert.deepEqual(
+    checkDesigns(root).diagnostics.filter(({ code }) => code === "W_LOCK_OPEN_TYPE").map(({ code, message, file, line, column }) => ({ code, message, file, line, column })),
+    [
+      warning('Data type "Line"', "final", "data type", "Money", where("Amount; code")),
+      warning('Data type "Line"', "final", "data type", "Currency", where("shared.Currency")),
+      warning('Data type "Line"', "final", "contract", "Rates", where("shared.Rates")),
+      warning('Data type "Line"', "final", "data type", "Note", where("Note; again")),
+      warning('Contract "Orders"', "final", "data type", "Money", where("Amount>;")),
+    ],
+  );
+
+  // A lock tag that was rejected is one mistake, not also an open type.
+  const rejected = designProject(t, { m: mdx(data("Id").replace(" * @data", " * @data\n * @final forever"), final(contract("Users", "get(id: Id): void;", "@invariant ok Працює."))) });
+  assert.deepEqual(checkDesigns(rejected).diagnostics.map(({ code }) => code), ["E_TAG_FORMAT"]);
 });

@@ -1,6 +1,6 @@
 import type ts from "typescript";
 import type { Diagnostic } from "./diagnostic.ts";
-import { emptyIndex, type Contract, type ContractMember, type DesignIndex, type LockLevel, type SourceLocation } from "./design-model.ts";
+import { emptyIndex, type Contract, type ContractMember, type DesignIndex, type LockedDeclaration, type LockLevel, type SourceLocation } from "./design-model.ts";
 import { findModuleCycles } from "./graph.ts";
 import { collectComments, docCommentBefore, readAllowedTags } from "./doc-comments.ts";
 import { isDocComment, parseDocTags, parseInvariant, parseNames, type DocTag } from "./metadata.ts";
@@ -27,6 +27,16 @@ interface PendingUse {
   location: SourceLocation;
 }
 
+/** What is known about locks before every design is read. */
+interface PendingLocks {
+  /** A type of some design that a locked declaration refers to, at the first place it does. */
+  uses: { locked: LockedDeclaration; module: string; name: string; location: SourceLocation }[];
+  /** Declarations with a lock tag, even a rejected one: "not locked" would be a consequence, not a finding. */
+  tagged: Set<string>;
+}
+
+const declarationKey = (module: string, name: string) => `${module}\n${name}`;
+
 const BLOCK_CONTENT = "A ts design block may contain only `import type` declarations and exported interface or type declarations.";
 
 /**
@@ -45,7 +55,8 @@ export function indexDesigns(
   const uses: PendingUse[] = [];
   // Contracts whose invariants were written, even if rejected: "no invariants" would be a consequence, not a finding.
   const withInvariantTags = new Set<Contract>();
-  for (const design of designs) readDesign(ts, design, resolveImport, index, uses, withInvariantTags, diagnostics);
+  const locks: PendingLocks = { uses: [], tagged: new Set() };
+  for (const design of designs) readDesign(ts, design, resolveImport, index, uses, withInvariantTags, locks, diagnostics);
 
   const contracts = new Map<string, Contract>();
   for (const contract of index.contracts) {
@@ -96,6 +107,21 @@ export function indexDesigns(
     });
   }
 
+  // A lock holds only as far as what it is made of: an open type inside a locked declaration can still change it.
+  const declared = new Map([...index.contracts.map((contract) => [contract, "contract"] as const), ...index.data.map((data) => [data, "data type"] as const)]);
+  for (const use of locks.uses) {
+    const target = [...declared.keys()].find((candidate) => candidate.module === use.module && candidate.name === use.name);
+    if (!target || target.lock !== null || locks.tagged.has(declarationKey(target.module, target.name))) continue;
+    const subject = `${use.locked.kind === "contract" ? "Contract" : "Data type"} "${use.locked.name}"`;
+    diagnostics.push({
+      code: "W_LOCK_OPEN_TYPE",
+      severity: "warning",
+      message: `${subject} is \`@${use.locked.level}\`, but it uses ${declared.get(target)} "${target.name}", which is not locked: a change to "${target.name}" changes it too. Mark "${target.name}" \`@final\` or \`@extendable\`.`,
+      ...use.location,
+      ...(use.locked.kind === "contract" ? { contract: use.locked.name } : {}),
+    });
+  }
+
   // A scope without contracts is an error, unless that is a consequence of the errors above.
   if (index.contracts.length === 0 && diagnostics.length === 0) {
     diagnostics.push({ code: "E_NO_CONTRACTS", severity: "error", message: "The designs declare no contract: no exported interface is marked `@contract`." });
@@ -121,6 +147,7 @@ function readDesign(
   index: DesignIndex,
   uses: PendingUse[],
   withInvariantTags: Set<Contract>,
+  locks: PendingLocks,
   diagnostics: Diagnostic[],
 ): void {
   const { sourceFile, moduleId } = design;
@@ -296,7 +323,9 @@ function readDesign(
         return;
       }
     }
+    if (tags.has("final") || tags.has("extendable")) locks.tagged.add(declarationKey(moduleId, name));
     const lock = readLock(declaration, tags);
+    const firstInvariant = index.invariants.length;
     if (!isContract) {
       index.data.push({ name, module: moduleId, description, lock, location: design.locate(at) });
     } else if (ts.isInterfaceDeclaration(declaration)) {
@@ -307,7 +336,19 @@ function readDesign(
       return;
     }
     if (lock) {
-      index.locked.push({ name, module: moduleId, kind: isContract ? "contract" : "data", level: lock, members: signaturesOf(declaration), location: design.locate(at) });
+      // The text of an invariant is recorded on one line, like a signature.
+      const invariants = index.invariants.slice(firstInvariant).map((invariant) => [invariant.id, invariant.text.replace(/\s+/g, " ")]);
+      const locked: LockedDeclaration = {
+        name,
+        module: moduleId,
+        kind: isContract ? "contract" : "data",
+        level: lock,
+        members: signaturesOf(declaration),
+        invariants: Object.fromEntries(invariants),
+        location: design.locate(at),
+      };
+      index.locked.push(locked);
+      lockedReferences.push({ locked, references: referencesOf(declaration) });
     }
   };
 
@@ -366,6 +407,33 @@ function readDesign(
     return Object.fromEntries(signatures);
   };
 
+  /** Local name to what it is in another design; `name` is null for a namespace import. */
+  const imported = new Map<string, { moduleId: string; name: string | null }>();
+  const lockedReferences: { locked: LockedDeclaration; references: TypeName[] }[] = [];
+  interface TypeName {
+    namespace: string | null;
+    name: string;
+    offset: number;
+  }
+  /** The type names a declaration refers to, apart from its own type parameters. */
+  const referencesOf = (declaration: ts.Node): TypeName[] => {
+    const own = new Set<string>();
+    const found: TypeName[] = [];
+    const visit = (node: ts.Node) => {
+      if (ts.isTypeParameterDeclaration(node)) own.add(node.name.text);
+      const written = ts.isTypeReferenceNode(node) ? node.typeName : ts.isExpressionWithTypeArguments(node) ? node.expression : undefined;
+      if (written && ts.isIdentifier(written)) {
+        found.push({ namespace: null, name: written.text, offset: written.getStart(sourceFile) });
+      } else if (written && (ts.isQualifiedName(written) || ts.isPropertyAccessExpression(written))) {
+        const [namespace, member] = ts.isQualifiedName(written) ? [written.left, written.right] : [written.expression, written.name];
+        if (ts.isIdentifier(namespace)) found.push({ namespace: namespace.text, name: member.text, offset: written.getStart(sourceFile) });
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(declaration);
+    return found.filter((reference) => reference.namespace !== null || !own.has(reference.name));
+  };
+
   const readImport = (declaration: ts.ImportDeclaration) => {
     const at = declaration.getStart(sourceFile);
     const specifier = declaration.moduleSpecifier;
@@ -380,8 +448,13 @@ function readDesign(
       report("E_DESIGN_IMPORT", `"${specifier.text}" is not the design.generated file of another design; a design may import only types of other designs.`, specifier.getStart(sourceFile));
     } else if (target.moduleId === moduleId) {
       report("E_DESIGN_IMPORT", "A design cannot import its own generated module.", specifier.getStart(sourceFile));
-    } else if (!index.edges.some((edge) => edge.kind === "type-import" && edge.fromModule === moduleId && edge.toModule === target.moduleId)) {
-      index.edges.push({ kind: "type-import", fromModule: moduleId, toModule: target.moduleId, location: design.locate(at) });
+    } else {
+      const bindings = declaration.importClause.namedBindings;
+      if (bindings && ts.isNamespaceImport(bindings)) imported.set(bindings.name.text, { moduleId: target.moduleId, name: null });
+      else for (const element of bindings?.elements ?? []) imported.set(element.name.text, { moduleId: target.moduleId, name: (element.propertyName ?? element.name).text });
+      if (!index.edges.some((edge) => edge.kind === "type-import" && edge.fromModule === moduleId && edge.toModule === target.moduleId)) {
+        index.edges.push({ kind: "type-import", fromModule: moduleId, toModule: target.moduleId, location: design.locate(at) });
+      }
     }
   };
 
@@ -394,6 +467,19 @@ function readDesign(
     else if (namesModule) report("E_DESIGN_IMPORT", "A ts design block may refer to another module only with `import type`.", statement.getStart(sourceFile));
     else if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) readDeclaration(statement);
     else if (statement.kind !== ts.SyntaxKind.EmptyStatement) report("E_UNSUPPORTED_DECLARATION", BLOCK_CONTENT, statement.getStart(sourceFile));
+  }
+
+  // Imports may come in any block, so names are resolved once the whole design is read.
+  for (const { locked, references } of lockedReferences) {
+    const seen = new Set<string>();
+    for (const { namespace, name, offset } of references) {
+      const source = imported.get(namespace ?? name);
+      const target =
+        namespace !== null ? (source?.name === null ? { module: source.moduleId, name } : undefined) : source ? (source.name === null ? undefined : { module: source.moduleId, name: source.name }) : { module: moduleId, name };
+      if (!target || seen.has(declarationKey(target.module, target.name))) continue;
+      seen.add(declarationKey(target.module, target.name));
+      locks.uses.push({ locked, ...target, location: design.locate(offset) });
+    }
   }
 
   const visit = (node: ts.Node) => {

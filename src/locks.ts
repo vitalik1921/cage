@@ -14,6 +14,8 @@ export interface LockEntry {
   kind: "contract" | "data";
   level: LockLevel;
   members: Record<string, string>;
+  /** Invariant id to its text; a contract has them, a data type does not. */
+  invariants?: Record<string, string>;
 }
 
 const keyOf = ({ module, kind, name }: Pick<LockEntry, "module" | "kind" | "name">) => `${module}\n${kind}\n${name}`;
@@ -39,12 +41,19 @@ export function readLockFile(root: string): { entries: LockEntry[]; diagnostics:
   const isText = (item: unknown): item is string => typeof item === "string";
   const isEntry = (item: unknown): item is LockEntry => {
     if (typeof item !== "object" || item === null) return false;
-    const { module, name, kind, level, members } = item as Record<string, unknown>;
-    const isMembers = typeof members === "object" && members !== null && Object.values(members).every(isText);
-    return isText(module) && isText(name) && (kind === "contract" || kind === "data") && (level === "final" || level === "extendable") && isMembers;
+    const { module, name, kind, level, members, invariants } = item as Record<string, unknown>;
+    const isTexts = (value: unknown) => typeof value === "object" && value !== null && Object.values(value).every(isText);
+    const isKind = kind === "contract" ? isTexts(invariants) : kind === "data" && invariants === undefined;
+    return isText(module) && isText(name) && isKind && (level === "final" || level === "extendable") && isTexts(members);
   };
   const { version, locks } = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
-  if (version !== 1 || !Array.isArray(locks) || !locks.every(isEntry)) return invalid('expected { "version": 1, "locks": [...] } as written by `design lock`.');
+  if (version !== 1 || !Array.isArray(locks)) return invalid('expected { "version": 1, "locks": [...] } as written by `design lock`.');
+  const broken = locks.findIndex((entry) => !isEntry(entry));
+  if (broken !== -1) {
+    const name = (locks[broken] as { name?: unknown } | null)?.name;
+    // A contract entry without "invariants" is what earlier versions wrote.
+    return invalid(`entry ${broken + 1}${isText(name) ? ` ("${name}")` : ""} is not as \`design lock\` writes it: a contract has "members" and "invariants", a data type only "members".`);
+  }
   return { entries: locks, diagnostics: [] };
 }
 
@@ -55,13 +64,41 @@ export interface LockComparison {
   unrecorded: Diagnostic[];
 }
 
+/** What a lock covers: signatures by member, and for a contract the texts of its invariants by id. */
+type Locked = Pick<LockEntry, "level" | "members" | "invariants">;
+
 /**
- * Compares the designs with the recorded locks. A `@final` declaration must
- * be exactly what was recorded; an `@extendable` one must still have
- * everything that was recorded, unchanged, and may have more named members.
- * A lock is also broken by taking the tag off or deleting the declaration:
- * what is recorded stays locked until its entry is removed from the lock
- * file by hand.
+ * How `current` differs from what `recorded` locks. A `@final` declaration
+ * must be exactly what was recorded. An `@extendable` one must still have
+ * everything that was recorded, unchanged, and may have more named members
+ * and more invariants: those are `additions`, not `changes`.
+ */
+function differences(recorded: Locked, current: Locked): { changes: string[]; additions: string[] } {
+  const changes: string[] = [];
+  const additions: string[] = [];
+  const compare = (was: Record<string, string>, now: Record<string, string>, describe: (key: string) => string, mayAdd: (key: string) => boolean) => {
+    for (const [key, text] of Object.entries(was)) {
+      if (!Object.hasOwn(now, key)) changes.push(`${describe(key)} was removed; it was: ${text}`);
+      else if (now[key] !== text) changes.push(`${describe(key)} changed; it was: ${text}`);
+    }
+    for (const key of Object.keys(now)) {
+      if (Object.hasOwn(was, key)) continue;
+      if (recorded.level === "extendable" && mayAdd(key)) additions.push(describe(key));
+      else changes.push(`${describe(key)} was added`);
+    }
+  };
+  // More named members is what "extendable" allows. Type parameters, a base type or a call signature change what is already there.
+  compare(recorded.members, current.members, describeMember, (member) => !member.startsWith(":"));
+  compare(recorded.invariants ?? {}, current.invariants ?? {}, (id) => `invariant \`${id}\``, () => true);
+  return { changes, additions };
+}
+
+const RULE = { final: "it must not change", extendable: "what it has must not change; only members and invariants may be added" };
+
+/**
+ * Compares the designs with the recorded locks. A lock is also broken by
+ * taking the tag off or deleting the declaration: what is recorded stays
+ * locked until its entry is removed from the lock file by hand.
  */
 export function compareLocks(index: DesignIndex, entries: readonly LockEntry[]): LockComparison {
   const violations: Diagnostic[] = [];
@@ -71,7 +108,7 @@ export function compareLocks(index: DesignIndex, entries: readonly LockEntry[]):
 
   for (const declaration of index.locked) {
     const entry = recorded.get(keyOf(declaration));
-    const subject = `${declaration.kind === "contract" ? "Contract" : "Data type"} "${declaration.name}"`;
+    const subject = subjectOf(declaration);
     if (!entry) {
       unrecorded.push({
         code: "E_LOCK_MISSING",
@@ -81,31 +118,22 @@ export function compareLocks(index: DesignIndex, entries: readonly LockEntry[]):
       });
       continue;
     }
-    const changes: string[] = [];
-    if (entry.level !== declaration.level) changes.push(`it is recorded as \`@${entry.level}\` and is now marked \`@${declaration.level}\``);
-    for (const [member, signature] of Object.entries(entry.members)) {
-      if (!Object.hasOwn(declaration.members, member)) changes.push(`${describe(member)} was removed; it was: ${signature}`);
-      else if (declaration.members[member] !== signature) changes.push(`${describe(member)} changed; it was: ${signature}`);
-    }
-    const added = Object.keys(declaration.members).filter((member) => !Object.hasOwn(entry.members, member));
-    // More named members is what "extendable" allows. Type parameters, a base type or a call signature change what is already there.
-    const allowed = entry.level === "extendable" && declaration.level === "extendable" ? added.filter((member) => !member.startsWith(":")) : [];
-    for (const member of added) if (!allowed.includes(member)) changes.push(`${describe(member)} was added`);
+    const { changes, additions } = differences(entry, declaration);
+    if (entry.level !== declaration.level) changes.unshift(`it is recorded as \`@${entry.level}\` and is now marked \`@${declaration.level}\``);
 
     if (changes.length > 0) {
-      const rule = entry.level === "final" ? "it must not change" : "what it has must not change; only members may be added";
       violations.push({
         code: "E_LOCK_VIOLATION",
         severity: "error",
-        message: `${subject} is \`@${entry.level}\`: ${rule}.\n${changes.join("\n")}`,
+        message: `${subject} is \`@${entry.level}\`: ${RULE[entry.level]}.\n${changes.join("\n")}`,
         ...declaration.location,
         ...(declaration.kind === "contract" ? { contract: declaration.name } : {}),
       });
-    } else if (allowed.length > 0) {
+    } else if (additions.length > 0) {
       unrecorded.push({
         code: "W_LOCK_UNRECORDED",
         severity: "warning",
-        message: `${subject} has additions that are not locked yet: ${allowed.map(describe).join(", ")}. Run \`design lock\` to record them.`,
+        message: `${subject} has additions that are not locked yet: ${additions.join(", ")}. Run \`design lock\` to record them.`,
         ...declaration.location,
       });
     }
@@ -115,18 +143,19 @@ export function compareLocks(index: DesignIndex, entries: readonly LockEntry[]):
     if (current.has(keyOf(entry))) continue;
     const declared = entry.kind === "contract" ? index.contracts : index.data;
     const declaration = declared.find((candidate) => candidate.module === entry.module && candidate.name === entry.name);
-    const subject = `${entry.kind === "contract" ? "Contract" : "Data type"} "${entry.name}"`;
     violations.push({
       code: "E_LOCK_VIOLATION",
       severity: "error",
       message: declaration
-        ? `${subject} is recorded as \`@${entry.level}\` in ${LOCK_FILE}, but the tag was taken off. A lock is lifted by removing its entry from the lock file.`
-        : `${subject} of ${entry.module} is recorded as \`@${entry.level}\` in ${LOCK_FILE}, but it no longer exists.`,
+        ? `${subjectOf(entry)} is recorded as \`@${entry.level}\` in ${LOCK_FILE}, but the tag was taken off. A lock is lifted by removing its entry from the lock file.`
+        : `${subjectOf(entry)} of ${entry.module} is recorded as \`@${entry.level}\` in ${LOCK_FILE}, but it no longer exists.`,
       ...(declaration ? declaration.location : { file: LOCK_FILE }),
     });
   }
   return { violations, unrecorded };
 }
+
+const subjectOf = ({ kind, name }: Pick<LockEntry, "kind" | "name">) => `${kind === "contract" ? "Contract" : "Data type"} "${name}"`;
 
 const UNNAMED: Readonly<Record<string, string>> = {
   ":type": "its type",
@@ -136,7 +165,7 @@ const UNNAMED: Readonly<Record<string, string>> = {
   ":type-parameters": "its type parameters",
   ":extends": "what it extends",
 };
-const describe = (member: string) => (Object.hasOwn(UNNAMED, member) ? UNNAMED[member] : `\`${member}\``);
+const describeMember = (member: string) => (Object.hasOwn(UNNAMED, member) ? UNNAMED[member] : `\`${member}\``);
 
 /**
  * The lock file after recording what is not recorded yet: declarations newly
@@ -146,15 +175,22 @@ const describe = (member: string) => (Object.hasOwn(UNNAMED, member) ? UNNAMED[m
 export function recordLocks(index: DesignIndex, entries: readonly LockEntry[]): { entries: LockEntry[]; recorded: { declaration: LockedDeclaration; status: "recorded" | "extended" | "unchanged" }[] } {
   const next = new Map(entries.map((entry) => [keyOf(entry), entry]));
   const recorded = index.locked.map((declaration) => {
-    const { module, name, kind, level, members } = declaration;
+    const { module, name, kind, level, members, invariants } = declaration;
     const entry = next.get(keyOf(declaration));
     if (!entry) {
-      next.set(keyOf(declaration), { module, name, kind, level, members });
+      next.set(keyOf(declaration), { module, name, kind, level, members, ...(kind === "contract" ? { invariants } : {}) });
       return { declaration, status: "recorded" as const };
     }
-    const added = Object.keys(members).filter((member) => !Object.hasOwn(entry.members, member));
-    if (entry.level !== "extendable" || added.length === 0) return { declaration, status: "unchanged" as const };
-    next.set(keyOf(declaration), { ...entry, members: { ...entry.members, ...Object.fromEntries(added.map((member) => [member, members[member]])) } });
+    // Only what is new is written: the record of what was already locked stays as it is.
+    const added = (was: Record<string, string>, now: Record<string, string>) => Object.fromEntries(Object.entries(now).filter(([key]) => !Object.hasOwn(was, key)));
+    const newMembers = added(entry.members, members);
+    const newInvariants = added(entry.invariants ?? {}, invariants);
+    if (entry.level !== "extendable" || Object.keys({ ...newMembers, ...newInvariants }).length === 0) return { declaration, status: "unchanged" as const };
+    next.set(keyOf(declaration), {
+      ...entry,
+      members: { ...entry.members, ...newMembers },
+      ...(kind === "contract" ? { invariants: { ...entry.invariants, ...newInvariants } } : {}),
+    });
     return { declaration, status: "extended" as const };
   });
   return { entries: [...next.values()].sort((a, b) => compareText(keyOf(a), keyOf(b))), recorded };

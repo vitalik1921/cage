@@ -8,7 +8,7 @@ export interface SourceLocation {
 /** "final": the declaration never changes. "extendable": what it has never changes, more may be added. */
 export type LockLevel = "final" | "extendable";
 
-/** A declaration marked `@final` or `@extendable`, with its signatures in a form that ignores formatting and comments. */
+/** A declaration marked `@final` or `@extendable`, with what the lock covers in a form that ignores formatting and comments. */
 export interface LockedDeclaration {
   name: string;
   module: string;
@@ -16,6 +16,8 @@ export interface LockedDeclaration {
   level: LockLevel;
   /** Member name to its signature; keys that start with ":" are for what has no name, such as ":call" and ":type". */
   members: Record<string, string>;
+  /** Invariant id to its text, for a contract: what it promises is locked with its signatures. Empty for a data type. */
+  invariants: Record<string, string>;
   location: SourceLocation;
 }
 
