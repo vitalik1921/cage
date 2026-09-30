@@ -20,6 +20,7 @@ const USAGE = `Usage: design <command> [options]
 Commands:
   check                 Check the designs, the generated files, the implementations and the test links
   check --phase design  Check only the designs: documents, contracts, tags, references and types
+  check --base <rev>    Also require every lock recorded at that Git revision (for CI: --base origin/main)
   extract               Check the designs and write each .design/design.generated.ts
   extract --check       Check the designs and that the generated files are current; write nothing
   lock                  Record the declarations marked @final or @extendable in .design/design.lock.json
@@ -64,6 +65,7 @@ function run(argv: readonly string[], io: CliIo): number {
         config: { type: "string" },
         format: { type: "string" },
         phase: { type: "string" },
+        base: { type: "string" },
         check: { type: "boolean" },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean" },
@@ -88,6 +90,8 @@ function run(argv: readonly string[], io: CliIo): number {
   if (command !== "extract" && command !== "check" && command !== "lock") throw new UsageError(`Unknown command "${command}".`);
   if (extra.length > 0) throw new UsageError(`Unexpected argument "${extra[0]}".`);
   if (command !== "check" && values.phase !== undefined) throw new UsageError("--phase is an option of the check command.");
+  if (command !== "check" && values.base !== undefined) throw new UsageError("--base is an option of the check command.");
+  if (values.base !== undefined && values.base.trim() === "") throw new UsageError("--base needs a Git revision, such as origin/main.");
   if (command !== "extract" && values.check) throw new UsageError("--check is an option of the extract command.");
   if (command === "check") {
     if (values.phase !== undefined && values.phase !== "design" && values.phase !== "implementation") {
@@ -118,7 +122,7 @@ function run(argv: readonly string[], io: CliIo): number {
     const phase = values.phase === "design" ? "design" : "implementation";
     // The design phase does not look at source files, so it does not search for them either.
     const sources = phase === "design" || diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
-    const report = runCheck({ ...scope, sources, testAdapter: config.testAdapter, generatedFiles: config.generatedFiles }, phase);
+    const report = runCheck({ ...scope, sources, testAdapter: config.testAdapter, generatedFiles: config.generatedFiles }, phase, values.base);
     return print(report, formatCheckReport(report));
   }
   if (command === "lock") {

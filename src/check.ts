@@ -3,7 +3,7 @@ import { checkDesignPhase } from "./design-phase.ts";
 import { compareDiagnostics, hasErrors, type Diagnostic } from "./diagnostic.ts";
 import { checkImplementationPhase, testsLinkedTo, type GeneratedArtifact, type ImplementationPhaseOptions, type ImplementationPhaseResult } from "./implementation-phase.ts";
 import { toProjectPath } from "./location.ts";
-import { compareLocks, readLockFile } from "./locks.ts";
+import { compareLocks, compareWithBase, readBaseLocks, readLockFile } from "./locks.ts";
 import { readStrictOptions, type StrictOptions, type TypeScriptInfo } from "./typescript.ts";
 
 export type Phase = "design" | "implementation";
@@ -24,7 +24,8 @@ export interface CheckReport {
   command: "check";
   phase: Phase;
   ok: boolean;
-  scope: { tsconfig: string; designFiles: string[]; typescript: TypeScriptInfo; compilerOptions: StrictOptions | null };
+  /** `lockBase`: the Git revision whose locks the lock file was compared with, or null when it was not. */
+  scope: { tsconfig: string; designFiles: string[]; typescript: TypeScriptInfo; compilerOptions: StrictOptions | null; lockBase: string | null };
   generatedArtifacts: { source: string; file: string; status: "not-checked" | GeneratedArtifact["status"] }[];
   counts: {
     contracts: number | null;
@@ -38,16 +39,29 @@ export interface CheckReport {
   diagnostics: Diagnostic[];
 }
 
-export function runCheck(options: ImplementationPhaseOptions, phase: Phase): CheckReport {
+/**
+ * `lockBase` is a Git revision: the lock file is then also compared with
+ * the one recorded there, so that a lock cannot be lifted by editing the
+ * file.
+ */
+export function runCheck(options: ImplementationPhaseOptions, phase: Phase, lockBase?: string): CheckReport {
   const root = path.resolve(options.root);
   const result: ImplementationPhaseResult = phase === "design" ? { ...checkDesignPhase(options), artifacts: null, linking: null } : checkImplementationPhase(options);
   const { modules, index, artifacts, linking, typescript, compiler, diagnostics } = result;
   // Locks are compared with designs that are sound: a rejected declaration would look like a lock that was lifted.
-  const designsAreSound = phase === "design" ? !hasErrors(diagnostics) : artifacts !== null;
-  if (index && designsAreSound) {
+  const designsAreSound = index !== null && (phase === "design" ? !hasErrors(diagnostics) : artifacts !== null);
+  const configured = (options.problems?.length ?? 0) === 0;
+  if (configured && (designsAreSound || lockBase !== undefined)) {
     const lockFile = readLockFile(root);
-    const { violations, unrecorded } = lockFile.diagnostics.length > 0 ? { violations: lockFile.diagnostics, unrecorded: [] } : compareLocks(index, lockFile.entries);
-    diagnostics.push(...violations, ...unrecorded);
+    diagnostics.push(...lockFile.diagnostics);
+    if (lockFile.diagnostics.length === 0 && designsAreSound) {
+      const { violations, unrecorded } = compareLocks(index, lockFile.entries);
+      diagnostics.push(...violations, ...unrecorded);
+    }
+    if (lockFile.diagnostics.length === 0 && lockBase !== undefined) {
+      const base = readBaseLocks(root, lockBase);
+      diagnostics.push(...base.diagnostics, ...compareWithBase(base.entries, lockFile.entries, lockBase));
+    }
     diagnostics.sort(compareDiagnostics);
   }
   const linkedTestCount = (contract: string, id: string) => (linking ? testsLinkedTo(linking.tests, contract, id).length : null);
@@ -62,6 +76,7 @@ export function runCheck(options: ImplementationPhaseOptions, phase: Phase): Che
       designFiles: options.designs.map((design) => toProjectPath(root, design.sourceFile)),
       typescript,
       compilerOptions: compiler ? readStrictOptions(compiler.ts, compiler.options) : null,
+      lockBase: configured && lockBase !== undefined ? lockBase : null,
     },
     generatedArtifacts: artifacts ?? modules.map((module) => ({ source: module.file, file: module.generatedPath, status: "not-checked" })),
     counts: {

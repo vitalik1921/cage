@@ -69,7 +69,8 @@ export function formatCheckReport(report: CheckReport): string {
     }
   }
   const command = report.phase === "design" ? "check --phase design" : "check";
-  lines.push(`${command}: ${facts.join(", ")}; ${plural(errors, "error")}, ${plural(warnings, "warning")}. ${compiler}.`);
+  const locks = scope.lockBase === null ? "" : ` Locks compared with ${scope.lockBase}.`;
+  lines.push(`${command}: ${facts.join(", ")}; ${plural(errors, "error")}, ${plural(warnings, "warning")}. ${compiler}.${locks}`);
   return `${lines.join("\n")}\n`;
 }
 

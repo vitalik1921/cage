@@ -38,6 +38,7 @@ test("check --phase design reports the plan fixture: 3 contracts, 1 data type, 8
       designFiles: [CAMPAIGNS, MAIL, QUOTA],
       typescript: { version: "6.0.3", source: "project" },
       compilerOptions: { strictNullChecks: true, strictFunctionTypes: true, noImplicitAny: true },
+      lockBase: null,
     },
     // This phase does not look at generated files, implementations or tests: "not checked" is not "none".
     generatedArtifacts: [CAMPAIGNS, MAIL, QUOTA].map((source) => ({ source, file: generated(source), status: "not-checked" })),

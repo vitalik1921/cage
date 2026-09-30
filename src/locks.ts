@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import type { DesignIndex, LockedDeclaration, LockLevel } from "./design-model.ts";
@@ -28,15 +29,21 @@ export function readLockFile(root: string): { entries: LockEntry[]; diagnostics:
   });
   let text: string;
   try {
-    text = stripBom(fs.readFileSync(path.join(root, LOCK_FILE), "utf8"));
+    text = fs.readFileSync(path.join(root, LOCK_FILE), "utf8");
   } catch (cause) {
     return (cause as NodeJS.ErrnoException).code === "ENOENT" ? { entries: [], diagnostics: [] } : invalid((cause as Error).message);
   }
+  const parsed = parseLockFile(text);
+  return typeof parsed === "string" ? invalid(parsed) : { entries: parsed, diagnostics: [] };
+}
+
+/** The entries of a lock file's text, or what is wrong with it. */
+function parseLockFile(text: string): LockEntry[] | string {
   let value: unknown;
   try {
-    value = JSON.parse(text);
+    value = JSON.parse(stripBom(text));
   } catch (cause) {
-    return invalid((cause as Error).message);
+    return (cause as Error).message;
   }
   const isText = (item: unknown): item is string => typeof item === "string";
   const isEntry = (item: unknown): item is LockEntry => {
@@ -47,14 +54,69 @@ export function readLockFile(root: string): { entries: LockEntry[]; diagnostics:
     return isText(module) && isText(name) && isKind && (level === "final" || level === "extendable") && isTexts(members);
   };
   const { version, locks } = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
-  if (version !== 1 || !Array.isArray(locks)) return invalid('expected { "version": 1, "locks": [...] } as written by `design lock`.');
+  if (version !== 1 || !Array.isArray(locks)) return 'expected { "version": 1, "locks": [...] } as written by `design lock`.';
   const broken = locks.findIndex((entry) => !isEntry(entry));
   if (broken !== -1) {
     const name = (locks[broken] as { name?: unknown } | null)?.name;
     // A contract entry without "invariants" is what earlier versions wrote.
-    return invalid(`entry ${broken + 1}${isText(name) ? ` ("${name}")` : ""} is not as \`design lock\` writes it: a contract has "members" and "invariants", a data type only "members".`);
+    return `entry ${broken + 1}${isText(name) ? ` ("${name}")` : ""} is not as \`design lock\` writes it: a contract has "members" and "invariants", a data type only "members".`;
   }
-  return { entries: locks, diagnostics: [] };
+  return locks;
+}
+
+/**
+ * The lock file as it is at a Git revision, read through `git` from the
+ * repository that holds `root`; none when that revision has no lock file.
+ * The revision must exist locally: in CI the branch may need a fetch.
+ */
+export function readBaseLocks(root: string, ref: string): { entries: LockEntry[]; diagnostics: Diagnostic[] } {
+  const failure = (code: "E_ENVIRONMENT" | "E_CONFIG", message: string) => ({
+    entries: [],
+    diagnostics: [{ code, severity: "error" as const, message, file: LOCK_FILE }],
+  });
+  const git = (...args: string[]) => spawnSync("git", args, { cwd: root, encoding: "utf8", windowsHide: true });
+  const cannot = `Cannot compare the locks with "${ref}"`;
+
+  const commit = git("rev-parse", "--verify", "--quiet", "--end-of-options", `${ref}^{commit}`);
+  if (commit.error) return failure("E_ENVIRONMENT", `${cannot}: git could not be run (${commit.error.message}).`);
+  if (commit.status !== 0) {
+    const reason = commit.stderr.trim().split("\n")[0] || "it is not a commit of this repository; in CI the branch may need to be fetched first";
+    return failure("E_ENVIRONMENT", `${cannot}: ${reason}.`);
+  }
+  const sha = commit.stdout.trim();
+  // Paths are relative to the working directory, so a project inside a larger repository works too.
+  const listed = git("ls-tree", "--name-only", sha, "--", `./${LOCK_FILE}`);
+  if (listed.status !== 0) return failure("E_ENVIRONMENT", `${cannot}: ${listed.stderr.trim() || "git ls-tree failed"}.`);
+  if (listed.stdout.trim() === "") return { entries: [], diagnostics: [] };
+  const shown = git("show", `${sha}:./${LOCK_FILE}`);
+  if (shown.status !== 0) return failure("E_ENVIRONMENT", `${cannot}: ${shown.stderr.trim() || "git show failed"}.`);
+  const parsed = parseLockFile(shown.stdout);
+  return typeof parsed === "string" ? failure("E_CONFIG", `The lock file of "${ref}" is not usable: ${parsed}`) : { entries: parsed, diagnostics: [] };
+}
+
+/**
+ * What the locks of another revision require of the lock file as it is
+ * now: every lock recorded there is still recorded, unchanged, at a level
+ * no looser. This is what makes a lock more than a file anyone can edit:
+ * lifting one is a change to that revision, which this check never passes.
+ */
+export function compareWithBase(base: readonly LockEntry[], current: readonly LockEntry[], ref: string): Diagnostic[] {
+  const now = new Map(current.map((entry) => [keyOf(entry), entry]));
+  const diagnostics: Diagnostic[] = [];
+  for (const entry of base) {
+    const subject = subjectOf(entry);
+    const problem = (text: string) => diagnostics.push({ code: "E_LOCK_BASE", severity: "error", message: text, file: LOCK_FILE, ...(entry.kind === "contract" ? { contract: entry.name } : {}) });
+    const here = now.get(keyOf(entry));
+    if (!here) {
+      problem(`${subject} of ${entry.module} is locked as \`@${entry.level}\` on ${ref}, but its entry is gone from ${LOCK_FILE}. A lock that ${ref} has is not lifted here.`);
+      continue;
+    }
+    const { changes } = differences(entry, here);
+    // From extendable to final is stricter; the other way round lifts part of the lock.
+    if (entry.level === "final" && here.level !== "final") changes.unshift(`it is \`@final\` there and \`@${here.level}\` here`);
+    if (changes.length > 0) problem(`${subject} of ${entry.module} is locked as \`@${entry.level}\` on ${ref}: ${RULE[entry.level]}.\n${changes.join("\n")}`);
+  }
+  return diagnostics;
 }
 
 export interface LockComparison {

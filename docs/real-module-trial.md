@@ -125,11 +125,11 @@ src/modules/accounts/.design/design.mdx:92:18: error E_LOCK_VIOLATION: Contract 
 
 Правки повернуто; теги й файл-замок лишилися в проєкті. Prettier проєкту файл-замок приймає.
 
-Згодом замок розширено: він охоплює інваріанти контракту, а про відкриті типи всередині замкненої декларації харнес попереджає. На цьому модулі з’явилося п’ять попереджень `W_LOCK_OPEN_TYPE`: `Accounts` (`@final`) використовував `DatabaseHandle` і `AccountUpsert` без замка, `AccountMemberships` — `MembershipUpsert`, `DatabaseHandle` і `Membership`. Після позначення цих чотирьох типів файл-замок містить сім декларацій, із них два контракти з 7 і 9 інваріантами, і попереджень про замки немає.
+Згодом замок розширено: він охоплює інваріанти контракту, а про відкриті типи всередині замкненої декларації харнес попереджає. На цьому модулі з’явилося п’ять попереджень `W_LOCK_OPEN_TYPE`: `Accounts` (`@final`) використовував `DatabaseHandle` і `AccountUpsert` без замка, `AccountMemberships` — `MembershipUpsert`, `DatabaseHandle` і `Membership`. Після позначення цих чотирьох типів файл-замок містить сім декларацій, із них два контракти з 7 і 9 інваріантами, і попереджень про замки немає. `design check --phase design --base origin/main` проходить: на `origin/main` файла-замка ще немає, тож він нічого не вимагає.
 
 ## Четверта частина: що дизайн не покриває
 
-Після додавання `W_NOT_DESIGNED` `design check` показав у трьох модулях із дизайном 71 exported декларацію без контракту: 47 у `core/versioning`, 12 в `accounts` і навколо, 12 у `topics`. У модулі `accounts` і `topics` додано `.design/ignore` з трьома рядками (`entities/`, `dto/`, `*.module.ts`): таблиці Drizzle, схеми zod і NestJS-модулі власної поведінки не мають. Після цього в цих двох модулях лишилося чотири попередження, і всі по суті:
+Після додавання `W_NOT_DESIGNED` `design check` показав у трьох модулях із дизайном 71 exported декларацію без контракту: 47 у `core/versioning`, 6 в `accounts`, 18 у `topics`. У модулі `accounts` і `topics` додано `.design/ignore` з трьома рядками (`entities/`, `dto/`, `*.module.ts`): таблиці Drizzle, схеми zod і NestJS-модулі власної поведінки не мають. Після цього в цих двох модулях лишилося чотири попередження, і всі по суті:
 
 ```
 src/modules/accounts/webhooks-accounts.controller.ts:17:14: warning W_NOT_DESIGNED: Exported class "WebhooksAccountsController" …
