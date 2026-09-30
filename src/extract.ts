@@ -1,7 +1,6 @@
 import { checkDesignPhase, type DesignPhaseOptions } from "./design-phase.ts";
-import { compareDiagnostics, type Diagnostic } from "./diagnostic.ts";
+import { compareDiagnostics, hasErrors, type Diagnostic } from "./diagnostic.ts";
 import { inspectOutput, writeOutput, type OutputState } from "./generated-files.ts";
-import { toProjectPath } from "./location.ts";
 
 export type OutputStatus = "written" | "unchanged" | "missing" | "stale" | "conflict" | "failed";
 
@@ -40,10 +39,9 @@ const problems: Record<Exclude<OutputState, "current">, { code: string; message:
  */
 export function runExtract(options: DesignPhaseOptions, checkOnly: boolean): ExtractReport {
   const { modules, diagnostics } = checkDesignPhase(options);
-  const hasErrors = () => diagnostics.some((diagnostic) => diagnostic.severity === "error");
   const outputs: ExtractOutput[] = [];
 
-  if (!hasErrors()) {
+  if (!hasErrors(diagnostics)) {
     const fail = (output: ExtractOutput, action: string, cause: unknown) => {
       output.status = "failed";
       output.error = (cause as Error).message;
@@ -52,8 +50,8 @@ export function runExtract(options: DesignPhaseOptions, checkOnly: boolean): Ext
 
     const states = modules.map((module) => {
       const output: ExtractOutput = {
-        source: toProjectPath(options.root, module.sourceFile),
-        path: toProjectPath(options.root, module.generatedFile),
+        source: module.file,
+        path: module.generatedPath,
         status: "unchanged",
       };
       outputs.push(output);
@@ -90,5 +88,5 @@ export function runExtract(options: DesignPhaseOptions, checkOnly: boolean): Ext
     });
   }
 
-  return { schemaVersion: 1, command: "extract", checkOnly, ok: !hasErrors(), outputs, diagnostics: diagnostics.sort(compareDiagnostics) };
+  return { schemaVersion: 1, command: "extract", checkOnly, ok: !hasErrors(diagnostics), outputs, diagnostics: diagnostics.sort(compareDiagnostics) };
 }

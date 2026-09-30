@@ -1,11 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
+import { runDesignCheck } from "./check.ts";
 import { loadConfig } from "./config.ts";
-import type { Diagnostic } from "./diagnostic.ts";
+import { isError, type Diagnostic } from "./diagnostic.ts";
 import { discoverDesigns } from "./discovery.ts";
-import { runExtract, type ExtractReport } from "./extract.ts";
-import { formatExtractReport } from "./report.ts";
+import { runExtract } from "./extract.ts";
+import { formatCheckReport, formatExtractReport } from "./report.ts";
 
 export interface CliIo {
   cwd: string;
@@ -16,8 +17,9 @@ export interface CliIo {
 const USAGE = `Usage: design <command> [options]
 
 Commands:
-  extract           Check the designs and write each .design/design.generated.ts
-  extract --check   Check the designs and that the generated files are current; write nothing
+  check --phase design  Check the designs: documents, contracts, tags, references and types
+  extract               Check the designs and write each .design/design.generated.ts
+  extract --check       Check the designs and that the generated files are current; write nothing
 
 Options:
   --root <path>     Project root (default: the current directory)
@@ -58,6 +60,7 @@ function run(argv: readonly string[], io: CliIo): number {
         root: { type: "string" },
         config: { type: "string" },
         format: { type: "string" },
+        phase: { type: "string" },
         check: { type: "boolean" },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean" },
@@ -79,8 +82,16 @@ function run(argv: readonly string[], io: CliIo): number {
 
   const [command, ...extra] = positionals;
   if (command === undefined) throw new UsageError("Missing command.");
-  if (command !== "extract") throw new UsageError(`Unknown command "${command}".`);
+  if (command !== "extract" && command !== "check") throw new UsageError(`Unknown command "${command}".`);
   if (extra.length > 0) throw new UsageError(`Unexpected argument "${extra[0]}".`);
+  if (command === "extract" && values.phase !== undefined) throw new UsageError("--phase is an option of the check command.");
+  if (command === "check") {
+    if (values.check) throw new UsageError("--check is an option of the extract command.");
+    if (values.phase !== undefined && values.phase !== "design" && values.phase !== "implementation") {
+      throw new UsageError(`Unknown phase "${values.phase}"; expected design or implementation.`);
+    }
+    if (values.phase !== "design") throw new UsageError("The implementation phase is not available yet; run `design check --phase design`.");
+  }
 
   const format = values.format ?? "text";
   if (format !== "text" && format !== "json") throw new UsageError(`Unknown format "${format}"; expected text or json.`);
@@ -89,18 +100,29 @@ function run(argv: readonly string[], io: CliIo): number {
   if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) throw new UsageError(`The project root "${root}" is not a directory.`);
 
   const { config, diagnostics } = loadConfig(root, values.config);
-  const report: ExtractReport =
-    diagnostics.length > 0
-      ? { schemaVersion: 1, command: "extract", checkOnly: values.check ?? false, ok: false, outputs: [], diagnostics }
-      : runExtract({ root, tsconfig: config.tsconfig, designs: discoverDesigns(root, config) }, values.check ?? false);
+  const scope = {
+    root,
+    tsconfig: config.tsconfig,
+    // With an unusable configuration there is no scope: only its errors are reported.
+    designs: diagnostics.length > 0 ? [] : discoverDesigns(root, config),
+    problems: diagnostics,
+  };
+  const print = (report: { diagnostics: Diagnostic[] }, text: string) => {
+    io.stdout(format === "json" ? `${JSON.stringify(report, null, 2)}\n` : text);
+    return exitCode(report.diagnostics);
+  };
 
-  io.stdout(format === "json" ? `${JSON.stringify(report, null, 2)}\n` : formatExtractReport(report));
-  return exitCode(report.diagnostics);
+  if (command === "check") {
+    const report = runDesignCheck(scope);
+    return print(report, formatCheckReport(report));
+  }
+  const report = runExtract(scope, values.check ?? false);
+  return print(report, formatExtractReport(report));
 }
 
 /** 2 when the configuration or environment is unusable, 1 for any other error, 0 otherwise. */
 function exitCode(diagnostics: readonly Diagnostic[]): number {
-  const errors = diagnostics.filter((diagnostic) => diagnostic.severity === "error");
+  const errors = diagnostics.filter(isError);
   if (errors.some((diagnostic) => diagnostic.code === "E_CONFIG" || diagnostic.code === "E_ENVIRONMENT")) return 2;
   return errors.length > 0 ? 1 : 0;
 }

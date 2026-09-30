@@ -3,8 +3,9 @@ import fs from "node:fs";
 import path from "node:path";
 import type { TestContext } from "node:test";
 import { defaultConfig } from "../src/config.ts";
+import type { DesignIndex } from "../src/design-model.ts";
 import { checkDesignPhase, type DesignPhaseResult } from "../src/design-phase.ts";
-import type { Diagnostic } from "../src/diagnostic.ts";
+import { isError, type Diagnostic } from "../src/diagnostic.ts";
 import { discoverDesigns } from "../src/discovery.ts";
 import { runCli } from "../src/main.ts";
 
@@ -18,17 +19,32 @@ export const generated = (design: string) => design.replace("design.mdx", "desig
 
 export const doc = (...lines: string[]) => lines.join("\n");
 
+/** Position of `needle` in a file of the plan fixture as committed, for expectations about the unedited fixture. */
+export const inFixture = (file: string, needle: string) => ({ file, ...find(fs.readFileSync(path.join(fixturesDir, "vertical", file), "utf8"), needle) });
+
+/** Where the fixture's one warning points: the contract without invariants. */
+export const senderWarning = () => {
+  const { file, line, column } = inFixture(MAIL, "Sender {");
+  return `${file}:${line}:${column}: warning W_NO_INVARIANTS: Contract "Sender" has no \`@invariant\`: only its types can be checked.`;
+};
+
 /**
- * Copies a fixture project into a scratch directory removed after the test.
- * The copy stays inside the repository so that, like a real project, it
- * resolves `@types/node` from node_modules.
+ * A scratch directory removed after the test. It is inside the repository so
+ * that a project in it, like a real one, resolves `@types/node` and
+ * `typescript` from node_modules.
  */
-export function copyFixture(t: TestContext, name: string): string {
+function scratchDirectory(t: TestContext, name: string): string {
   const scratch = path.join(import.meta.dirname, ".tmp");
   fs.mkdirSync(scratch, { recursive: true });
   const dir = fs.mkdtempSync(path.join(scratch, `${name}-`));
-  fs.cpSync(path.join(fixturesDir, name), dir, { recursive: true });
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  return dir;
+}
+
+/** Copies a fixture project into a scratch directory. */
+export function copyFixture(t: TestContext, name: string): string {
+  const dir = scratchDirectory(t, name);
+  fs.cpSync(path.join(fixturesDir, name), dir, { recursive: true });
   return dir;
 }
 
@@ -69,12 +85,64 @@ export function find(text: string, needle: string): { line: number; column: numb
   return { line: index + 1, column: lines[index].indexOf(needle) + 1 };
 }
 
-/** The design phase over the default discovery scope of a project. */
-export function checkDesigns(root: string): DesignPhaseResult {
-  return checkDesignPhase({ root, tsconfig: defaultConfig.tsconfig, designs: discoverDesigns(root, defaultConfig) });
+/**
+ * The design phase over the default discovery scope of a project. Reading
+ * `index` asserts that the designs were indexed; `errors` are the diagnostics
+ * without warnings.
+ */
+export function checkDesigns(root: string): DesignPhaseResult & { index: DesignIndex; errors: Diagnostic[] } {
+  const result = checkDesignPhase({ root, tsconfig: defaultConfig.tsconfig, designs: discoverDesigns(root, defaultConfig) });
+  return {
+    ...result,
+    errors: result.diagnostics.filter(isError),
+    get index() {
+      assert.ok(result.index, "the designs were not indexed");
+      return result.index;
+    },
+  };
 }
 
 export const summary = ({ code, tsCode, file, line, column }: Diagnostic) => ({ code, tsCode, file, line, column });
+export const located = ({ code, file, line, column }: Diagnostic) => ({ code, file, line, column });
+
+export { isError };
+
+/** The errors of the design phase, without warnings. */
+export const designErrors = (root: string) => checkDesigns(root).errors;
+
+/** A design document: a title, a line of prose, and the given `ts design` blocks. */
+export const mdx = (...blocks: string[]) => ["# Module", "", "What the module is for.", "", ...blocks.flatMap((block) => ["```ts design", block, "```", ""])].join("\n");
+
+/** A valid contract declaration; `tags` are extra doc lines, `body` the members. */
+export const contract = (name: string, body = "run(): void;", ...tags: string[]) =>
+  ["/**", " * @contract", ` * @description ${name}.`, ...tags.map((tag) => ` * ${tag}`), " */", `export interface ${name} {`, `  ${body}`, "}"].join("\n");
+
+/** A valid data type declaration. */
+export const data = (name: string, type = "string") => ["/**", " * @data", ` * @description ${name}.`, " */", `export type ${name} = ${type};`].join("\n");
+
+export const designFile = (module: string) => `src/${module}/.design/design.mdx`;
+
+/**
+ * A small project removed after the test: `designs` maps a module name to the
+ * text of its design document, stored at `src/<module>/.design/design.mdx`.
+ */
+export function designProject(t: TestContext, designs: Record<string, string>): string {
+  const root = scratchDirectory(t, "designs");
+  writeFile(root, "package.json", JSON.stringify({ private: true, type: "module" }));
+  writeFile(
+    root,
+    "tsconfig.json",
+    JSON.stringify({ compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, allowImportingTsExtensions: true } }),
+  );
+  for (const [module, text] of Object.entries(designs)) writeFile(root, designFile(module), text);
+  return root;
+}
+
+/** Error diagnostics of a design project as `code line:column`, where the position is that of `needle` in the module's document. */
+export const at = (root: string, module: string, needle: string, offset = 0) => {
+  const position = find(readFile(root, designFile(module)), needle);
+  return { file: designFile(module), line: position.line, column: position.column + offset };
+};
 
 /** Runs the CLI in-process with `root` as the working directory. */
 export function cli(root: string, ...args: string[]): { code: number; stdout: string; stderr: string } {

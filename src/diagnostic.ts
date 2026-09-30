@@ -25,8 +25,15 @@ export interface Diagnostic {
   endColumn?: number;
   /** Original TypeScript code for E_TYPESCRIPT / E_ENVIRONMENT diagnostics. */
   tsCode?: number;
+  /** The contract, and its invariant, that the diagnostic is about. */
+  contract?: string;
+  invariant?: string;
   related?: RelatedLocation[];
 }
+
+export const isError = (diagnostic: Diagnostic) => diagnostic.severity === "error";
+
+export const hasErrors = (diagnostics: readonly Diagnostic[]) => diagnostics.some(isError);
 
 const compareText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 

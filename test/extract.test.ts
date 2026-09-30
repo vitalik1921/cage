@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test, type TestContext } from "node:test";
 import type { ExtractReport } from "../src/extract.ts";
-import { CAMPAIGNS, cli, copyFixture, editFile, generated, MAIL, QUOTA, readFile, snapshot, writeFile } from "./helpers.ts";
+import { CAMPAIGNS, cli, copyFixture, editFile, find, generated, isError, MAIL, QUOTA, readFile, senderWarning, snapshot, writeFile } from "./helpers.ts";
 
 const OUTPUTS = [CAMPAIGNS, MAIL, QUOTA].map(generated);
 
@@ -14,7 +14,9 @@ function extract(root: string, ...args: string[]): { code: number; report: Extra
 }
 
 const statuses = (report: ExtractReport) => Object.fromEntries(report.outputs.map((output) => [output.path, output.status]));
-const codes = (report: ExtractReport) => report.diagnostics.map(({ code, file }) => ({ code, file }));
+/** Errors only: the plan fixture always carries one warning, for the contract without invariants. */
+const codes = (report: ExtractReport) => report.diagnostics.filter(isError).map(({ code, file }) => ({ code, file }));
+const SENDER_WARNING = senderWarning();
 
 /** A fixture copy whose generated files are already written. */
 function extracted(t: TestContext): string {
@@ -29,18 +31,21 @@ test("extract writes one generated file per design and nothing else", (t) => {
 
   const { code, report } = extract(root);
   assert.equal(code, 0);
-  assert.deepEqual(report, {
-    schemaVersion: 1,
-    command: "extract",
-    checkOnly: false,
-    ok: true,
-    outputs: [
-      { source: CAMPAIGNS, path: generated(CAMPAIGNS), status: "written" },
-      { source: MAIL, path: generated(MAIL), status: "written" },
-      { source: QUOTA, path: generated(QUOTA), status: "written" },
-    ],
-    diagnostics: [],
-  });
+  assert.deepEqual(
+    { ...report, diagnostics: report.diagnostics.map((diagnostic) => diagnostic.code) },
+    {
+      schemaVersion: 1,
+      command: "extract",
+      checkOnly: false,
+      ok: true,
+      outputs: [
+        { source: CAMPAIGNS, path: generated(CAMPAIGNS), status: "written" },
+        { source: MAIL, path: generated(MAIL), status: "written" },
+        { source: QUOTA, path: generated(QUOTA), status: "written" },
+      ],
+      diagnostics: ["W_NO_INVARIANTS"],
+    },
+  );
 
   const after = snapshot(root);
   assert.deepEqual(Object.keys(after).filter((file) => !(file in before)), OUTPUTS);
@@ -102,7 +107,7 @@ test("--check reports missing outputs and writes nothing", (t) => {
   assert.equal(report.ok, false);
   assert.deepEqual(Object.values(statuses(report)), ["missing", "missing", "missing"]);
   assert.deepEqual(codes(report), OUTPUTS.map((file) => ({ code: "E_GENERATED_MISSING", file })));
-  assert.deepEqual(report.diagnostics[0].related, [{ message: "The design document it is generated from.", file: CAMPAIGNS }]);
+  assert.deepEqual(report.diagnostics.find(isError)!.related, [{ message: "The design document it is generated from.", file: CAMPAIGNS }]);
   assert.deepEqual(snapshot(root), before);
 });
 
@@ -214,13 +219,13 @@ test("a write failure is exit 2, with every output marked written or failed", { 
 
 test("after a design document is deleted its generated file is neither a source nor removed", (t) => {
   const root = extracted(t);
-  fs.rmSync(path.join(root, MAIL));
-  const orphan = readFile(root, generated(MAIL));
+  fs.rmSync(path.join(root, CAMPAIGNS));
+  const orphan = readFile(root, generated(CAMPAIGNS));
 
   const { code, report } = extract(root);
   assert.equal(code, 0);
-  assert.deepEqual(Object.keys(statuses(report)), [generated(CAMPAIGNS), generated(QUOTA)]);
-  assert.equal(readFile(root, generated(MAIL)), orphan);
+  assert.deepEqual(Object.keys(statuses(report)), [generated(MAIL), generated(QUOTA)]);
+  assert.equal(readFile(root, generated(CAMPAIGNS)), orphan);
 });
 
 test("an empty scope is an error, not an empty success", (t) => {
@@ -270,20 +275,22 @@ test("the text report lists outputs, diagnostics and a summary", (t) => {
       `written   ${generated(CAMPAIGNS)}`,
       `written   ${generated(MAIL)}`,
       `written   ${generated(QUOTA)}`,
-      "extract: 3 written, 0 unchanged.",
+      SENDER_WARNING,
+      "extract: 3 written, 0 unchanged; 1 warning.",
       "",
     ].join("\n"),
   );
-  assert.equal(cli(root, "extract", "--check").stdout.split("\n").at(-2), "extract --check: 3 generated files are current.");
+  assert.equal(cli(root, "extract", "--check").stdout.split("\n").at(-2), "extract --check: 3 generated files are current; 1 warning.");
 
-  editFile(root, QUOTA, (s) => s.replace("take(accountId: AccountId)", "take(accountId: AccountIdd)"));
+  const broken = find(editFile(root, QUOTA, (s) => s.replace("take(accountId: AccountId)", "take(accountId: AccountIdd)")), "AccountIdd");
   const failed = cli(root, "extract");
   assert.equal(failed.code, 1);
   assert.equal(
     failed.stdout,
     [
-      `${QUOTA}:42:19: error E_TYPESCRIPT TS2552: Cannot find name 'AccountIdd'. Did you mean 'AccountId'?`,
-      "extract: 1 error, nothing written.",
+      SENDER_WARNING,
+      `${QUOTA}:${broken.line}:${broken.column}: error E_TYPESCRIPT TS2552: Cannot find name 'AccountIdd'. Did you mean 'AccountId'?`,
+      "extract: 1 error, nothing written; 1 warning.",
       "",
     ].join("\n"),
   );
@@ -297,9 +304,10 @@ test("the text report lists outputs, diagnostics and a summary", (t) => {
       `unchanged ${generated(CAMPAIGNS)}`,
       `unchanged ${generated(MAIL)}`,
       `stale     ${generated(QUOTA)}`,
+      SENDER_WARNING,
       `${generated(QUOTA)}: error E_GENERATED_STALE: The generated file differs from its design document. Run \`design extract\`.`,
       `  ${QUOTA}: The design document it is generated from.`,
-      "extract --check: 1 error.",
+      "extract --check: 1 error; 1 warning.",
       "",
     ].join("\n"),
   );

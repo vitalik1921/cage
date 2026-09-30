@@ -23,6 +23,8 @@ export interface DesignBlock {
 
 export interface ParsedDesign {
   blocks: DesignBlock[];
+  /** Whether the document has a paragraph, list or table with text outside code blocks; headings do not count. */
+  hasBusinessContext: boolean;
   diagnostics: Diagnostic[];
 }
 
@@ -45,7 +47,7 @@ export function parseDesignMdx(source: string, file: string): ParsedDesign {
     tree = processor.parse(source);
   } catch (cause) {
     if (!isParseError(cause)) throw cause;
-    return { blocks: [], diagnostics: [error("E_MDX_SYNTAX", cause.reason, parseErrorPosition(cause))] };
+    return { blocks: [], hasBusinessContext: false, diagnostics: [error("E_MDX_SYNTAX", cause.reason, parseErrorPosition(cause))] };
   }
 
   const blocks: DesignBlock[] = [];
@@ -88,8 +90,14 @@ export function parseDesignMdx(source: string, file: string): ParsedDesign {
   if (blocks.length === 0 && diagnostics.length === 0) {
     diagnostics.push(error("E_DESIGN_BLOCK_MISSING", "The design document has no ts design block."));
   }
-  return { blocks, diagnostics };
+  return { blocks, hasBusinessContext: tree.children.some(hasProse), diagnostics };
 }
+
+const hasText = (node: Nodes): boolean =>
+  node.type === "text" || node.type === "inlineCode" ? node.value.trim() !== "" : "children" in node && node.children.some(hasText);
+
+// List items and table rows hold their text in paragraphs; a heading does not.
+const hasProse = (node: Nodes): boolean => (node.type === "paragraph" ? hasText(node) : "children" in node && node.children.some(hasProse));
 
 /**
  * Pairs the lines of a non-empty, unindented fenced block with their source

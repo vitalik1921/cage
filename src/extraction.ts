@@ -1,4 +1,3 @@
-import path from "node:path";
 import { lastStartingAtOrBefore } from "./location.ts";
 import type { BlockLine, DesignBlock } from "./mdx.ts";
 
@@ -19,19 +18,26 @@ export interface ExtractedText {
   segments: Segment[];
 }
 
-export function generatedPathFor(mdxFile: string): string {
-  return path.join(path.dirname(mdxFile), GENERATED_FILE_NAME);
+export interface GeneratedModule extends ExtractedText {
+  /** Offset in `text` where each design block starts, in document order. */
+  blockStarts: number[];
 }
 
 /** The generated module: ownership header, an empty line, then the blocks separated by an empty line. */
-export function buildGeneratedModule(blocks: readonly DesignBlock[]): ExtractedText {
-  const module: ExtractedText = { text: `${GENERATED_HEADER}\n`, segments: [] };
+export function buildGeneratedModule(blocks: readonly DesignBlock[]): GeneratedModule {
+  const module: GeneratedModule = { text: `${GENERATED_HEADER}\n`, segments: [], blockStarts: [] };
   blocks.forEach((block, index) => {
     if (index > 0) module.text += "\n\n";
+    module.blockStarts.push(module.text.length);
     appendLines(module, block.lines);
   });
   module.text += "\n";
   return module;
+}
+
+/** Index of the block that holds an offset of the generated text; the header counts as the first block. */
+export function blockAt(module: GeneratedModule, offset: number): number {
+  return lastStartingAtOrBefore(module.blockStarts, (start) => start, offset);
 }
 
 /** One block on its own, used to check that it is syntactically complete. */
