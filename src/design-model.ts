@@ -74,7 +74,7 @@ export interface TestDeclaration {
   /** Titles of the enclosing suites, outermost first. */
   suitePath: string[];
   adapter: "node:test" | "vitest";
-  /** The contract of the nearest `@tests` suite. */
+  /** The contract named by `@tests` on the test itself or on the nearest suite that has one. */
   contract: string;
   /** Invariant ids of that contract named by `@covers`. */
   covers: string[];

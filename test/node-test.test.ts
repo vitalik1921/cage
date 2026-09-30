@@ -303,6 +303,97 @@ const position = (root: string, needle: string) => {
   return { line, column };
 };
 
+test("a test may name its own contract with @tests: outside any suite, or in a suite of tests of several contracts", (t) => {
+  const root = project(
+    t,
+    lines(
+      'import { describe, it } from "node:test";',
+      "",
+"/**",
+      " * @tests Sender",
+      " * @covers once",
+      " */",
+      'it("a lone test", () => {});',
+      "",
+      'describe("one file, two contracts", () => {',
+"  /**",
+      "   * @tests Quota",
+      "   * @covers empty consume",
+      "   */",
+      '  it("quota", () => {});',
+      "",
+      "  /**",
+      "   * @tests Sender",
+      "   * @covers once",
+      "   */",
+      '  it("sender", () => {});',
+      "",
+      "  /** @covers race */",
+      '  it("still no contract here", () => {});',
+      "});",
+      "",
+      "/** @tests Sender */",
+      'describe("a suite of Sender", () => {',
+"  /**",
+      "   * @tests Quota",
+      "   * @covers race",
+      "   */",
+      '  it("but this test is about Quota", () => {});',
+      "",
+      "  /** @tests Sender */",
+      '  it("about the contract of the suite, covering nothing", () => {});',
+      "",
+      "  /** @covers once */",
+      '  it("the suite still says Sender", () => {});',
+      "});",
+    ),
+  );
+  assert.deepEqual(checkLinking(root).errors.map(located), [{ code: "E_TEST_CONTEXT", file: TEST_FILE, ...position(root, "@covers race */") }]);
+  assert.deepEqual(links(root), [
+    "a lone test [Sender: once]",
+    "one file, two contracts > quota [Quota: empty consume]",
+    "one file, two contracts > sender [Sender: once]",
+    "a suite of Sender > but this test is about Quota [Quota: race]",
+    "a suite of Sender > about the contract of the suite, covering nothing [Sender: ]",
+    "a suite of Sender > the suite still says Sender [Sender: once]",
+  ]);
+});
+
+test("a rejected @tests on a test is one error, whatever its @covers names", (t) => {
+  const root = project(
+    t,
+    lines(
+      'import { it } from "node:test";',
+      "/**",
+      " * @tests Quota Sender",
+      " * @covers empty",
+      " */",
+      'it("two contracts", () => {});',
+      "/**",
+      " * @tests Quota",
+      " * @tests Sender, the second one",
+      " * @covers consume",
+      " */",
+      'it("twice", () => {});',
+      "/**",
+      " * @tests Nobody",
+      " * @covers race",
+      " */",
+      'it("unknown", () => {});',
+      "/**",
+      " * @tests Sender",
+      " * @covers once",
+      " */",
+      'it("fine", () => {});',
+    ),
+  );
+  assert.deepEqual(checkLinking(root).errors.map(located), [
+    { code: "E_TAG_FORMAT", file: TEST_FILE, ...position(root, "@tests Quota Sender") },
+    { code: "E_TAG_FORMAT", file: TEST_FILE, ...position(root, "@tests Sender, the second one") },
+    { code: "E_REFERENCE_UNKNOWN", file: TEST_FILE, ...position(root, "@tests Nobody") },
+  ]);
+});
+
 test("tags in the wrong place of a test file are errors", (t) => {
   const root = project(t, {
     "src/m/complete.test.ts": COMPLETE,
@@ -317,9 +408,6 @@ test("tags in the wrong place of a test file are errors", (t) => {
       " * @covers consume",
       " */",
       'describe("covers on a suite", () => {',
-      "  /** @tests Sender */",
-      '  it("tests on a test", () => {});',
-      "",
       "  /** @covers race */",
       "  before(() => {});",
       "",
@@ -340,7 +428,6 @@ test("tags in the wrong place of a test file are errors", (t) => {
   assert.deepEqual(checkLinking(root).errors.map(located), [
     { code: "E_TEST_CONTEXT", file: TEST_FILE, ...position(root, "@covers empty */") },
     { code: "E_TAG_LOCATION", file: TEST_FILE, ...position(root, "@covers consume") },
-    { code: "E_TAG_LOCATION", file: TEST_FILE, ...position(root, "@tests Sender") },
     { code: "E_TAG_LOCATION", file: TEST_FILE, ...position(root, "@covers race */") },
     { code: "E_TAG_LOCATION", file: TEST_FILE, ...position(root, "@covers empty consume */") },
     { code: "E_TAG_LOCATION", file: TEST_FILE, ...position(root, "@covers consume race */") },

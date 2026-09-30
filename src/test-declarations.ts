@@ -5,7 +5,7 @@ import { collectDocComments, createReporter, docCommentBefore, readAllowedTags, 
 import { isBindingTag, parseInvariantIds, parseName, parseNames, type DocTag } from "./metadata.ts";
 import type { TypeScript } from "./typescript.ts";
 
-/** The contract a suite is about, as written in its `@tests` tag. */
+/** The contract a suite or a test is about, as written in its `@tests` tag. */
 export interface TestContext {
   contract: string;
   location: SourceLocation;
@@ -32,7 +32,7 @@ export interface FoundTest {
   location: SourceLocation;
 }
 
-/** The contract of the enclosing suites; "invalid" under a suite whose `@tests` tag was rejected, so that its tests are not reported again. */
+/** The contract in effect: from the enclosing suites or the test itself; "invalid" when its `@tests` tag was rejected, so that nothing under it is reported again. */
 type Scope = TestContext | "invalid" | undefined;
 
 export type TestAdapter = "node:test" | "vitest";
@@ -140,17 +140,8 @@ export function readTestDeclarations(
     let scope = inherited;
     if (comment && managed) {
       bound.add(comment.pos);
-      const [tag, second] = readAllowedTags(comment.tags, ["tests", "description"], "on a suite; `@covers` goes on a test", report).get("tests") ?? [];
-      if (second) report("E_TAG_FORMAT", "`@tests` is given more than once; a suite is about one contract.", second.start);
-      const contract = tag && parseName(tag.text);
-      if (tag && contract === undefined) report("E_TAG_FORMAT", "`@tests` needs exactly one contract name.", tag.start);
-      const written = comment.tags.filter((candidate) => candidate.name === "tests");
-      if (written.length > 0) {
-        scope = tag && contract !== undefined && !second ? { contract, location: locate(tag.start) } : "invalid";
-        if (scope !== "invalid") contexts.push(scope);
-        // A suite whose `@tests` was rejected is not read; whatever it names may well be tested in it.
-        else for (const name of written.flatMap((candidate) => parseNames(candidate.text) ?? [])) rejected.push({ contract: name, invariants: "all" });
-      }
+      const tags = readAllowedTags(comment.tags, ["tests", "description"], "on a suite; `@covers` goes on a test", report);
+      scope = readContext(tags, comment.tags, "a suite", inherited);
     }
     const title = readTitle(call, managed, "suite");
     // The callback is not always the last argument: runners also take options or a timeout after it.
@@ -162,20 +153,45 @@ export function readTestDeclarations(
     }
   };
 
-  const readTest = (statement: ts.ExpressionStatement, call: ts.CallExpression, scope: Scope, path: string[]) => {
+  /**
+   * The contract that a `@tests` tag puts in effect for a suite or a test,
+   * or the inherited one when there is no such tag. A rejected tag makes the
+   * scope invalid: whatever it names may well be tested there.
+   */
+  const readContext = (tags: ReadonlyMap<string, DocTag[]>, all: readonly DocTag[], what: string, inherited: Scope): Scope => {
+    const [tag, second] = tags.get("tests") ?? [];
+    if (second) report("E_TAG_FORMAT", `\`@tests\` is given more than once; ${what} is about one contract.`, second.start);
+    const contract = tag && parseName(tag.text);
+    if (tag && contract === undefined) report("E_TAG_FORMAT", "`@tests` needs exactly one contract name.", tag.start);
+    const written = all.filter((candidate) => candidate.name === "tests");
+    if (written.length === 0) return inherited;
+    if (tag && contract !== undefined && !second) {
+      const scope = { contract, location: locate(tag.start) };
+      contexts.push(scope);
+      return scope;
+    }
+    for (const name of written.flatMap((candidate) => parseNames(candidate.text) ?? [])) rejected.push({ contract: name, invariants: "all" });
+    return "invalid";
+  };
+
+  const readTest = (statement: ts.ExpressionStatement, call: ts.CallExpression, inherited: Scope, path: string[]) => {
     const comment = docCommentBefore(ts, sourceFile, statement);
     const managed = comment?.tags.some((tag) => isBindingTag(tag.name)) ?? false;
     let coverTags: DocTag[] = [];
+    let scope = inherited;
     if (comment && managed) {
       bound.add(comment.pos);
-      coverTags = readAllowedTags(comment.tags, ["covers", "description"], "on a test; `@tests` goes on a suite", report).get("covers") ?? [];
+      const tags = readAllowedTags(comment.tags, ["tests", "covers", "description"], "on a test", report);
+      // A test may name its own contract: for a test outside any suite, or in a suite that holds tests of several contracts.
+      scope = readContext(tags, comment.tags, "a test", inherited);
+      coverTags = tags.get("covers") ?? [];
     }
     const title = readTitle(call, managed, "test");
     const covers: FoundTest["covers"] = [];
     for (const tag of coverTags) {
       const ids = parseInvariantIds(tag.text);
       if (!ids) report("E_TAG_FORMAT", "`@covers` needs one or more invariant ids.", tag.start);
-      else if (!scope) report("E_TEST_CONTEXT", "`@covers` needs a contract: the test must be inside a suite marked `@tests`.", tag.start);
+      else if (!scope) report("E_TEST_CONTEXT", "`@covers` needs a contract: add `@tests Name` to this test, or put the test in a suite marked `@tests`.", tag.start);
       else for (const id of ids) if (!covers.some((other) => other.id === id)) covers.push({ id, location: locate(tag.start) });
     }
     if (scope && scope !== "invalid") tests.push({ title, suitePath: path, context: scope, covers, location: locate(statement.getStart(sourceFile)) });
@@ -206,7 +222,7 @@ export function readTestDeclarations(
   reportUnboundTags(
     comments,
     bound,
-    `here: \`@tests\` goes right before a describe/suite call and \`@covers\` right before an it/test call of ${rules.module}, as statements outside any other function`,
+    `here: \`@tests\` goes right before a describe/suite or an it/test call, \`@covers\` right before an it/test call of ${rules.module}, as statements outside any other function`,
     report,
   );
   return { tests, contexts, rejected, diagnostics };
