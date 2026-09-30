@@ -167,7 +167,7 @@ test("--base is an option of check, with a revision", (t) => {
   const { root } = repository(t);
   const extract = cli(root, "extract", "--base", "main");
   assert.equal(extract.code, 2);
-  assert.match(extract.stderr, /--base is an option of the check command/);
+  assert.match(extract.stderr, /--base is an option of the check and gate commands/);
   const empty = cli(root, "check", "--base", "");
   assert.equal(empty.code, 2);
   assert.match(empty.stderr, /--base needs a Git revision/);

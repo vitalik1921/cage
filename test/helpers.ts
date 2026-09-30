@@ -177,8 +177,13 @@ export const inFile = (root: string, file: string, needle: string, offset = 0) =
 
 /** Runs the CLI in-process with `root` as the working directory. */
 export function cli(root: string, ...args: string[]): { code: number; stdout: string; stderr: string } {
+  return cliWithStdin(root, undefined, ...args);
+}
+
+/** The CLI with something piped in, as a hook gets it. */
+export function cliWithStdin(root: string, stdin: string | undefined, ...args: string[]): { code: number; stdout: string; stderr: string } {
   let stdout = "";
   let stderr = "";
-  const code = runCli(args, { cwd: root, stdout: (text) => (stdout += text), stderr: (text) => (stderr += text) });
+  const code = runCli(args, { cwd: root, stdin, stdout: (text) => (stdout += text), stderr: (text) => (stderr += text) });
   return { code, stdout, stderr };
 }

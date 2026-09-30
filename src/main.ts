@@ -6,6 +6,7 @@ import { loadConfig } from "./config.ts";
 import { isError, type Diagnostic } from "./diagnostic.ts";
 import { discoverDesigns, discoverSources } from "./discovery.ts";
 import { runExtract } from "./extract.ts";
+import { parseHookInput, runGate } from "./gate.ts";
 import { runLock } from "./lock-command.ts";
 import { formatRecordReport, recordVerdicts } from "./review-record.ts";
 import { formatReviewMarkdown, runReview } from "./review.ts";
@@ -13,6 +14,8 @@ import { formatCheckReport, formatExtractReport, formatLockReport } from "./repo
 
 export interface CliIo {
   cwd: string;
+  /** What was piped in, for `gate`; undefined when stdin is a terminal. */
+  stdin?: string;
   stdout: (text: string) => void;
   stderr: (text: string) => void;
 }
@@ -29,6 +32,8 @@ Commands:
   review [name...]      The material of the named contracts for a reviewer: markdown (default) or json;
                         without names, the contracts without a fresh recorded review; --all for every contract
   review --record <f>   Record the verdicts in <f> (json, the shape the review asks for; relative to the current directory) in .design/review.json
+  gate                  Stop hook for an agent's environment: the full check; errors and review findings block (exit 2,
+                        report and guidance on stderr); after 3 blocks in one session the agent may stop. Reads the hook's JSON on stdin
 
 Options:
   --root <path>     Project root (default: the current directory)
@@ -39,6 +44,7 @@ Options:
   --version         Show the version
 
 Exit codes: 0 success; 1 rule violations or generated files not current; 2 invalid arguments, configuration or environment.
+For gate: 0 the agent may stop, 2 it may not (the hook protocol).
 `;
 
 class UsageError extends Error {}
@@ -95,7 +101,8 @@ function run(argv: readonly string[], io: CliIo): number {
 
   const [command, ...extra] = positionals;
   if (command === undefined) throw new UsageError("Missing command.");
-  if (command !== "extract" && command !== "check" && command !== "lock" && command !== "review") throw new UsageError(`Unknown command "${command}".`);
+  const COMMANDS = ["extract", "check", "lock", "review", "gate"];
+  if (!COMMANDS.includes(command)) throw new UsageError(`Unknown command "${command}".`);
   if (command !== "review" && extra.length > 0) throw new UsageError(`Unexpected argument "${extra[0]}".`);
   if (command !== "review" && values.all) throw new UsageError("--all is an option of the review command.");
   if (command === "review" && values.all && extra.length > 0) throw new UsageError("--all reviews every contract; do not name contracts with it.");
@@ -103,7 +110,8 @@ function run(argv: readonly string[], io: CliIo): number {
   if (values.record !== undefined && (values.all || extra.length > 0)) throw new UsageError("--record takes the verdicts file only; the contracts are those in it.");
   if (values.record !== undefined && values.record.trim() === "") throw new UsageError("--record needs the path of a verdicts file.");
   if (command !== "check" && values.phase !== undefined) throw new UsageError("--phase is an option of the check command.");
-  if (command !== "check" && values.base !== undefined) throw new UsageError("--base is an option of the check command.");
+  if (command !== "check" && command !== "gate" && values.base !== undefined) throw new UsageError("--base is an option of the check and gate commands.");
+  if (command === "gate" && values.format !== undefined) throw new UsageError("gate has no --format: its report goes to the agent as text.");
   if (values.base !== undefined && values.base.trim() === "") throw new UsageError("--base needs a Git revision, such as origin/main.");
   if (command !== "extract" && values.check) throw new UsageError("--check is an option of the extract command.");
   if (command === "check") {
@@ -142,6 +150,12 @@ function run(argv: readonly string[], io: CliIo): number {
   if (command === "lock") {
     const report = runLock(scope);
     return print(report, formatLockReport(report));
+  }
+  if (command === "gate") {
+    const sources = diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
+    const { exitCode, feedback } = runGate({ ...scope, sources, testAdapter: config.testAdapter, generatedFiles: config.generatedFiles }, { lockBase: values.base, review: config.review }, parseHookInput(io.stdin));
+    if (feedback !== "") io.stderr(feedback);
+    return exitCode;
   }
   if (command === "review") {
     const sources = diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
