@@ -158,7 +158,7 @@ export function checkLinking(
 ): Omit<ImplementationPhaseResult, "linking"> & { linking: NonNullable<ImplementationPhaseResult["linking"]>; errors: Diagnostic[] } {
   const scope = { root, tsconfig: defaultConfig.tsconfig, designs: discoverDesigns(root, defaultConfig) };
   runExtract(scope, false);
-  const result = checkImplementationPhase({ ...scope, sources: discoverSources(root, defaultConfig), testAdapter });
+  const result = checkImplementationPhase({ ...scope, sources: discoverSources(root, defaultConfig), testAdapter, generatedFiles: true });
   return {
     ...result,
     errors: result.diagnostics.filter(isError),

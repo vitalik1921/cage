@@ -47,6 +47,7 @@ test("an invalid configuration is reported field by field", (t) => {
   assert.deepEqual(check("{}"), ['"version" is required and must be 1.']);
   assert.deepEqual(check('{ "version": 2 }'), ['"version" must be 1.']);
   assert.deepEqual(check('{ "version": 1, "testAdapter": "jest" }'), ['"testAdapter" must be "node:test" or "vitest".']);
+  assert.deepEqual(check('{ "version": 1, "generatedFiles": "no" }'), ['"generatedFiles" must be true or false.']);
   assert.deepEqual(check('{ "version": 1, "designs": "src/**", "tsconfig": "", "exclude": [1] }'), [
     '"designs" must be an array of non-empty strings.',
     '"tsconfig" must be a non-empty string.',

@@ -118,14 +118,14 @@ function run(argv: readonly string[], io: CliIo): number {
     const phase = values.phase === "design" ? "design" : "implementation";
     // The design phase does not look at source files, so it does not search for them either.
     const sources = phase === "design" || diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
-    const report = runCheck({ ...scope, sources, testAdapter: config.testAdapter }, phase);
+    const report = runCheck({ ...scope, sources, testAdapter: config.testAdapter, generatedFiles: config.generatedFiles }, phase);
     return print(report, formatCheckReport(report));
   }
   if (command === "lock") {
     const report = runLock(scope);
     return print(report, formatLockReport(report));
   }
-  const report = runExtract(scope, values.check ?? false);
+  const report = runExtract(scope, values.check ?? false, config.generatedFiles);
   return print(report, formatExtractReport(report));
 }
 

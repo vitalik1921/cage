@@ -18,13 +18,15 @@ export interface ImplementationPhaseOptions extends DesignPhaseOptions {
   sources: SourceFiles;
   /** The test runner whose declarations are read. */
   testAdapter: TestAdapter;
+  /** False when the project keeps no generated files: then the ones on disk, if any, are not looked at. */
+  generatedFiles: boolean;
 }
 
 export interface GeneratedArtifact {
   source: string;
   file: string;
-  /** "failed": the file is there but could not be read. */
-  status: OutputState | "failed";
+  /** "failed": the file is there but could not be read. "not-required": the project keeps no generated files. */
+  status: OutputState | "failed" | "not-required";
 }
 
 /** The test declarations that link an invariant: inside a `@tests` suite of its contract, with its id in `@covers`. */
@@ -88,6 +90,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
   });
   const artifacts = modules.map((module): GeneratedArtifact => {
     const artifact = { source: module.file, file: module.generatedPath };
+    if (!options.generatedFiles) return { ...artifact, status: "not-required" };
     try {
       const status = inspectOutput(module.generatedFile, module.generated.text);
       if (status !== "current") diagnostics.push(outputProblem(status, module.generatedPath, module.file));

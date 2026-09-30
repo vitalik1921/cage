@@ -152,6 +152,8 @@ dto/
 
 Статуси outputs: `written`, `unchanged`, `missing`, `stale`, `conflict`, `failed`. З `--check` відсутній, застарілий або чужий файл дає `E_GENERATED_MISSING`, `E_GENERATED_STALE`, `E_GENERATED_CONFLICT`. Після видалення `design.mdx` його generated-файл лишається на диску; видаляти його треба вручну.
 
+Проєкт, у якому код не імпортує типів контрактів, може вимкнути generated-файли зовсім: `"generatedFiles": false`. Тоді після правки контракту достатньо `design check`. Імпорт між дизайнами через шлях `design.generated` працює й без файлів: харнес подає ці модулі компілятору з пам’яті. Файли, що лишилися на диску, харнес не читає і не видаляє.
+
 Generated-файли потрібні `tsc` і редактору проєкту, щоб код міг імпортувати типи контрактів. Харнес типи з них не бере: `check` лише порівнює їхній текст зі свіжим MDX. Рекомендована конвенція: не комітити їх (`**/.design/design.generated.ts` у `.gitignore`) і запускати `design extract` перед `tsc`. Проєкт, який їх комітить, перевіряє актуальність у CI через `design extract --check`.
 
 ### Конфігурація
@@ -166,7 +168,8 @@ Generated-файли потрібні `tsc` і редактору проєкту
   "implementations": ["src/**/*.ts"],
   "tests": ["src/**/*.test.ts", "tests/**/*.test.ts"],
   "exclude": ["**/node_modules/**", "**/dist/**", "**/build/**", "**/coverage/**"],
-  "testAdapter": "node:test"
+  "testAdapter": "node:test",
+  "generatedFiles": true
 }
 ```
 
@@ -178,6 +181,7 @@ Generated-файли потрібні `tsc` і редактору проєкту
 - Symlink під час пошуку не обходяться.
 - `implementations` і `tests` визначають, у яких файлах `design check` шукає `@implements` та `@tests` / `@covers`. Беруться лише файли `.ts` (без `.d.ts`), хоч би що ще збіглося з шаблоном; файл тестів реалізацією не вважається, як і будь-що в каталозі `.design`.
 - `testAdapter` — `node:test` (типово) або `vitest`.
+- `generatedFiles` — чи має проєкт файли `design.generated.ts` на диску (типово `true`). З `false` `design check` їх не вимагає і не читає, а `design extract` лише перевіряє дизайни й нічого не записує.
 
 ## Технічні рішення
 

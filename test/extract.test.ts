@@ -37,6 +37,7 @@ test("extract writes one generated file per design and nothing else", (t) => {
       schemaVersion: 1,
       command: "extract",
       checkOnly: false,
+      generatedFiles: true,
       ok: true,
       outputs: [
         { source: CAMPAIGNS, path: generated(CAMPAIGNS), status: "written" },
@@ -265,6 +266,26 @@ test("the configuration selects the scope", (t) => {
   const { code, report } = extract(root, "--config", "tools/design.json");
   assert.equal(code, 0);
   assert.deepEqual(Object.keys(statuses(report)), [generated(MAIL), generated(QUOTA)]);
+});
+
+test("with generated files turned off extract checks the designs and writes nothing", (t) => {
+  const root = copyFixture(t, "vertical");
+  writeFile(root, ".design/config.json", JSON.stringify({ version: 1, generatedFiles: false }));
+  const before = snapshot(root);
+
+  const { code, report } = extract(root);
+  assert.equal(code, 0);
+  assert.equal(report.generatedFiles, false);
+  assert.deepEqual(report.outputs, []);
+  assert.deepEqual(snapshot(root), before);
+  assert.equal(cli(root, "extract").stdout, `${SENDER_WARNING}\nextract: generated files are turned off in the configuration ("generatedFiles": false); nothing to write; 1 warning.\n`);
+  assert.equal(extract(root, "--check").code, 0);
+
+  // The designs are still checked.
+  editFile(root, QUOTA, (s) => s.replace("take(accountId: AccountId)", "take(accountId: AccountIdd)"));
+  const broken = extract(root);
+  assert.equal(broken.code, 1);
+  assert.deepEqual(codes(broken.report).map(({ code }) => code), ["E_TYPESCRIPT"]);
 });
 
 test("the text report lists outputs, diagnostics and a summary", (t) => {

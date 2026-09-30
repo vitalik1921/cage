@@ -33,6 +33,8 @@ export function formatExtractReport(report: ExtractReport): string {
   if (errors > 0) {
     const written = count("written");
     lines.push(`${command}: ${plural(errors, "error")}${written > 0 ? `, ${written} written` : report.checkOnly ? "" : ", nothing written"}${noted}.`);
+  } else if (!report.generatedFiles) {
+    lines.push(`${command}: generated files are turned off in the configuration ("generatedFiles": false); nothing to ${report.checkOnly ? "check" : "write"}${noted}.`);
   } else if (report.checkOnly) {
     lines.push(`${command}: ${report.outputs.length} generated ${report.outputs.length === 1 ? "file is" : "files are"} current${noted}.`);
   } else {

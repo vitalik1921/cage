@@ -18,6 +18,8 @@ export interface ExtractReport {
   schemaVersion: 1;
   command: "extract";
   checkOnly: boolean;
+  /** False when the configuration turns generated files off: then there are no outputs. */
+  generatedFiles: boolean;
   ok: boolean;
   outputs: ExtractOutput[];
   diagnostics: Diagnostic[];
@@ -27,12 +29,13 @@ export interface ExtractReport {
  * Synchronizes every design.generated.ts with its design document, or with
  * `checkOnly` reports which ones are not current. Nothing is written when the
  * design phase has errors, or when any output is in conflict or unreadable.
+ * In a project that keeps no generated files only the designs are checked.
  */
-export function runExtract(options: DesignPhaseOptions, checkOnly: boolean): ExtractReport {
+export function runExtract(options: DesignPhaseOptions, checkOnly: boolean, generatedFiles = true): ExtractReport {
   const { modules, diagnostics } = checkDesignPhase(options);
   const outputs: ExtractOutput[] = [];
 
-  if (!hasErrors(diagnostics)) {
+  if (generatedFiles && !hasErrors(diagnostics)) {
     const fail = (output: ExtractOutput, action: string, cause: unknown) => {
       output.status = "failed";
       output.error = (cause as Error).message;
@@ -72,5 +75,5 @@ export function runExtract(options: DesignPhaseOptions, checkOnly: boolean): Ext
     });
   }
 
-  return { schemaVersion: 1, command: "extract", checkOnly, ok: !hasErrors(diagnostics), outputs, diagnostics: diagnostics.sort(compareDiagnostics) };
+  return { schemaVersion: 1, command: "extract", checkOnly, generatedFiles, ok: !hasErrors(diagnostics), outputs, diagnostics: diagnostics.sort(compareDiagnostics) };
 }

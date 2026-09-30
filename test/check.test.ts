@@ -291,6 +291,24 @@ test("check requires current generated files; the design phase does not", (t) =>
   assert.deepEqual(missing.report.counts, { contracts: 3, data: 1, invariants: 8, implementations: 3, testDeclarations: 8, linkedInvariants: 8 });
 });
 
+test("a project that turns generated files off needs none: check passes, and nothing is read or written", (t) => {
+  const root = copyFixture(t, "vertical");
+  writeFile(root, ".design/config.json", JSON.stringify({ version: 1, generatedFiles: false }));
+  const before = snapshot(root);
+
+  const { code, report } = fullCheck(root);
+  assert.equal(code, 0);
+  assert.deepEqual(report.generatedArtifacts, [CAMPAIGNS, MAIL, QUOTA].map((source) => ({ source, file: generated(source), status: "not-required" })));
+  // The implementations import contract types from the generated paths; the harness serves those from memory.
+  assert.deepEqual(report.counts, { contracts: 3, data: 1, invariants: 8, implementations: 3, testDeclarations: 8, linkedInvariants: 8 });
+
+  // A file left on disk from before is not looked at, whatever is in it.
+  writeFile(root, generated(QUOTA), "not a generated file\n");
+  assert.equal(fullCheck(root).code, 0);
+  fs.rmSync(path.join(root, generated(QUOTA)));
+  assert.deepEqual(snapshot(root), before);
+});
+
 test("a stale generated file with the old, fitting type does not hide a mismatch with the design as it is now", (t) => {
   const root = copyFixture(t, "vertical");
   assert.equal(cli(root, "extract").code, 0);

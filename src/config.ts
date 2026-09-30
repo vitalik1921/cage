@@ -12,6 +12,8 @@ export interface Config {
   tests: string[];
   exclude: string[];
   testAdapter: "node:test" | "vitest";
+  /** Whether each design has a `design.generated.ts` on disk, written by `extract` and required by `check`. */
+  generatedFiles: boolean;
 }
 
 export const DEFAULT_CONFIG_FILE = ".design/config.json";
@@ -24,6 +26,7 @@ export const defaultConfig: Config = {
   tests: ["src/**/*.test.ts", "tests/**/*.test.ts"],
   exclude: ["**/node_modules/**", "**/dist/**", "**/build/**", "**/coverage/**"],
   testAdapter: "node:test",
+  generatedFiles: true,
 };
 
 export interface LoadedConfig {
@@ -71,6 +74,7 @@ const fields: Record<keyof Config, { expected: string; valid: (value: unknown) =
   tests: { expected: "an array of non-empty strings", valid: isTextList },
   exclude: { expected: "an array of non-empty strings", valid: isTextList },
   testAdapter: { expected: '"node:test" or "vitest"', valid: (value) => value === "node:test" || value === "vitest" },
+  generatedFiles: { expected: "true or false", valid: (value) => typeof value === "boolean" },
 };
 
 function validate(value: unknown): string[] {
