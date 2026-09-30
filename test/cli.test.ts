@@ -29,8 +29,6 @@ test("invalid arguments exit 2 with a message on stderr and nothing on stdout", 
   const cases: [string[], RegExp][] = [
     [[], /Missing command/],
     [["frobnicate"], /Unknown command "frobnicate"/],
-    [["check"], /implementation phase is not available yet/],
-    [["check", "--phase", "implementation"], /implementation phase is not available yet/],
     [["check", "--phase", "review"], /Unknown phase "review"/],
     [["check", "--phase", "design", "--check"], /--check is an option of the extract command/],
     [["inspect"], /Unknown command "inspect"/],

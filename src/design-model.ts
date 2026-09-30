@@ -5,6 +5,20 @@ export interface SourceLocation {
   column: number;
 }
 
+/** "final": the declaration never changes. "extendable": what it has never changes, more may be added. */
+export type LockLevel = "final" | "extendable";
+
+/** A declaration marked `@final` or `@extendable`, with its signatures in a form that ignores formatting and comments. */
+export interface LockedDeclaration {
+  name: string;
+  module: string;
+  kind: "contract" | "data";
+  level: LockLevel;
+  /** Member name to its signature; keys that start with ":" are for what has no name, such as ":call" and ":type". */
+  members: Record<string, string>;
+  location: SourceLocation;
+}
+
 export interface ContractMember {
   name: string;
   description: string | null;
@@ -20,6 +34,8 @@ export interface Contract {
   shape: "object" | "callable";
   /** Methods of an object contract, in declaration order. */
   members: ContractMember[];
+  /** Null when the contract is open to any change. */
+  lock: LockLevel | null;
   location: SourceLocation;
 }
 
@@ -27,6 +43,7 @@ export interface DataType {
   name: string;
   module: string;
   description: string | null;
+  lock: LockLevel | null;
   location: SourceLocation;
 }
 
@@ -36,6 +53,29 @@ export interface Invariant {
   text: string;
   /** The method it is declared on, or null for the contract as a whole. */
   member: string | null;
+  location: SourceLocation;
+}
+
+export interface Implementation {
+  contract: string;
+  /** The exported name of the class, function or const. */
+  name: string;
+  kind: "class" | "function" | "const";
+  /** Whether the compiler accepts it where the contract is expected. */
+  compatible: boolean;
+  location: SourceLocation;
+}
+
+/** A test declaration inside a `@tests` suite. It says that a test was declared, not that it ran or passed. */
+export interface TestDeclaration {
+  title: string;
+  /** Titles of the enclosing suites, outermost first. */
+  suitePath: string[];
+  adapter: "node:test" | "vitest";
+  /** The contract of the nearest `@tests` suite. */
+  contract: string;
+  /** Invariant ids of that contract named by `@covers`. */
+  covers: string[];
   location: SourceLocation;
 }
 
@@ -52,6 +92,7 @@ export interface DesignIndex {
   data: DataType[];
   invariants: Invariant[];
   edges: Edge[];
+  locked: LockedDeclaration[];
 }
 
-export const emptyIndex = (): DesignIndex => ({ contracts: [], data: [], invariants: [], edges: [] });
+export const emptyIndex = (): DesignIndex => ({ contracts: [], data: [], invariants: [], edges: [], locked: [] });

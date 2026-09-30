@@ -11,17 +11,14 @@ export interface DocTag {
   start: number;
 }
 
+/** Tags that bind code to a design, or parts of a design to each other. */
+export const BINDING_TAGS: ReadonlySet<string> = new Set(["contract", "data", "uses", "invariant", "implements", "tests", "covers"]);
+
+/** How far a declaration of a design may change: not at all, or only by additions. Without either it is open. */
+export const LOCK_TAGS: ReadonlySet<string> = new Set(["final", "extendable"]);
+
 /** The harness vocabulary. */
-export const HARNESS_TAGS: ReadonlySet<string> = new Set([
-  "contract",
-  "data",
-  "description",
-  "uses",
-  "invariant",
-  "implements",
-  "tests",
-  "covers",
-]);
+export const HARNESS_TAGS: ReadonlySet<string> = new Set([...BINDING_TAGS, ...LOCK_TAGS, "description"]);
 
 /** Ordinary JSDoc tags that may appear next to harness tags. */
 const STANDARD_TAGS: ReadonlySet<string> = new Set([
@@ -38,7 +35,7 @@ const STANDARD_TAGS: ReadonlySet<string> = new Set([
 ]);
 
 /** Postponed features: accepting them silently would suggest they are enforced. */
-const UNSUPPORTED_TAGS: ReadonlySet<string> = new Set(["name", "final", "extendable", "open"]);
+const UNSUPPORTED_TAGS: ReadonlySet<string> = new Set(["name", "open"]);
 
 export type TagKind = "harness" | "standard" | "unsupported" | "unknown";
 
@@ -47,6 +44,13 @@ export function tagKind(name: string): TagKind {
   if (STANDARD_TAGS.has(name)) return "standard";
   return UNSUPPORTED_TAGS.has(name) ? "unsupported" : "unknown";
 }
+
+/**
+ * A doc comment with a binding tag is managed by the harness and is
+ * validated. `@description` and `@final` alone are ordinary JSDoc, found in
+ * code that knows nothing about the harness.
+ */
+export const isBindingTag = (name: string) => BINDING_TAGS.has(name);
 
 export const isDocComment = (comment: string) => comment.startsWith("/**") && comment.length > 4;
 
@@ -77,16 +81,22 @@ export function parseDocTags(comment: string, start: number): DocTag[] {
 const IDENTIFIER = /^[\p{ID_Start}_$][\p{ID_Continue}$]*$/u;
 const INVARIANT_ID = /^[a-z][a-z0-9-]*$/;
 
-/** The names of a `@uses A B` or `@uses A, B` tag; undefined when it is empty or has a non-identifier. */
-export function parseNames(text: string): string[] | undefined {
-  const names = text.split(/[\s,]+/).filter((name) => name !== "");
-  return names.length > 0 && names.every((name) => IDENTIFIER.test(name)) ? [...new Set(names)] : undefined;
+/** The items of a list separated by spaces or commas, without repeats; undefined when it is empty or an item does not match. */
+function parseList(text: string, item: RegExp): string[] | undefined {
+  const items = text.split(/[\s,]+/).filter((candidate) => candidate !== "");
+  return items.length > 0 && items.every((candidate) => item.test(candidate)) ? [...new Set(items)] : undefined;
 }
+
+/** The names of a `@uses A B` or `@uses A, B` tag; undefined when it is empty or has a non-identifier. */
+export const parseNames = (text: string) => parseList(text, IDENTIFIER);
 
 /** The single name of `@implements A` or `@tests A`. */
 export function parseName(text: string): string | undefined {
   return IDENTIFIER.test(text) ? text : undefined;
 }
+
+/** The ids of `@covers a b` or `@covers a, b`; undefined when it is empty or has something that is not an invariant id. */
+export const parseInvariantIds = (text: string) => parseList(text, INVARIANT_ID);
 
 /** `@invariant id text`: a short id, then a non-empty text. */
 export function parseInvariant(text: string): { id: string; text: string } | undefined {

@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import type { TestContext } from "node:test";
-import { defaultConfig } from "../src/config.ts";
+import { defaultConfig, type Config } from "../src/config.ts";
 import type { DesignIndex } from "../src/design-model.ts";
 import { checkDesignPhase, type DesignPhaseResult } from "../src/design-phase.ts";
 import { isError, type Diagnostic } from "../src/diagnostic.ts";
-import { discoverDesigns } from "../src/discovery.ts";
+import { discoverDesigns, discoverSources } from "../src/discovery.ts";
+import { runExtract } from "../src/extract.ts";
+import { checkImplementationPhase, type ImplementationPhaseResult } from "../src/implementation-phase.ts";
 import { runCli } from "../src/main.ts";
 
 export const fixturesDir = path.join(import.meta.dirname, "fixtures");
@@ -122,19 +124,20 @@ export const data = (name: string, type = "string") => ["/**", " * @data", ` * @
 
 export const designFile = (module: string) => `src/${module}/.design/design.mdx`;
 
+/** The compiler options of a `designProject`. */
+export const PROJECT_OPTIONS = { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, allowImportingTsExtensions: true };
+
 /**
  * A small project removed after the test: `designs` maps a module name to the
  * text of its design document, stored at `src/<module>/.design/design.mdx`.
  */
-export function designProject(t: TestContext, designs: Record<string, string>): string {
+export function designProject(t: TestContext, designs: Record<string, string>, files: Record<string, string> = {}): string {
   const root = scratchDirectory(t, "designs");
   writeFile(root, "package.json", JSON.stringify({ private: true, type: "module" }));
-  writeFile(
-    root,
-    "tsconfig.json",
-    JSON.stringify({ compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, allowImportingTsExtensions: true } }),
-  );
+  writeFile(root, "tsconfig.json", JSON.stringify({ compilerOptions: PROJECT_OPTIONS }));
   for (const [module, text] of Object.entries(designs)) writeFile(root, designFile(module), text);
+  // Given files come last, so that a test can replace the defaults above.
+  for (const [file, text] of Object.entries(files)) writeFile(root, file, text);
   return root;
 }
 
@@ -142,6 +145,34 @@ export function designProject(t: TestContext, designs: Record<string, string>): 
 export const at = (root: string, module: string, needle: string, offset = 0) => {
   const position = find(readFile(root, designFile(module)), needle);
   return { file: designFile(module), line: position.line, column: position.column + offset };
+};
+
+/**
+ * The implementation phase over the default scope of a project, after its
+ * generated files were written, so that only the mistakes a test sets up are
+ * reported. `linking` asserts that the phase got past the designs.
+ */
+export function checkLinking(
+  root: string,
+  testAdapter: Config["testAdapter"] = defaultConfig.testAdapter,
+): Omit<ImplementationPhaseResult, "linking"> & { linking: NonNullable<ImplementationPhaseResult["linking"]>; errors: Diagnostic[] } {
+  const scope = { root, tsconfig: defaultConfig.tsconfig, designs: discoverDesigns(root, defaultConfig) };
+  runExtract(scope, false);
+  const result = checkImplementationPhase({ ...scope, sources: discoverSources(root, defaultConfig), testAdapter });
+  return {
+    ...result,
+    errors: result.diagnostics.filter(isError),
+    get linking() {
+      assert.ok(result.linking, "the implementation phase stopped at the designs");
+      return result.linking;
+    },
+  };
+}
+
+/** Position of `needle` in a source file of a project. */
+export const inFile = (root: string, file: string, needle: string, offset = 0) => {
+  const position = find(readFile(root, file), needle);
+  return { file, line: position.line, column: position.column + offset };
 };
 
 /** Runs the CLI in-process with `root` as the working directory. */

@@ -11,7 +11,7 @@ export interface Config {
   implementations: string[];
   tests: string[];
   exclude: string[];
-  testAdapter: "node:test";
+  testAdapter: "node:test" | "vitest";
 }
 
 export const DEFAULT_CONFIG_FILE = ".design/config.json";
@@ -70,7 +70,7 @@ const fields: Record<keyof Config, { expected: string; valid: (value: unknown) =
   implementations: { expected: "an array of non-empty strings", valid: isTextList },
   tests: { expected: "an array of non-empty strings", valid: isTextList },
   exclude: { expected: "an array of non-empty strings", valid: isTextList },
-  testAdapter: { expected: '"node:test"', valid: (value) => value === "node:test" },
+  testAdapter: { expected: '"node:test" or "vitest"', valid: (value) => value === "node:test" || value === "vitest" },
 };
 
 function validate(value: unknown): string[] {

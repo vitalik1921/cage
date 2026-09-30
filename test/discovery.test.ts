@@ -4,8 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { defaultConfig } from "../src/config.ts";
-import { discoverDesigns, findFiles } from "../src/discovery.ts";
-import { CAMPAIGNS, copyFixture, generated, MAIL, QUOTA, readFile, writeFile } from "./helpers.ts";
+import { discoverDesigns, discoverSources, findFiles } from "../src/discovery.ts";
+import { CAMPAIGNS, copyFixture, designProject, generated, MAIL, QUOTA, readFile, writeFile } from "./helpers.ts";
 
 const design = (root: string, file: string) => writeFile(root, file, readFile(root, MAIL));
 
@@ -75,8 +75,26 @@ test("symbolic links are not followed, inside or outside the project", (t) => {
   );
 });
 
+test("sources are .ts files: tests are not implementations, and design directories and declaration files are neither", (t) => {
+  const root = designProject(t, {}, {
+    "src/a.ts": "",
+    "src/a.test.ts": "",
+    "src/types.d.ts": "",
+    "src/view.tsx": "",
+    "src/esm.mts": "",
+    "src/NOTES.md": "@implements Store",
+    "src/m/.design/helper.ts": "",
+    "tests/b.test.ts": "",
+    "tests/helper.ts": "",
+  });
+  assert.deepEqual(discoverSources(root, { ...defaultConfig, implementations: ["src/**/*", "src/**/.design/*"], tests: ["src/**/*.test.*", "tests/**/*"] }), {
+    implementations: ["src/a.ts"],
+    tests: ["src/a.test.ts", "tests/b.test.ts", "tests/helper.ts"],
+  });
+});
+
 test("findFiles walks only where a pattern can match", (t) => {
-  const root = copyFixture(t, "vertical");
+  const root = designProject(t, {});
   writeFile(root, "src/a.ts", "");
   writeFile(root, "src/deep/b.test.ts", "");
   writeFile(root, "tests/c.test.ts", "");

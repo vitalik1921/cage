@@ -212,6 +212,10 @@ test("every declaration has exactly one marker, and a description", (t) => {
     unmarked.here("E_UNSUPPORTED_DECLARATION", "interface Documented", "interface ".length),
   ]);
 
+  // A forgotten marker is one mistake: the tags that would be fine on a contract are not reported on top of it.
+  const forgotten = errorsOf(t, contract("Other"), contract("Thing", "run(): void;", "@uses Other", "@invariant ok Працює.").replace(" * @contract\n", ""));
+  assert.deepEqual(forgotten.errors, [forgotten.here("E_UNSUPPORTED_DECLARATION", "interface Thing", "interface ".length)]);
+
   const both = errorsOf(t, contract("Thing", "run(): void;", "@data"));
   assert.deepEqual(both.errors, [both.here("E_TAG_FORMAT", "@data")]);
 
@@ -392,13 +396,13 @@ test("one mistake is one diagnostic", (t) => {
 test("unknown and postponed tags are errors in design doc comments", (t) => {
   const { errors, here } = errorsOf(
     t,
-    contract("Thing", "/** @todo later */\n  run(): void;", "@Contract", "@name Store", "@final", "@internal"),
+    contract("Thing", "/** @todo later */\n  run(): void;", "@Contract", "@name Store", "@Final", "@internal"),
     `/** @open */\n${data("Id")}`,
   );
   assert.deepEqual(errors, [
     here("E_UNKNOWN_TAG", "@Contract"),
     here("E_UNSUPPORTED_TAG", "@name Store"),
-    here("E_UNSUPPORTED_TAG", "@final"),
+    here("E_UNKNOWN_TAG", "@Final"),
     here("E_UNKNOWN_TAG", "@internal"),
     here("E_UNKNOWN_TAG", "@todo later"),
     here("E_UNSUPPORTED_TAG", "@open"),

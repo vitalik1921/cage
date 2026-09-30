@@ -1,6 +1,7 @@
 import type { CheckReport } from "./check.ts";
 import { isError, type Diagnostic, type RelatedLocation } from "./diagnostic.ts";
 import type { ExtractReport } from "./extract.ts";
+import type { LockReport } from "./lock-command.ts";
 
 function formatLocation({ file, line, column }: Pick<RelatedLocation, "file" | "line" | "column">): string {
   if (file === undefined) return "";
@@ -46,13 +47,40 @@ export function formatCheckReport(report: CheckReport): string {
   const { version, source, fallbackReason } = scope.typescript;
   const compiler = `TypeScript ${version} (${fallbackReason === undefined ? source : `${source}; ${fallbackReason}`})`;
   const lines = report.diagnostics.map(formatDiagnostic);
+
+  const facts = [plural(scope.designFiles.length, "design")];
   // Without an index there is nothing to count: an earlier error stopped the check.
-  const indexed =
-    counts.contracts === null || counts.data === null || counts.invariants === null
-      ? "contracts not indexed"
-      : `${plural(counts.contracts, "contract")}, ${plural(counts.data, "data type")}, ${plural(counts.invariants, "invariant")}`;
+  if (counts.contracts === null || counts.data === null || counts.invariants === null) {
+    facts.push("contracts not indexed");
+  } else {
+    facts.push(plural(counts.contracts, "contract"), plural(counts.data, "data type"), plural(counts.invariants, "invariant"));
+    if (report.phase === "implementation") {
+      if (counts.implementations === null || counts.testDeclarations === null || counts.linkedInvariants === null) {
+        facts.push("implementations and tests not checked");
+      } else {
+        facts.push(
+          plural(counts.implementations, "implementation"),
+          plural(counts.testDeclarations, "test declaration"),
+          `${counts.linkedInvariants} of ${plural(counts.invariants, "invariant")} linked to a test declaration`,
+        );
+      }
+    }
+  }
+  const command = report.phase === "design" ? "check --phase design" : "check";
+  lines.push(`${command}: ${facts.join(", ")}; ${plural(errors, "error")}, ${plural(warnings, "warning")}. ${compiler}.`);
+  return `${lines.join("\n")}\n`;
+}
+
+export function formatLockReport(report: LockReport): string {
+  const lines = report.locks.map((lock) => `${lock.status.padEnd(9)} ${lock.name} (${lock.kind}, @${lock.level})`);
+  lines.push(...report.diagnostics.map(formatDiagnostic));
+  const count = (status: string) => report.locks.filter((lock) => lock.status === status).length;
+  const { errors, warnings } = countBySeverity(report.diagnostics);
+  const noted = warnings > 0 ? `; ${plural(warnings, "warning")}` : "";
   lines.push(
-    `check --phase ${report.phase}: ${plural(scope.designFiles.length, "design")}, ${indexed}; ${plural(errors, "error")}, ${plural(warnings, "warning")}. ${compiler}.`,
+    errors > 0
+      ? `lock: ${plural(errors, "error")}, nothing recorded${noted}.`
+      : `lock: ${count("recorded")} recorded, ${count("extended")} extended, ${count("unchanged")} unchanged in ${report.file}${noted}.`,
   );
   return `${lines.join("\n")}\n`;
 }

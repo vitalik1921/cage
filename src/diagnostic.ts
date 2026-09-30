@@ -35,7 +35,7 @@ export const isError = (diagnostic: Diagnostic) => diagnostic.severity === "erro
 
 export const hasErrors = (diagnostics: readonly Diagnostic[]) => diagnostics.some(isError);
 
-const compareText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
+export const compareText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 
 export function compareDiagnostics(a: Diagnostic, b: Diagnostic): number {
   return (

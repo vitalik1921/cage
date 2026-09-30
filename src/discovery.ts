@@ -32,6 +32,27 @@ export function discoverDesigns(root: string, config: Pick<Config, "designs" | "
     });
 }
 
+export interface SourceFiles {
+  /** Files that may hold `@implements`; project-relative POSIX paths. */
+  implementations: string[];
+  /** Files that may hold `@tests` and `@covers`. */
+  tests: string[];
+}
+
+/**
+ * The ordinary source files of the scope: `.ts` files only, whatever else
+ * the patterns match. A test file is not an implementation, and nothing
+ * inside a `.design` directory is either; declaration files are neither.
+ */
+export function discoverSources(root: string, config: Pick<Config, "implementations" | "tests" | "exclude">): SourceFiles {
+  const isSource = (file: string) => file.endsWith(".ts") && !file.endsWith(".d.ts");
+  const tests = findFiles(root, config.tests, config.exclude).filter(isSource);
+  const isTest = new Set(tests);
+  const inDesign = (file: string) => file.split("/").includes(".design");
+  const implementations = findFiles(root, config.implementations, config.exclude).filter((file) => isSource(file) && !isTest.has(file) && !inDesign(file));
+  return { implementations, tests };
+}
+
 /**
  * Project-relative POSIX paths of the regular files that match a pattern and
  * no exclude pattern, sorted. Symbolic links are never followed, so every

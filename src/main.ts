@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
-import { runDesignCheck } from "./check.ts";
+import { runCheck } from "./check.ts";
 import { loadConfig } from "./config.ts";
 import { isError, type Diagnostic } from "./diagnostic.ts";
-import { discoverDesigns } from "./discovery.ts";
+import { discoverDesigns, discoverSources } from "./discovery.ts";
 import { runExtract } from "./extract.ts";
-import { formatCheckReport, formatExtractReport } from "./report.ts";
+import { runLock } from "./lock-command.ts";
+import { formatCheckReport, formatExtractReport, formatLockReport } from "./report.ts";
 
 export interface CliIo {
   cwd: string;
@@ -17,9 +18,11 @@ export interface CliIo {
 const USAGE = `Usage: design <command> [options]
 
 Commands:
-  check --phase design  Check the designs: documents, contracts, tags, references and types
+  check                 Check the designs, the generated files, the implementations and the test links
+  check --phase design  Check only the designs: documents, contracts, tags, references and types
   extract               Check the designs and write each .design/design.generated.ts
   extract --check       Check the designs and that the generated files are current; write nothing
+  lock                  Record the declarations marked @final or @extendable in .design/design.lock.json
 
 Options:
   --root <path>     Project root (default: the current directory)
@@ -82,15 +85,14 @@ function run(argv: readonly string[], io: CliIo): number {
 
   const [command, ...extra] = positionals;
   if (command === undefined) throw new UsageError("Missing command.");
-  if (command !== "extract" && command !== "check") throw new UsageError(`Unknown command "${command}".`);
+  if (command !== "extract" && command !== "check" && command !== "lock") throw new UsageError(`Unknown command "${command}".`);
   if (extra.length > 0) throw new UsageError(`Unexpected argument "${extra[0]}".`);
-  if (command === "extract" && values.phase !== undefined) throw new UsageError("--phase is an option of the check command.");
+  if (command !== "check" && values.phase !== undefined) throw new UsageError("--phase is an option of the check command.");
+  if (command !== "extract" && values.check) throw new UsageError("--check is an option of the extract command.");
   if (command === "check") {
-    if (values.check) throw new UsageError("--check is an option of the extract command.");
     if (values.phase !== undefined && values.phase !== "design" && values.phase !== "implementation") {
       throw new UsageError(`Unknown phase "${values.phase}"; expected design or implementation.`);
     }
-    if (values.phase !== "design") throw new UsageError("The implementation phase is not available yet; run `design check --phase design`.");
   }
 
   const format = values.format ?? "text";
@@ -113,8 +115,15 @@ function run(argv: readonly string[], io: CliIo): number {
   };
 
   if (command === "check") {
-    const report = runDesignCheck(scope);
+    const phase = values.phase === "design" ? "design" : "implementation";
+    // The design phase does not look at source files, so it does not search for them either.
+    const sources = phase === "design" || diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
+    const report = runCheck({ ...scope, sources, testAdapter: config.testAdapter }, phase);
     return print(report, formatCheckReport(report));
+  }
+  if (command === "lock") {
+    const report = runLock(scope);
+    return print(report, formatLockReport(report));
   }
   const report = runExtract(scope, values.check ?? false);
   return print(report, formatExtractReport(report));

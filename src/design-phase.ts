@@ -14,6 +14,7 @@ import {
   readCompilerOptions,
   requireSourceFile,
   syntaxOnlyOptions,
+  type Overlay,
   type TypeScript,
   type TypeScriptInfo,
 } from "./typescript.ts";
@@ -48,6 +49,8 @@ export interface DesignPhaseResult {
    */
   index: DesignIndex | null;
   typescript: TypeScriptInfo;
+  /** The compiler, the project's options and files, and the overlay that holds the generated modules; absent when the tsconfig could not be used. */
+  compiler?: { ts: TypeScript; options: ts.CompilerOptions; fileNames: string[]; overlay: Overlay };
   diagnostics: Diagnostic[];
 }
 
@@ -85,12 +88,7 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
 
   // With an unreadable tsconfig, invalid options or missing global types every other result is unreliable.
   const tsconfig = path.resolve(root, options.tsconfig);
-  const environment = (convert: Converter, found: readonly ts.Diagnostic[]) => {
-    for (const diagnostic of found) {
-      const converted = convert("E_ENVIRONMENT", diagnostic);
-      diagnostics.push({ ...converted, file: converted.file ?? toProjectPath(root, tsconfig), message: `TypeScript configuration: ${converted.message}` });
-    }
-  };
+  const environment = (convert: Converter, found: readonly ts.Diagnostic[]) => diagnostics.push(...environmentDiagnostics(convert, toProjectPath(root, tsconfig), found));
   const setup = readCompilerOptions(ts, tsconfig);
   environment(createConverter(ts, root, undefined, new Map()), setup.errors);
   if (failed()) return done();
@@ -102,6 +100,7 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
   const convert = createConverter(ts, root, overlay.program, origins);
   environment(convert, [...overlay.program.getOptionsDiagnostics(), ...overlay.program.getGlobalDiagnostics()]);
   if (failed()) return done();
+  result.compiler = { ts, options: setup.options, fileNames: setup.fileNames, overlay };
 
   const indexed = indexDesigns(
     ts,
@@ -176,8 +175,16 @@ function readDocuments(root: string, designs: readonly DesignSource[], modules: 
   }
 }
 
+/** Problems of the compiler setup, as diagnostics of the project's tsconfig unless the compiler names another file. */
+export function environmentDiagnostics(convert: Converter, tsconfig: string, found: readonly ts.Diagnostic[]): Diagnostic[] {
+  return found.map((diagnostic) => {
+    const converted = convert("E_ENVIRONMENT", diagnostic);
+    return { ...converted, file: converted.file ?? tsconfig, message: `TypeScript configuration: ${converted.message}` };
+  });
+}
+
 /** Text given to the compiler and the design it was extracted from. */
-interface Origin {
+export interface Origin {
   module: DesignModule;
   extracted: ExtractedText;
 }
@@ -189,14 +196,14 @@ function authoredPosition({ module, extracted }: Origin, offset: number): Positi
 }
 
 type Location = Pick<Diagnostic, "file" | "line" | "column" | "endLine" | "endColumn">;
-type Converter = (code: string, diagnostic: ts.Diagnostic) => Diagnostic;
+export type Converter = (code: string, diagnostic: ts.Diagnostic) => Diagnostic;
 
 /**
  * Converts compiler diagnostics. Positions in extracted text are mapped to
  * the authored MDX; positions that were not copied from a block (header,
  * separators) keep only the document and are marked in the message.
  */
-function createConverter(ts: TypeScript, root: string, program: ts.Program | undefined, origins: ReadonlyMap<ts.SourceFile, Origin>): Converter {
+export function createConverter(ts: TypeScript, root: string, program: ts.Program | undefined, origins: ReadonlyMap<ts.SourceFile, Origin>): Converter {
   const locate = (file: ts.SourceFile | undefined, start: number | undefined, length = 0): Location & { unmapped?: boolean } => {
     if (!file) return {};
     const origin = origins.get(file);
@@ -214,12 +221,17 @@ function createConverter(ts: TypeScript, root: string, program: ts.Program | und
     return to ? { file: origin.module.file, ...from, endLine: to.line, endColumn: to.column } : { file: origin.module.file, ...from };
   };
 
+  // The compiler names a type that is ambiguous by the absolute path of its module; the report keeps paths from the project root.
+  // Only where a path starts: the same characters in the middle of another path are not the project root.
+  const rootPath = new RegExp(`(?<![\\w./-])${`${root.split(path.sep).join("/")}/`.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "g");
+  const text = (message: string | ts.DiagnosticMessageChain) => ts.flattenDiagnosticMessageText(message, "\n").replace(rootPath, "");
+
   return (code, diagnostic) => {
     const { unmapped, ...location } = locate(diagnostic.file, diagnostic.start, diagnostic.length);
-    const message = ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n");
+    const message = text(diagnostic.messageText);
     const related = diagnostic.relatedInformation?.map((info) => {
       const { unmapped: _, ...at } = locate(info.file, info.start, info.length);
-      return { message: ts.flattenDiagnosticMessageText(info.messageText, "\n"), ...at };
+      return { message: text(info.messageText), ...at };
     });
     return {
       code,

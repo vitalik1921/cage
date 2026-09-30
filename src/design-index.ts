@@ -1,8 +1,9 @@
 import type ts from "typescript";
 import type { Diagnostic } from "./diagnostic.ts";
-import { emptyIndex, type Contract, type ContractMember, type DesignIndex, type SourceLocation } from "./design-model.ts";
+import { emptyIndex, type Contract, type ContractMember, type DesignIndex, type LockLevel, type SourceLocation } from "./design-model.ts";
 import { findModuleCycles } from "./graph.ts";
-import { isDocComment, parseDocTags, parseInvariant, parseNames, tagKind, type DocTag } from "./metadata.ts";
+import { collectComments, docCommentBefore, readAllowedTags } from "./doc-comments.ts";
+import { isDocComment, parseDocTags, parseInvariant, parseNames, type DocTag } from "./metadata.ts";
 import type { TypeScript } from "./typescript.ts";
 
 /** The generated module of one design, parsed, with the way back to the MDX. */
@@ -144,39 +145,19 @@ function readDesign(
   const interfaces = new Map<string, "contract" | "data">();
   // Doc comments bound to a declaration that can carry harness tags; every other doc comment must not have any.
   const bound = new Set<number>();
-  /**
-   * Tags of the doc comment directly before a node: only whitespace may separate them. A comment that ends the
-   * line of the previous declaration is about that declaration, and a comment in an earlier block never documents
-   * a later block: neither is bound.
-   */
+  /** Tags of the doc comment directly before a node. A comment in an earlier block never documents a later block. */
   const docTags = (node: ts.Node): DocTag[] => {
-    const start = node.getStart(sourceFile);
-    const last = commentsBefore(ts, text, node.getFullStart()).at(-1);
-    if (!last || !isDocComment(text.slice(last.pos, last.end))) return [];
-    const endsPreviousLine = ts.getTrailingCommentRanges(text, node.getFullStart())?.some((range) => range.pos === last.pos) && /[\r\n]/.test(text.slice(last.end, start));
-    if (endsPreviousLine || design.blockOf(last.pos) !== design.blockOf(start)) return [];
-    bound.add(last.pos);
-    return parseDocTags(text.slice(last.pos, last.end), last.pos);
+    const comment = docCommentBefore(ts, sourceFile, node);
+    if (!comment || design.blockOf(comment.pos) !== design.blockOf(node.getStart(sourceFile))) return [];
+    bound.add(comment.pos);
+    return comment.tags;
   };
   /** A rejected declaration is one mistake: the tags inside it are not reported as misplaced on top of it. */
   const bindDocsWithin = (node: ts.Node) => {
     for (const comment of comments) if (comment.pos >= node.getStart(sourceFile) && comment.end <= node.getEnd()) bound.add(comment.pos);
   };
 
-  /** Checks the tags of one declaration against the tags allowed there and returns the allowed ones by name. */
-  const readTags = (tags: readonly DocTag[], allowed: readonly string[], where: string): Map<string, DocTag[]> => {
-    const byName = new Map<string, DocTag[]>();
-    for (const tag of tags) {
-      const kind = tagKind(tag.name);
-      if (kind === "standard" || /^ts-/i.test(tag.name)) continue;
-      if (kind === "unknown") report("E_UNKNOWN_TAG", `Unknown tag \`@${tag.name}\`.`, tag.start);
-      else if (kind === "unsupported") report("E_UNSUPPORTED_TAG", `\`@${tag.name}\` is not supported.`, tag.start);
-      else if (!allowed.includes(tag.name)) report("E_TAG_LOCATION", `\`@${tag.name}\` is not allowed ${where}.`, tag.start);
-      else if (tag.suffix !== "") report("E_TAG_FORMAT", `\`@${tag.name}${tag.suffix}\`: a space must follow the tag name.`, tag.start);
-      else byName.set(tag.name, [...(byName.get(tag.name) ?? []), tag]);
-    }
-    return byName;
-  };
+  const readTags = (tags: readonly DocTag[], allowed: readonly string[], where: string) => readAllowedTags(tags, allowed, where, report);
 
   /** `@description`: at most one, with a text. Returns null when there is none or it is invalid. */
   const readDescription = (tags: ReadonlyMap<string, DocTag[]>): string | null => {
@@ -209,7 +190,7 @@ function readDesign(
     }
   };
 
-  const readContract = (declaration: ts.InterfaceDeclaration, tags: ReadonlyMap<string, DocTag[]>, description: string | null) => {
+  const readContract = (declaration: ts.InterfaceDeclaration, tags: ReadonlyMap<string, DocTag[]>, description: string | null, lock: LockLevel | null) => {
     const name = declaration.name.text;
     const unsupported = (what: string, node: ts.Node) =>
       report("E_UNSUPPORTED_DECLARATION", `Contract "${name}": ${what}.`, node.getStart(sourceFile), { contract: name });
@@ -256,6 +237,7 @@ function readDesign(
       description,
       shape: calls.length > 0 ? "callable" : "object",
       members,
+      lock,
       location: design.locate(declaration.name.getStart(sourceFile)),
     };
     index.contracts.push(contract);
@@ -280,9 +262,11 @@ function readDesign(
 
     const all = docTags(declaration);
     const isContract = all.some((tag) => tag.name === "contract");
+    // Without a marker nobody knows yet what the declaration is: its other tags are not judged as those of a data type.
+    const isData = all.some((tag) => tag.name === "data");
     const tags = readTags(
       all,
-      isContract ? ["contract", "data", "description", "uses", "invariant"] : ["contract", "data", "description"],
+      isContract || !isData ? ["contract", "data", "description", "uses", "invariant", "final", "extendable"] : ["contract", "data", "description", "final", "extendable"],
       isContract ? "on a contract" : "on a data type",
     );
     const markers = [...(tags.get("contract") ?? []), ...(tags.get("data") ?? [])];
@@ -312,14 +296,74 @@ function readDesign(
         return;
       }
     }
+    const lock = readLock(declaration, tags);
     if (!isContract) {
-      index.data.push({ name, module: moduleId, description, location: design.locate(at) });
+      index.data.push({ name, module: moduleId, description, lock, location: design.locate(at) });
     } else if (ts.isInterfaceDeclaration(declaration)) {
-      readContract(declaration, tags, description);
+      readContract(declaration, tags, description, lock);
     } else {
       report("E_UNSUPPORTED_DECLARATION", `Contract "${name}" must be an interface.`, at);
       bindDocsWithin(declaration);
+      return;
     }
+    if (lock) {
+      index.locked.push({ name, module: moduleId, kind: isContract ? "contract" : "data", level: lock, members: signaturesOf(declaration), location: design.locate(at) });
+    }
+  };
+
+  /** `@final` or `@extendable`: at most one of them, without text. */
+  const readLock = (declaration: ts.InterfaceDeclaration | ts.TypeAliasDeclaration, tags: ReadonlyMap<string, DocTag[]>): LockLevel | null => {
+    const [first, second] = [...(tags.get("final") ?? []), ...(tags.get("extendable") ?? [])].sort((a, b) => a.start - b.start);
+    if (!first) return null;
+    if (second) {
+      report("E_TAG_FORMAT", "A declaration is either `@final` or `@extendable`, and says so once.", second.start);
+      return null;
+    }
+    if (first.text !== "") {
+      report("E_TAG_FORMAT", `\`@${first.name}\` takes no text.`, first.start);
+      return null;
+    }
+    if (first.name === "extendable" && !ts.isInterfaceDeclaration(declaration)) {
+      report("E_TAG_LOCATION", "`@extendable` needs an interface: a type alias has no members to add to. Use `@final`, or declare an interface.", first.start);
+      return null;
+    }
+    return first.name as LockLevel;
+  };
+
+  // A signature is recorded as the printer writes it, on one line: layout, separators and comments of the document
+  // do not matter, nor does the quote style of a string literal; what is inside a literal is kept as it is.
+  const printer = ts.createPrinter({ removeComments: true });
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, true);
+  const print = (node: ts.Node): string => {
+    scanner.setText(printer.printNode(ts.EmitHint.Unspecified, node, sourceFile));
+    let text = "";
+    let end = 0;
+    for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
+      if (text !== "" && scanner.getTokenStart() > end) text += " ";
+      text += token === ts.SyntaxKind.StringLiteral ? JSON.stringify(scanner.getTokenValue()) : scanner.getTokenText();
+      end = scanner.getTokenEnd();
+    }
+    return text;
+  };
+  /**
+   * Members by name. What is not a named member has a key that no name can be: `:type` for the type of an alias,
+   * `:call`, `:construct` and `:index` for such signatures, `:type-parameters` and `:extends` for the declaration.
+   */
+  const signaturesOf = (declaration: ts.InterfaceDeclaration | ts.TypeAliasDeclaration): Record<string, string> => {
+    const signatures = new Map<string, string>();
+    const add = (key: string, text: string) => signatures.set(key, signatures.has(key) ? `${signatures.get(key)} ${text}` : text);
+    if (declaration.typeParameters) add(":type-parameters", declaration.typeParameters.map(print).join(", "));
+    if (ts.isTypeAliasDeclaration(declaration)) {
+      add(":type", print(declaration.type));
+    } else {
+      for (const clause of declaration.heritageClauses ?? []) add(":extends", print(clause));
+      for (const member of declaration.members) {
+        const key = member.name ? print(member.name) : ts.isCallSignatureDeclaration(member) ? ":call" : ts.isConstructSignatureDeclaration(member) ? ":construct" : ":index";
+        add(key, print(member));
+      }
+    }
+    // Built from entries, so that a member called `__proto__` or `toString` is an ordinary key.
+    return Object.fromEntries(signatures);
   };
 
   const readImport = (declaration: ts.ImportDeclaration) => {
@@ -365,24 +409,4 @@ function readDesign(
     if (bound.has(comment.pos) || !isDocComment(commentText)) continue;
     readTags(parseDocTags(commentText, comment.pos), [], "here: it must be in the doc comment right before a contract, a data type or a contract method");
   }
-}
-
-/** The comments between the previous token and `position`, where a token or the end of the file starts. */
-function commentsBefore(ts: TypeScript, text: string, position: number): ts.CommentRange[] {
-  // "Trailing" comments are those on the line of the previous token, "leading" ones the rest.
-  return [...(ts.getTrailingCommentRanges(text, position) ?? []), ...(ts.getLeadingCommentRanges(text, position) ?? [])];
-}
-
-/** Every comment of a file. Comments are trivia of tokens, so each one precedes a token or the end of the file. */
-function collectComments(ts: TypeScript, sourceFile: ts.SourceFile): ts.CommentRange[] {
-  const text = sourceFile.text;
-  const comments = new Map<number, ts.CommentRange>();
-  const visit = (node: ts.Node) => {
-    // A doc comment is itself a child node of what it precedes; its content is not tokens of the program.
-    if (ts.isJSDoc(node)) return;
-    if (ts.isToken(node)) for (const range of commentsBefore(ts, text, node.getFullStart())) comments.set(range.pos, range);
-    node.getChildren(sourceFile).forEach(visit);
-  };
-  visit(sourceFile);
-  return [...comments.values()].sort((a, b) => a.pos - b.pos);
 }

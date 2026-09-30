@@ -1,54 +1,78 @@
 import path from "node:path";
-import { checkDesignPhase, type DesignPhaseOptions } from "./design-phase.ts";
-import { hasErrors, type Diagnostic } from "./diagnostic.ts";
+import { checkDesignPhase } from "./design-phase.ts";
+import { compareDiagnostics, hasErrors, type Diagnostic } from "./diagnostic.ts";
+import { checkImplementationPhase, testsLinkedTo, type GeneratedArtifact, type ImplementationPhaseOptions, type ImplementationPhaseResult } from "./implementation-phase.ts";
 import { toProjectPath } from "./location.ts";
-import type { TypeScriptInfo } from "./typescript.ts";
+import { compareLocks, readLockFile } from "./locks.ts";
+import { readStrictOptions, type StrictOptions, type TypeScriptInfo } from "./typescript.ts";
+
+export type Phase = "design" | "implementation";
 
 /**
- * The report of `design check --phase design`. What was not looked at is
- * `null` or "not-checked", never 0 or "current": "not checked" is not "not
- * found". This phase never looks at generated files, implementations and
- * tests; contracts are not counted when an error stopped the check before
+ * The report of `design check`. What was not looked at is `null` or
+ * "not-checked", never 0 or "current": "not checked" is not "not found". The
+ * design phase never looks at generated files, implementations and tests,
+ * and the implementation phase does not get to them when a design has
+ * errors; contracts are not counted when an error stopped the check before
  * the designs were indexed.
+ *
+ * A linked test declaration says that a test tagged with the invariant
+ * exists. It does not say that the test ran, passed or checks the right thing.
  */
 export interface CheckReport {
   schemaVersion: 1;
   command: "check";
-  phase: "design";
+  phase: Phase;
   ok: boolean;
-  scope: { tsconfig: string; designFiles: string[]; typescript: TypeScriptInfo };
-  generatedArtifacts: { source: string; file: string; status: "not-checked" }[];
+  scope: { tsconfig: string; designFiles: string[]; typescript: TypeScriptInfo; compilerOptions: StrictOptions | null };
+  generatedArtifacts: { source: string; file: string; status: "not-checked" | GeneratedArtifact["status"] }[];
   counts: {
     contracts: number | null;
     data: number | null;
     invariants: number | null;
-    implementations: null;
-    testDeclarations: null;
-    linkedInvariants: null;
+    implementations: number | null;
+    testDeclarations: number | null;
+    linkedInvariants: number | null;
   };
-  invariants: { contract: string; id: string; member: string | null; linkedTestCount: null }[] | null;
+  invariants: { contract: string; id: string; member: string | null; linkedTestCount: number | null }[] | null;
   diagnostics: Diagnostic[];
 }
 
-export function runDesignCheck(options: DesignPhaseOptions): CheckReport {
+export function runCheck(options: ImplementationPhaseOptions, phase: Phase): CheckReport {
   const root = path.resolve(options.root);
-  const { modules, index, typescript, diagnostics } = checkDesignPhase(options);
+  const result: ImplementationPhaseResult = phase === "design" ? { ...checkDesignPhase(options), artifacts: null, linking: null } : checkImplementationPhase(options);
+  const { modules, index, artifacts, linking, typescript, compiler, diagnostics } = result;
+  // Locks are compared with designs that are sound: a rejected declaration would look like a lock that was lifted.
+  const designsAreSound = phase === "design" ? !hasErrors(diagnostics) : artifacts !== null;
+  if (index && designsAreSound) {
+    const lockFile = readLockFile(root);
+    const { violations, unrecorded } = lockFile.diagnostics.length > 0 ? { violations: lockFile.diagnostics, unrecorded: [] } : compareLocks(index, lockFile.entries);
+    diagnostics.push(...violations, ...unrecorded);
+    diagnostics.sort(compareDiagnostics);
+  }
+  const linkedTestCount = (contract: string, id: string) => (linking ? testsLinkedTo(linking.tests, contract, id).length : null);
+  const invariants = index?.invariants.map(({ contract, id, member }) => ({ contract, id, member, linkedTestCount: linkedTestCount(contract, id) })) ?? null;
   return {
     schemaVersion: 1,
     command: "check",
-    phase: "design",
+    phase,
     ok: !hasErrors(diagnostics),
-    scope: { tsconfig: options.tsconfig, designFiles: options.designs.map((design) => toProjectPath(root, design.sourceFile)), typescript },
-    generatedArtifacts: modules.map((module) => ({ source: module.file, file: module.generatedPath, status: "not-checked" })),
+    scope: {
+      tsconfig: options.tsconfig,
+      designFiles: options.designs.map((design) => toProjectPath(root, design.sourceFile)),
+      typescript,
+      compilerOptions: compiler ? readStrictOptions(compiler.ts, compiler.options) : null,
+    },
+    generatedArtifacts: artifacts ?? modules.map((module) => ({ source: module.file, file: module.generatedPath, status: "not-checked" })),
     counts: {
       contracts: index?.contracts.length ?? null,
       data: index?.data.length ?? null,
       invariants: index?.invariants.length ?? null,
-      implementations: null,
-      testDeclarations: null,
-      linkedInvariants: null,
+      implementations: linking?.implementations.length ?? null,
+      testDeclarations: linking?.tests.length ?? null,
+      linkedInvariants: linking && invariants ? invariants.filter((invariant) => invariant.linkedTestCount !== 0).length : null,
     },
-    invariants: index?.invariants.map(({ contract, id, member }) => ({ contract, id, member, linkedTestCount: null })) ?? null,
+    invariants,
     diagnostics,
   };
 }

@@ -33,7 +33,12 @@ test("check --phase design reports the plan fixture: 3 contracts, 1 data type, 8
     command: "check",
     phase: "design",
     ok: true,
-    scope: { tsconfig: "tsconfig.json", designFiles: [CAMPAIGNS, MAIL, QUOTA], typescript: { version: "6.0.3", source: "project" } },
+    scope: {
+      tsconfig: "tsconfig.json",
+      designFiles: [CAMPAIGNS, MAIL, QUOTA],
+      typescript: { version: "6.0.3", source: "project" },
+      compilerOptions: { strictNullChecks: true, strictFunctionTypes: true, noImplicitAny: true },
+    },
     // This phase does not look at generated files, implementations or tests: "not checked" is not "none".
     generatedArtifacts: [CAMPAIGNS, MAIL, QUOTA].map((source) => ({ source, file: generated(source), status: "not-checked" })),
     counts: { contracts: 3, data: 1, invariants: 8, implementations: null, testDeclarations: null, linkedInvariants: null },
@@ -226,4 +231,192 @@ test("a project TypeScript that cannot be loaded does not stop the check", (t) =
   assert.equal(code, 2);
   assert.equal(stderr, "");
   assert.deepEqual(JSON.parse(stdout).diagnostics.map((diagnostic: { code: string }) => diagnostic.code), ["E_CONFIG"]);
+});
+
+function fullCheck(root: string, ...args: string[]): { code: number; report: CheckReport } {
+  const { code, stdout, stderr } = cli(root, "check", "--format", "json", ...args);
+  assert.equal(stderr, "");
+  return { code, report: JSON.parse(stdout) };
+}
+
+const linked = (report: CheckReport) => Object.fromEntries((report.invariants ?? []).map(({ contract, id, linkedTestCount }) => [`${contract}: ${id}`, linkedTestCount]));
+
+test("check reports the whole plan fixture: 3 current outputs, 3 implementations, 8 linked invariants", (t) => {
+  const root = copyFixture(t, "vertical");
+  assert.equal(cli(root, "extract").code, 0);
+  const before = snapshot(root);
+
+  const { code, report } = fullCheck(root);
+  assert.equal(code, 0);
+  assert.equal(report.phase, "implementation");
+  assert.equal(report.ok, true);
+  assert.deepEqual(report.generatedArtifacts, [CAMPAIGNS, MAIL, QUOTA].map((source) => ({ source, file: generated(source), status: "current" })));
+  assert.deepEqual(report.counts, { contracts: 3, data: 1, invariants: 8, implementations: 3, testDeclarations: 8, linkedInvariants: 8 });
+  assert.deepEqual(linked(report), {
+    "Send: quota": 1,
+    "Send: limit": 1,
+    "Send: quota-error": 1,
+    "Send: sender-error": 1,
+    "Quota: accounts": 1,
+    "Quota: empty": 1,
+    "Quota: consume": 1,
+    "Quota: race": 1,
+  });
+  assert.deepEqual(report.scope.compilerOptions, { strictNullChecks: true, strictFunctionTypes: true, noImplicitAny: true });
+  assert.deepEqual(report.diagnostics.map((diagnostic) => diagnostic.code), ["W_NO_INVARIANTS"]);
+  // Nothing in the report claims that a test ran or passed.
+  assert.doesNotMatch(JSON.stringify(report), /passed|failed|proven|testRunStatus/);
+  assert.deepEqual(snapshot(root), before);
+
+  assert.equal(
+    cli(root, "check").stdout,
+    [
+      senderWarning(),
+      "check: 3 designs, 3 contracts, 1 data type, 8 invariants, 3 implementations, 8 test declarations, 8 of 8 invariants linked to a test declaration; 0 errors, 1 warning. TypeScript 6.0.3 (project).",
+      "",
+    ].join("\n"),
+  );
+  assert.equal(cli(root, "check", "--phase", "implementation").stdout, cli(root, "check").stdout);
+});
+
+test("check requires current generated files; the design phase does not", (t) => {
+  const root = copyFixture(t, "vertical");
+  assert.equal(check(root).code, 0);
+
+  const missing = fullCheck(root);
+  assert.equal(missing.code, 1);
+  assert.deepEqual(missing.report.generatedArtifacts.map((artifact) => artifact.status), ["missing", "missing", "missing"]);
+  assert.deepEqual(missing.report.diagnostics.filter(isError).map(({ code, file }) => ({ code, file })), [CAMPAIGNS, MAIL, QUOTA].map((source) => ({ code: "E_GENERATED_MISSING", file: generated(source) })));
+  // The links are still checked, against the designs as they are now.
+  assert.deepEqual(missing.report.counts, { contracts: 3, data: 1, invariants: 8, implementations: 3, testDeclarations: 8, linkedInvariants: 8 });
+});
+
+test("a stale generated file with the old, fitting type does not hide a mismatch with the design as it is now", (t) => {
+  const root = copyFixture(t, "vertical");
+  assert.equal(cli(root, "extract").code, 0);
+  editFile(root, QUOTA, (s) => s.replace("take(accountId: AccountId): Promise<boolean>;", "take(accountId: AccountId): Promise<number>;"));
+
+  const { code, report } = fullCheck(root);
+  assert.equal(code, 1);
+  assert.deepEqual(
+    report.diagnostics.filter(isError).map(({ code, file, contract }) => ({ code, file, contract })),
+    [
+      // SendService passes the quota it is given on: with the new contract its `if` still type-checks.
+      { code: "E_GENERATED_STALE", file: generated(QUOTA), contract: undefined },
+      { code: "E_TYPE_MISMATCH", file: "src/modules/quota/memory-quota.ts", contract: "Quota" },
+    ],
+  );
+  assert.equal(report.generatedArtifacts.find((artifact) => artifact.source === QUOTA)?.status, "stale");
+});
+
+test("an invariant without a test and a contract without an implementation are errors of check, not of the design phase", (t) => {
+  const root = copyFixture(t, "vertical");
+  assert.equal(cli(root, "extract").code, 0);
+  editFile(root, "src/modules/quota/quota.test.ts", (s) => s.replace("/** @covers race */", ""));
+  editFile(root, "src/modules/mail/callback-sender.ts", (s) => s.replace("/** @implements Sender */", ""));
+
+  assert.equal(check(root).code, 0);
+  const { code, report } = fullCheck(root);
+  assert.equal(code, 1);
+  assert.deepEqual(
+    report.diagnostics.filter(isError).map(({ code, contract, invariant, ...rest }) => ({ code, contract, invariant, file: rest.file, line: rest.line, column: rest.column })),
+    [
+      { code: "E_IMPLEMENTATION_MISSING", contract: "Sender", invariant: undefined, ...inFixture(MAIL, "Sender {") },
+      { code: "E_TEST_MISSING", contract: "Quota", invariant: "race", ...inFixture(QUOTA, "@invariant race") },
+    ],
+  );
+  assert.equal(linked(report)["Quota: race"], 0);
+  assert.deepEqual(report.counts, { contracts: 3, data: 1, invariants: 8, implementations: 2, testDeclarations: 8, linkedInvariants: 7 });
+  // The class that lost its tag is now also code that no design covers.
+  const sender = inFixture("src/modules/mail/callback-sender.ts", "CallbackSender");
+  assert.ok(cli(root, "check").stdout.includes(`${sender.file}:${sender.line}:${sender.column}: warning W_NOT_DESIGNED: Exported class "CallbackSender"`));
+  assert.match(cli(root, "check").stdout, /2 implementations, 8 test declarations, 7 of 8 invariants linked to a test declaration; 2 errors, 2 warnings\./);
+});
+
+test("with an error in a design nothing beyond the designs is checked, and the report says so", (t) => {
+  const root = copyFixture(t, "vertical");
+  editFile(root, MAIL, (s) => s.replace("send(text: string)", "send(text: Txt)"));
+
+  const { code, report } = fullCheck(root);
+  assert.equal(code, 1);
+  assert.deepEqual(report.diagnostics.filter(isError).map((diagnostic) => diagnostic.code), ["E_TYPESCRIPT"]);
+  assert.deepEqual(report.generatedArtifacts.map((artifact) => artifact.status), ["not-checked", "not-checked", "not-checked"]);
+  assert.deepEqual(report.counts, { contracts: 3, data: 1, invariants: 8, implementations: null, testDeclarations: null, linkedInvariants: null });
+  assert.deepEqual([...new Set(Object.values(linked(report)))], [null]);
+  assert.match(cli(root, "check").stdout, /8 invariants, implementations and tests not checked; 1 error, 1 warning\./);
+});
+
+test("weakened compiler options are a warning, with the effective values in the report", (t) => {
+  const root = copyFixture(t, "vertical");
+  assert.equal(cli(root, "extract").code, 0);
+  editFile(root, "tsconfig.json", (s) => s.replace('"strict": true,', '"strict": true,\n    "strictNullChecks": false,\n    "noImplicitAny": false,'));
+  // However the configuration spells the path, the report names the file from the project root.
+  writeFile(root, ".design/config.json", '{ "version": 1, "tsconfig": "./src/../tsconfig.json" }');
+
+  const { code, report } = fullCheck(root);
+  assert.equal(code, 0);
+  assert.deepEqual(report.scope.compilerOptions, { strictNullChecks: false, strictFunctionTypes: true, noImplicitAny: false });
+  assert.deepEqual(
+    report.diagnostics.filter((diagnostic) => diagnostic.code === "W_WEAK_TYPECHECK"),
+    [
+      {
+        code: "W_WEAK_TYPECHECK",
+        severity: "warning",
+        message: "The project's compiler options weaken the comparison of implementations with contracts: strictNullChecks, noImplicitAny are off.",
+        file: "tsconfig.json",
+      },
+    ],
+  );
+  // The design phase compares no implementations, so it does not warn; it still reports the values.
+  assert.deepEqual(check(root).report.diagnostics.map((diagnostic) => diagnostic.code), ["W_NO_INVARIANTS"]);
+  assert.deepEqual(check(root).report.scope.compilerOptions, report.scope.compilerOptions);
+});
+
+test("under TypeScript 5 `strict` is off unless the project turns it on", (t) => {
+  const root = copyFixture(t, "vertical");
+  installTypeScript5(root);
+  assert.equal(cli(root, "extract").code, 0);
+
+  const strict = fullCheck(root);
+  assert.equal(strict.code, 0);
+  assert.deepEqual(strict.report.scope.typescript, { version: "5.9.3", source: "project" });
+  assert.deepEqual(strict.report.counts, { contracts: 3, data: 1, invariants: 8, implementations: 3, testDeclarations: 8, linkedInvariants: 8 });
+  assert.deepEqual(strict.report.diagnostics.map((diagnostic) => diagnostic.code), ["W_NO_INVARIANTS"]);
+
+  editFile(root, "tsconfig.json", (s) => s.replace('"strict": true,', ""));
+  const loose = fullCheck(root);
+  assert.deepEqual(loose.report.scope.compilerOptions, { strictNullChecks: false, strictFunctionTypes: false, noImplicitAny: false });
+  assert.deepEqual(loose.report.diagnostics.map((diagnostic) => diagnostic.code), ["W_NO_INVARIANTS", "W_WEAK_TYPECHECK"]);
+});
+
+test("files that cannot be read are environment errors in the report, not a crash", { skip: process.getuid?.() === 0 }, (t) => {
+  const root = copyFixture(t, "vertical");
+  assert.equal(cli(root, "extract").code, 0);
+  const locked = [generated(MAIL), "src/modules/quota/quota.test.ts"];
+  for (const file of locked) fs.chmodSync(path.join(root, file), 0o000);
+  try {
+    const { code, report } = fullCheck(root);
+    assert.equal(code, 2);
+    // The test file is also one of the project's files, so the compiler reports it as well, through the tsconfig.
+    assert.deepEqual(
+      report.diagnostics.filter((diagnostic) => diagnostic.code === "E_ENVIRONMENT").map((diagnostic) => diagnostic.file),
+      [...locked, "tsconfig.json"],
+    );
+    assert.equal(report.generatedArtifacts.find((artifact) => artifact.file === generated(MAIL))?.status, "failed");
+  } finally {
+    for (const file of locked) fs.chmodSync(path.join(root, file), 0o644);
+  }
+});
+
+test("a tsconfig problem that shows only with the project's files is an environment error", (t) => {
+  const root = copyFixture(t, "vertical");
+  assert.equal(cli(root, "extract").code, 0);
+  editFile(root, "tsconfig.json", (s) => s.replace('"include": ["src/**/*.ts"]', '"files": ["src/missing.ts"]'));
+
+  // The design phase compiles the designs alone and does not see it.
+  assert.equal(check(root).code, 0);
+  const { code, report } = fullCheck(root);
+  assert.equal(code, 2);
+  assert.deepEqual(report.diagnostics.filter(isError).map(({ code, tsCode, file }) => ({ code, tsCode, file })), [{ code: "E_ENVIRONMENT", tsCode: 6053, file: "tsconfig.json" }]);
+  assert.deepEqual(report.counts.implementations, null);
 });

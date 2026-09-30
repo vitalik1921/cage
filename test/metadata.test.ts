@@ -55,8 +55,8 @@ test("one-line doc comments and CRLF comments are read the same way", () => {
 
 test("tag kinds are case-sensitive", () => {
   assert.deepEqual(
-    ["contract", "covers", "param", "typeParam", "name", "final", "Contract", "todo"].map(tagKind),
-    ["harness", "harness", "standard", "standard", "unsupported", "unsupported", "unknown", "unknown"],
+    ["contract", "covers", "final", "extendable", "param", "typeParam", "name", "open", "Contract", "todo"].map(tagKind),
+    ["harness", "harness", "harness", "harness", "standard", "standard", "unsupported", "unsupported", "unknown", "unknown"],
   );
 });
 

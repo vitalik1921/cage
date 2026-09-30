@@ -64,6 +64,8 @@ function isInstalledIn(root: string, require: NodeJS.Require): boolean {
 
 export interface CompilerSetup {
   options: ts.CompilerOptions;
+  /** The files of the project: what its tsconfig includes. */
+  fileNames: string[];
   errors: readonly ts.Diagnostic[];
 }
 
@@ -82,35 +84,62 @@ export function readCompilerOptions(ts: TypeScript, tsconfigFile: string): Compi
     ...ts.sys,
     onUnRecoverableConfigFileDiagnostic: (diagnostic) => unrecoverable.push(diagnostic),
   });
-  if (!parsed) return { options: {}, errors: unrecoverable };
+  if (!parsed) return { options: {}, fileNames: [], errors: unrecoverable };
   // TS18003 "No inputs were found": program roots are passed explicitly, not taken from `include`.
   const errors = parsed.errors.filter((diagnostic) => diagnostic.code !== 18003);
   const options: ts.CompilerOptions = { ...parsed.options, noEmit: true, rootDir: undefined, noCheck: undefined };
   if (ts.versionMajorMinor.startsWith("6.")) options.ignoreDeprecations = "6.0";
-  return { options, errors };
+  return { options, fileNames: parsed.fileNames, errors };
+}
+
+/** The three options that decide how much a comparison of types is worth. */
+export interface StrictOptions {
+  strictNullChecks: boolean;
+  strictFunctionTypes: boolean;
+  noImplicitAny: boolean;
+}
+
+/** The effective values: given explicitly, or through `strict`, which TypeScript 6 turns on by default. */
+export function readStrictOptions(ts: TypeScript, options: ts.CompilerOptions): StrictOptions {
+  const on = (value: boolean | undefined) => value ?? options.strict ?? !ts.versionMajorMinor.startsWith("5.");
+  return { strictNullChecks: on(options.strictNullChecks), strictFunctionTypes: on(options.strictFunctionTypes), noImplicitAny: on(options.noImplicitAny) };
 }
 
 /** Parses files on their own: no library, no module resolution, no type information. */
 export const syntaxOnlyOptions: ts.CompilerOptions = { noLib: true, noResolve: true, noEmit: true, types: [] };
 
-export interface OverlayProgram {
-  program: ts.Program;
+export interface Overlay {
+  /** Adds in-memory files; they take part in programs created afterwards. */
+  add(files: ReadonlyMap<string, string>): void;
+  /** A program with the given roots; nothing is emitted. Files parsed for an earlier program of this overlay are reused. */
+  createProgram(rootNames: readonly string[]): ts.Program;
   /** Resolves a module specifier the way the program does; undefined when it does not resolve. */
-  resolveModule: (specifier: ts.StringLiteralLike, from: ts.SourceFile) => string | undefined;
-  /** Whether two paths name the same file for this program. */
-  sameFile: (a: string, b: string) => boolean;
+  resolveModule(specifier: ts.StringLiteralLike, from: ts.SourceFile): string | undefined;
+  /** Resolves a specifier as if written in `fromFile`, which need not exist or be parsed. */
+  resolveFrom(specifier: string, fromFile: string): string | undefined;
+  /** Whether two paths name the same file for the compiler. */
+  sameFile(a: string, b: string): boolean;
 }
 
 /**
- * A program whose roots are the `overlay` texts, served in place of the disk:
- * the files need not exist, and a stale file on disk is never read instead of
- * them. File existence, reads and module resolution all go through the overlay.
+ * A compiler host that serves in-memory texts in place of the disk: the
+ * files need not exist, and a stale file on disk is never read instead of
+ * them. File existence, reads and module resolution all go through it.
  */
-export function createOverlayProgram(ts: TypeScript, options: ts.CompilerOptions, overlay: ReadonlyMap<string, string>): OverlayProgram {
+export function createOverlay(ts: TypeScript, options: ts.CompilerOptions, initial: ReadonlyMap<string, string>): Overlay {
   const base = ts.createCompilerHost(options, true);
   const key = (fileName: string) => base.getCanonicalFileName(path.resolve(fileName));
-  const files = new Map([...overlay].map(([fileName, text]) => [key(fileName), text]));
+  const files = new Map<string, string>();
+  // The library and the project's files are the same for every program of one run: parse them once.
+  const parsed = new Map<string, ts.SourceFile>();
   const overlayText = (fileName: string) => files.get(key(fileName));
+  const add = (added: ReadonlyMap<string, string>) => {
+    for (const [fileName, text] of added) {
+      files.set(key(fileName), text);
+      parsed.delete(key(fileName));
+    }
+  };
+  add(initial);
 
   const host: ts.CompilerHost = {
     ...base,
@@ -118,19 +147,31 @@ export function createOverlayProgram(ts: TypeScript, options: ts.CompilerOptions
     readFile: (fileName) => overlayText(fileName) ?? base.readFile(fileName),
     realpath: (fileName) => (overlayText(fileName) !== undefined ? fileName : (base.realpath?.(fileName) ?? fileName)),
     getSourceFile: (fileName, languageVersion, onError, shouldCreateNewSourceFile) => {
+      const cached = parsed.get(key(fileName));
+      if (cached) return cached;
       const text = overlayText(fileName);
-      return text === undefined
-        ? base.getSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile)
-        : ts.createSourceFile(fileName, text, languageVersion, true);
+      const sourceFile =
+        text === undefined ? base.getSourceFile(fileName, languageVersion, onError, shouldCreateNewSourceFile) : ts.createSourceFile(fileName, text, languageVersion, true);
+      // A file that could not be read is not remembered: the next program asks again and gets the reason.
+      if (sourceFile) parsed.set(key(fileName), sourceFile);
+      return sourceFile;
     },
   };
+  const resolve = (specifier: string, fromFile: string, mode: ts.ResolutionMode) =>
+    ts.resolveModuleName(specifier, fromFile, options, host, undefined, undefined, mode).resolvedModule?.resolvedFileName;
   return {
-    program: ts.createProgram({ rootNames: [...overlay.keys()], options, host }),
-    resolveModule: (specifier, from) =>
-      ts.resolveModuleName(specifier.text, from.fileName, options, host, undefined, undefined, ts.getModeForUsageLocation(from, specifier, options))
-        .resolvedModule?.resolvedFileName,
+    add,
+    createProgram: (rootNames) => ts.createProgram({ rootNames, options, host }),
+    resolveModule: (specifier, from) => resolve(specifier.text, from.fileName, ts.getModeForUsageLocation(from, specifier, options)),
+    resolveFrom: (specifier, fromFile) => resolve(specifier, fromFile, ts.getImpliedNodeFormatForFile(fromFile, undefined, host, options)),
     sameFile: (a, b) => key(a) === key(b),
   };
+}
+
+/** A program whose roots are the given in-memory texts. */
+export function createOverlayProgram(ts: TypeScript, options: ts.CompilerOptions, files: ReadonlyMap<string, string>): Overlay & { program: ts.Program } {
+  const overlay = createOverlay(ts, options, files);
+  return { ...overlay, program: overlay.createProgram([...files.keys()]) };
 }
 
 export function requireSourceFile(program: ts.Program, fileName: string): ts.SourceFile {
