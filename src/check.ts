@@ -1,5 +1,6 @@
 import path from "node:path";
 import { checkDesignPhase } from "./design-phase.ts";
+import type { Edge, LockLevel, SourceLocation } from "./design-model.ts";
 import { compareDiagnostics, hasErrors, type Diagnostic } from "./diagnostic.ts";
 import { checkImplementationPhase, testsLinkedTo, type GeneratedArtifact, type ImplementationPhaseOptions, type ImplementationPhaseResult } from "./implementation-phase.ts";
 import { toProjectPath } from "./location.ts";
@@ -37,6 +38,27 @@ export interface CheckReport {
     linkedInvariants: number | null;
   };
   invariants: { contract: string; id: string; member: string | null; linkedTestCount: number | null }[] | null;
+  /**
+   * What the designs declare, for a tool or an agent that needs the index
+   * rather than the documents: contracts with their members, locks and
+   * implementations, data types, and the declared dependencies between
+   * modules. `implementations` is null when they were not checked. Null as a
+   * whole when the designs were not indexed.
+   */
+  index: {
+    contracts: {
+      name: string;
+      module: string;
+      description: string | null;
+      shape: "object" | "callable";
+      lock: LockLevel | null;
+      members: { name: string; description: string | null; location: SourceLocation }[];
+      implementations: { name: string; kind: "class" | "function" | "const"; compatible: boolean; location: SourceLocation }[] | null;
+      location: SourceLocation;
+    }[];
+    data: { name: string; module: string; description: string | null; lock: LockLevel | null; location: SourceLocation }[];
+    edges: Edge[];
+  } | null;
   diagnostics: Diagnostic[];
 }
 
@@ -96,6 +118,22 @@ export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lo
       linkedInvariants: linking && invariants ? invariants.filter((invariant) => invariant.linkedTestCount !== 0).length : null,
     },
     invariants,
+    index: index
+      ? {
+          contracts: index.contracts.map(({ name, module, description, shape, lock, members, location }) => ({
+            name,
+            module,
+            description,
+            shape,
+            lock,
+            members,
+            implementations: linking ? linking.implementations.filter((implementation) => implementation.contract === name).map(({ name: implementation, kind, compatible, location: at }) => ({ name: implementation, kind, compatible, location: at })) : null,
+            location,
+          })),
+          data: index.data.map(({ name, module, description, lock, location }) => ({ name, module, description, lock, location })),
+          edges: index.edges,
+        }
+      : null,
     diagnostics,
   };
 }

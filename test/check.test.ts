@@ -53,6 +53,46 @@ test("check --phase design reports the plan fixture: 3 contracts, 1 data type, 8
       { contract: "Quota", id: "consume", member: "take", linkedTestCount: null },
       { contract: "Quota", id: "race", member: "take", linkedTestCount: null },
     ],
+    index: {
+      contracts: [
+        {
+          name: "Send",
+          module: "src/modules/campaigns",
+          description: "Виконує одну спробу відправлення за наявності квоти.",
+          shape: "object",
+          lock: null,
+          members: [{ name: "run", description: "Отримує квоту та передає повідомлення відправнику.", location: inFixture(CAMPAIGNS, "run(") }],
+          implementations: null,
+          location: inFixture(CAMPAIGNS, "Send {"),
+        },
+        {
+          name: "Sender",
+          module: "src/modules/mail",
+          description: "Порт передачі текстового повідомлення обраному транспорту.",
+          shape: "object",
+          lock: null,
+          members: [{ name: "send", description: null, location: inFixture(MAIL, "send(") }],
+          implementations: null,
+          location: inFixture(MAIL, "Sender {"),
+        },
+        {
+          name: "Quota",
+          module: "src/modules/quota",
+          description: "Обліковує доступні спроби окремо для кожного акаунта.",
+          shape: "object",
+          lock: null,
+          members: [{ name: "take", description: "Намагається використати одну одиницю доступної квоти.", location: inFixture(QUOTA, "take(") }],
+          implementations: null,
+          location: inFixture(QUOTA, "Quota {"),
+        },
+      ],
+      data: [{ name: "AccountId", module: "src/modules/quota", description: "Ідентифікатор акаунта для обліку квоти.", lock: null, location: inFixture(QUOTA, "AccountId =") }],
+      edges: [
+        { kind: "type-import", fromModule: "src/modules/campaigns", toModule: "src/modules/quota", location: inFixture(CAMPAIGNS, "import type") },
+        { kind: "uses", from: "Send", to: "Quota", fromModule: "src/modules/campaigns", toModule: "src/modules/quota", location: inFixture(CAMPAIGNS, "@uses") },
+        { kind: "uses", from: "Send", to: "Sender", fromModule: "src/modules/campaigns", toModule: "src/modules/mail", location: inFixture(CAMPAIGNS, "@uses") },
+      ],
+    },
     diagnostics: [
       {
         code: "W_NO_INVARIANTS",

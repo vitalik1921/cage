@@ -179,7 +179,7 @@ dto/
 
 ### JSON-звіт `check`
 
-`schemaVersion`, `command`, `phase`, `ok`, `scope` (tsconfig, файли дизайнів, використаний TypeScript, ефективні `strictNullChecks` / `strictFunctionTypes` / `noImplicitAny`), `generatedArtifacts` зі статусами, `counts`, `invariants` з `linkedTestCount`, `diagnostics`. `counts.testDeclarations` — тести всередині suite з `@tests`; `counts.linkedInvariants` — інваріанти, що мають хоча б одну прив’язку.
+`schemaVersion`, `command`, `phase`, `ok`, `scope` (tsconfig, файли дизайнів, використаний TypeScript, ефективні `strictNullChecks` / `strictFunctionTypes` / `noImplicitAny`), `generatedArtifacts` зі статусами, `counts`, `invariants` з `linkedTestCount`, `index` (контракти з методами, замками й реалізаціями, типи даних, ребра `@uses` і type-import між модулями — для інструмента чи агента, якому потрібен індекс, а не документи), `diagnostics`. `counts.testDeclarations` — тести всередині suite з `@tests`; `counts.linkedInvariants` — інваріанти, що мають хоча б одну прив’язку.
 
 Те, чого не перевіряли, має значення `null` або `"not-checked"`, а не `0`: «не перевіряли» відрізняється від «не знайшли». Design-фаза ніколи не дивиться на generated-файли, реалізації й тести; повна перевірка не доходить до них, якщо в дизайні є помилка; а якщо помилка зупинила перевірку до індексації дизайнів, то `null` мають і лічильники контрактів, типів даних та інваріантів. У звіті немає `passed`, `failed` чи відсотка покриття. Однакові `@uses` та імпорти з одного дизайну рахуються як одна залежність. Звіт детермінований: без часу й випадкових ID.
 
