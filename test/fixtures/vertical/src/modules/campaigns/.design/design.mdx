@@ -1,0 +1,45 @@
+# Відправлення
+
+## Контракт
+
+```ts design
+import type { AccountId } from "../../quota/.design/design.generated.ts";
+
+/**
+ * @contract
+ * @description Виконує одну спробу відправлення за наявності квоти.
+ * @uses Quota Sender
+ */
+export interface Send {
+  /**
+   * @description Отримує квоту та передає повідомлення відправнику.
+   * @invariant quota Викликає Sender лише після завершення Quota.take з true.
+   * @invariant limit За false від Quota повертає limited без виклику Sender.
+   * @invariant quota-error При помилці Quota відхиляє виклик тією ж помилкою без виклику Sender.
+   * @invariant sender-error При помилці Sender відхиляє виклик тією ж помилкою.
+   */
+  run(accountId: AccountId, text: string): Promise<"sent" | "limited">;
+}
+```
+
+## Бізнес-контекст
+
+Мета — дозволити спробу відправлення лише після отримання квоти акаунта.
+Власник міжмодульного сценарію — Send.
+
+Порядок взаємодії описує Send: quota; відсутність дозволу — Send: limit.
+Відмови залежностей описують quota-error і sender-error.
+Успішна передача транспорту повертає sent; це не гарантія доставки адресату.
+
+Приклад limit:
+
+- Given: Quota.take повертає false.
+- When: викликається Send.run.
+- Then: результат limited, транспорту нічого не передано.
+
+Відкриті питання для майбутнього продукту:
+
+- Чи відновлюється квота після підтвердженої помилки транспорту?
+- Яка політика повторів після таймауту з невідомим результатом?
+
+Відновлення квоти, retries та ідемпотентність не входять у fixture.

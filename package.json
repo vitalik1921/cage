@@ -1,0 +1,32 @@
+{
+  "name": "design-harness",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Contract harness: MDX design contracts checked with the TypeScript Compiler API.",
+  "type": "module",
+  "bin": {
+    "design": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=24.11"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.ts",
+    "verify": "npm run typecheck && npm test && npm run build && node dist/cli.js --version"
+  },
+  "dependencies": {
+    "remark-mdx": "3.1.1",
+    "remark-parse": "11.0.0",
+    "typescript": "6.0.3",
+    "unified": "11.0.5"
+  },
+  "devDependencies": {
+    "@types/mdast": "4.0.4",
+    "@types/node": "24.19.0"
+  }
+}

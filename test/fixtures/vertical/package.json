@@ -1,0 +1,9 @@
+{
+  "name": "contract-harness-fixture",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test src/modules/quota/quota.test.ts src/modules/campaigns/send.test.ts"
+  }
+}
