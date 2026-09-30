@@ -5,7 +5,7 @@ import { compareDiagnostics, compareText, hasErrors, type Diagnostic } from "./d
 import { checkImplementationPhase, type ImplementationPhaseOptions, type ImplementationPhaseResult } from "./implementation-phase.ts";
 import { toProjectPath } from "./location.ts";
 import { collectMaterial, createFileReader, fingerprintOf, type FileReader, type PacketFile } from "./review-material.ts";
-import { readReviewFile } from "./review-record.ts";
+import { readReviewFile, VERDICTS_SCHEMA } from "./review-record.ts";
 import type { Overlay, TypeScript } from "./typescript.ts";
 
 export type { PacketFile } from "./review-material.ts";
@@ -50,6 +50,8 @@ export interface ReviewReport {
   selection: "all" | "named" | "needed";
   instruction: string;
   resultFormat: typeof RESULT_FORMAT;
+  /** The same as a JSON Schema, for a reviewer that can be held to one. */
+  resultSchema: typeof VERDICTS_SCHEMA;
   contracts: ContractPacket[];
   files: PacketFile[];
   diagnostics: Diagnostic[];
@@ -71,6 +73,7 @@ export const INSTRUCTION = [
   "",
   "Assess each invariant as `adequate`, `weak`, `unrelated` or `insufficient-context`, with a reason and the evidence (file and line) it rests on.",
   "This is an assessment, not a proof and not a test run. A contract without invariants gets one contract-level finding (invariant null).",
+  "When you are the agent that wrote the code or the tests under review, judge them as a stranger would: the verdict is recorded and read by others.",
   "Do not remove or soften invariants and do not rewrite business requirements to make a check pass; a missing or weak test is a recommendation",
   "for the implementers, to be run in the project's own test environment. Files listed as not loaded were imported by the material but are not",
   "included: open them in the repository, or say that the context was insufficient.",
@@ -115,6 +118,7 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
     selection: typeof names === "string" ? names : "named",
     instruction: INSTRUCTION,
     resultFormat: RESULT_FORMAT,
+    resultSchema: VERDICTS_SCHEMA,
     contracts,
     files,
     diagnostics: diagnostics.sort(compareDiagnostics),

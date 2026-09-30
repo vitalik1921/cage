@@ -13,6 +13,43 @@ export const REVIEW_FILE = ".design/review.json";
 export const ASSESSMENTS = ["adequate", "weak", "unrelated", "insufficient-context"] as const;
 export type Assessment = (typeof ASSESSMENTS)[number];
 
+/** The verdict as a JSON Schema, for a reviewer that can be held to one. */
+export const VERDICTS_SCHEMA = {
+  type: "object",
+  required: ["version", "verdicts"],
+  additionalProperties: false,
+  properties: {
+    version: { const: 1 },
+    verdicts: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["contract", "fingerprint", "findings"],
+        additionalProperties: false,
+        properties: {
+          contract: { type: "string" },
+          fingerprint: { type: "string" },
+          findings: {
+            type: "array",
+            items: {
+              type: "object",
+              required: ["invariant", "assessment", "reason", "evidence", "suggestedChange"],
+              additionalProperties: false,
+              properties: {
+                invariant: { type: ["string", "null"] },
+                assessment: { enum: [...ASSESSMENTS] },
+                reason: { type: "string" },
+                evidence: { type: ["string", "null"] },
+                suggestedChange: { type: ["string", "null"] },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+} as const;
+
 export interface Finding {
   /** Null for a finding about the contract as a whole. */
   invariant: string | null;

@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh ./examples/claude-code/design-gate.sh",
+            "timeout": 120
+          }
+        ]
+      }
+    ]
+  }
+}
