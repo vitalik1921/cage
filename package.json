@@ -1,24 +1,50 @@
 {
   "name": "@flygen/cage",
-  "version": "0.0.0",
-  "private": true,
-  "description": "Contract harness: MDX design contracts checked with the TypeScript Compiler API.",
+  "version": "0.1.0",
+  "description": "Contract harness for TypeScript: designs in *.cage.mdx, checked against implementations and tests, with a recorded review as a gate for agents.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/flygen/cage.git"
+  },
+  "homepage": "https://github.com/flygen/cage#readme",
+  "bugs": {
+    "url": "https://github.com/flygen/cage/issues"
+  },
+  "keywords": [
+    "typescript",
+    "contracts",
+    "design",
+    "mdx",
+    "invariants",
+    "tests",
+    "agents",
+    "claude-code",
+    "stop-hook"
+  ],
   "type": "module",
   "bin": {
     "cage": "dist/cli.js"
   },
   "files": [
     "dist",
-    "examples"
+    "examples",
+    "LICENSE",
+    "README.md"
   ],
   "engines": {
     "node": ">=24.11"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "build": "node -e \"fs.rmSync('dist', { recursive: true, force: true })\" && node node_modules/typescript/bin/tsc -p tsconfig.build.json",
     "typecheck": "node node_modules/typescript/bin/tsc -p tsconfig.json",
     "test": "node --test test/*.test.ts",
-    "verify": "npm run typecheck && npm test && npm run build && node dist/cli.js --version"
+    "verify": "npm run typecheck && npm test && npm run build && node dist/cli.js --version",
+    "smoke": "node scripts/smoke.mjs",
+    "prepublishOnly": "npm run verify && npm run smoke"
   },
   "dependencies": {
     "remark-mdx": "3.1.1",

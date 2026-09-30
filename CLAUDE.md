@@ -27,6 +27,8 @@
 - `npm test` — `node --test test/*.test.ts`, без збірки
 - `npm run build` — компіляція в `dist/`
 - `npm run verify` — усе разом і запуск зібраного CLI; запускати перед здачею етапу
+- `npm run smoke` — `npm pack`, встановлення тарбола в порожній проєкт і запуск `cage` там; CI і `prepublishOnly` роблять те саме
+- Публікація: `npm version <minor|patch>` → `git push --follow-tags` → workflow `Publish` кладе пакет на npm (потрібен secret `NPM_TOKEN`)
 - `node src/cli.ts check --root <project>` — запуск CLI без збірки
 
 ## Правила

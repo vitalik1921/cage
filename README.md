@@ -1,5 +1,7 @@
 # cage — contract harness
 
+> **In short (English).** `cage` is a local TypeScript CLI for design-first development with agents. A module's design is one or more `*.cage.mdx` documents next to the code: prose plus `ts design` blocks that declare contracts (interfaces with `@invariant`s) and data types. `cage check` extracts the blocks, type-checks them, verifies that every contract has a tagged implementation the compiler accepts in its place and that every invariant has a tagged test declaration, enforces `@final` / `@extendable` locks, reports code the design does not cover, and requires a recorded substantive review of every contract (`cage review` → verdict → `cage review --record`). `cage gate` is the same check as a Stop hook: an agent cannot finish while it fails. Nothing is executed and nothing is sent anywhere. Install with `npm i -D @flygen/cage`; see `examples/claude-code/` for the hook. The rest of this document is in Ukrainian.
+
 Локальний TypeScript CLI: читає авторські документи `*.cage.mdx`, виділяє контракти з блоків `ts design`, перевіряє їхню узгодженість із реалізаціями та тестовими деклараціями, вимагає записаного змістового рев’ю і стоїть воротами перед агентом. Специфікація MVP: [docs/contract-workflow-mvp.md](docs/contract-workflow-mvp.md). Відхилення від неї та прийняті рішення: [docs/plan-proposals.md](docs/plan-proposals.md).
 
 **Статус:** усі етапи MVP, крім останніх дрібниць «Виводу», готові; інструмент перевірено на реальному модулі ([docs/real-module-trial.md](docs/real-module-trial.md)). Харнес перевіряє дизайни, актуальність generated-файлів, відповідність позначених реалізацій контрактам, наявність тестових декларацій для кожного інваріанта, замки, покриття дизайном і свіжість записаного рев’ю.
@@ -21,6 +23,8 @@ src/modules/accounts/
 **Результат `check` не означає, що програма працює правильно.** Він означає, що перелічені перевірки не знайшли структурних порушень. Харнес не запускає тести: прив’язана тестова декларація каже, що тест із таким тегом існує, а не що він пройшов чи перевіряє потрібне.
 
 ## Розробка
+
+Пакет: `@flygen/cage`, команда `cage`. Публікація: `npm version <minor|patch>`, `git push --follow-tags`; workflow `Publish` перевіряє (`npm run verify`, `npm run smoke` — встановлення тарбола в порожній проєкт) і кладе пакет на npm із provenance.
 
 Потрібен Node.js ≥ 24.11. Перевірено на 24.21.0 і 26.10.0.
 
