@@ -1,5 +1,5 @@
-import type { Quota } from "../quota/.design/design.generated.ts";
-import type { Sender } from "../mail/.design/design.generated.ts";
+import type { Quota } from "../quota/.cage/generated.ts";
+import type { Sender } from "../mail/.cage/generated.ts";
 
 /** @implements Send */
 export class SendService {

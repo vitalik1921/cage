@@ -585,11 +585,12 @@ test("a link that was written but rejected is not also reported as missing", (t)
   );
   assert.deepEqual(
     checkLinking(partial).errors.map(({ code, invariant }) => ({ code, invariant })),
+    // Sorted by file: the test file comes before the design document next to it.
     [
+      { code: "E_TAG_FORMAT", invariant: undefined },
       { code: "E_TEST_MISSING", invariant: "consume" },
       { code: "E_TEST_MISSING", invariant: "race" },
       { code: "E_TEST_MISSING", invariant: "once" },
-      { code: "E_TAG_FORMAT", invariant: undefined },
     ],
   );
 
@@ -598,8 +599,8 @@ test("a link that was written but rejected is not also reported as missing", (t)
   assert.deepEqual(
     checkLinking(broken).errors.map(({ code, contract }) => ({ code, contract })),
     [
-      { code: "E_TEST_MISSING", contract: "Sender" },
       { code: "E_TYPESCRIPT", contract: undefined },
+      { code: "E_TEST_MISSING", contract: "Sender" },
     ],
   );
 });

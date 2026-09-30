@@ -5,8 +5,8 @@ import { inspectOutput, outputProblem, writeOutput } from "./generated-files.ts"
 export type OutputStatus = "written" | "unchanged" | "missing" | "stale" | "conflict" | "failed";
 
 export interface ExtractOutput {
-  /** The design document, relative to the project root. */
-  source: string;
+  /** The design documents of the module, relative to the project root. */
+  sources: string[];
   /** The generated file, relative to the project root. */
   path: string;
   status: OutputStatus;
@@ -26,7 +26,7 @@ export interface ExtractReport {
 }
 
 /**
- * Synchronizes every design.generated.ts with its design document, or with
+ * Synchronizes every `.cage/generated.ts` with its design documents, or with
  * `checkOnly` reports which ones are not current. Nothing is written when the
  * design phase has errors, or when any output is in conflict or unreadable.
  * In a project that keeps no generated files only the designs are checked.
@@ -44,7 +44,7 @@ export function runExtract(options: DesignPhaseOptions, checkOnly: boolean, gene
 
     const states = modules.map((module) => {
       const output: ExtractOutput = {
-        source: module.file,
+        sources: module.documents.map((document) => document.file),
         path: module.generatedPath,
         status: "unchanged",
       };
@@ -71,7 +71,7 @@ export function runExtract(options: DesignPhaseOptions, checkOnly: boolean, gene
         return;
       }
       output.status = state;
-      if (checkOnly || state === "conflict") diagnostics.push(outputProblem(state, output.path, output.source));
+      if (checkOnly || state === "conflict") diagnostics.push(outputProblem(state, output.path, output.sources));
     });
   }
 

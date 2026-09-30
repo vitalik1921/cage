@@ -65,7 +65,7 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
   const include = (file: PacketFile | undefined) => {
     if (file && !files.includes(file)) files.push(file);
   };
-  include(read(own.file, "design", own.source));
+  for (const document of own.documents) include(read(document.file, "design", document.source));
 
   const usesEdges = index!.edges.filter((edge): edge is Edge & { kind: "uses" } => edge.kind === "uses");
   const uses = usesEdges.filter((edge) => edge.from === name).map((edge) => ({ contract: edge.to, module: edge.toModule }));
@@ -83,7 +83,7 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
   for (const { module } of uses) reached.add(module);
   reached.delete(contract.module);
   const dependencyModules = [...reached].sort(compareText);
-  for (const moduleId of dependencyModules) include(read(moduleOf(moduleId).file, "design", moduleOf(moduleId).source));
+  for (const moduleId of dependencyModules) for (const document of moduleOf(moduleId).documents) include(read(document.file, "design", document.source));
 
   const implementations = (linking?.implementations ?? []).filter((implementation) => implementation.contract === name);
   for (const implementation of implementations) include(read(implementation.location.file, "implementation"));
@@ -91,7 +91,7 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
   const testFiles = [...new Set(declarations.map((test) => test.location.file))].sort(compareText);
   for (const file of testFiles) include(read(file, "test"));
 
-  return { contract, own, dependencyDesigns: dependencyModules.map((moduleId) => moduleOf(moduleId).file), uses, usedBy, implementations, declarations, testFiles, files };
+  return { contract, own, dependencyDesigns: dependencyModules.flatMap((moduleId) => moduleOf(moduleId).documents.map((document) => document.file)), uses, usedBy, implementations, declarations, testFiles, files };
 }
 
 export const digestOf = (text: string) => `sha256:${crypto.createHash("sha256").update(text).digest("hex")}`;

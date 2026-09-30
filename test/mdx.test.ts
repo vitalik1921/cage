@@ -97,10 +97,11 @@ test("reserved design meta on another language is an error", () => {
   ]);
 });
 
-test("a document needs a non-empty design block", () => {
-  assert.deepEqual(codes(doc("# Prose only", "", "```ts", "export type A = string;", "```")), [
-    { code: "E_DESIGN_BLOCK_MISSING", line: undefined, column: undefined },
-  ]);
+test("a document may have no design block (the module decides), but a design block must not be empty", () => {
+  const prose = parseDesignMdx(doc("# Prose only", "", "```ts", "export type A = string;", "```"), "m.cage.mdx");
+  assert.deepEqual(prose.diagnostics, []);
+  assert.deepEqual(prose.blocks, []);
+  assert.equal(prose.hasBusinessContext, false);
   for (const body of [[], [""], ["  ", ""]]) {
     assert.deepEqual(codes(doc("# Empty", "", "```ts design", ...body, "```")), [{ code: "E_DESIGN_BLOCK_EMPTY", line: 3, column: 1 }]);
   }

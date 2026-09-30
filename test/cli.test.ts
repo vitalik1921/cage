@@ -17,7 +17,7 @@ function spawnCli(cwd: string, ...args: string[]) {
 test("--help and --version print to stdout and exit 0", () => {
   const help = spawnCli(vertical, "--help");
   assert.equal(help.code, 0);
-  assert.match(help.stdout, /^Usage: design <command> \[options\]/);
+  assert.match(help.stdout, /^Usage: cage <command> \[options\]/);
   assert.equal(help.stderr, "");
 
   const version = spawnCli(vertical, "--version");
@@ -56,7 +56,7 @@ test("a file system failure during discovery is exit 2 and names the path", { sk
     const result = cli(root, "extract");
     assert.equal(result.code, 2);
     assert.equal(result.stdout, "");
-    assert.match(result.stderr, /^design: EACCES: permission denied, scandir '.*src\/modules\/locked'\n$/);
+    assert.match(result.stderr, /^cage: EACCES: permission denied, scandir '.*src\/modules\/locked'\n$/);
   } finally {
     fs.chmodSync(locked, 0o700);
   }
@@ -72,7 +72,7 @@ test("the entry point reports through stdout and the exit code only", (t) => {
   assert.equal(check.stderr, "");
   const report = JSON.parse(check.stdout);
   assert.equal(report.ok, false);
-  assert.equal(report.outputs[0].path, "src/modules/campaigns/.design/design.generated.ts");
+  assert.equal(report.outputs[0].path, "src/modules/campaigns/.cage/generated.ts");
   assert.deepEqual(snapshot(root), before);
 
   const extract = spawnCli(root, "extract", "--format", "json");

@@ -86,10 +86,7 @@ export function parseDesignMdx(source: string, file: string): ParsedDesign {
   };
   for (const child of tree.children) visit(child, true);
 
-  // Misplaced or empty blocks are already reported; do not cascade into "missing".
-  if (blocks.length === 0 && diagnostics.length === 0) {
-    diagnostics.push(error("E_DESIGN_BLOCK_MISSING", "The design document has no ts design block."));
-  }
+  // A document without a block may be the prose of a module whose blocks are in another document; the module decides.
   return { blocks, hasBusinessContext: tree.children.some(hasProse), diagnostics };
 }
 

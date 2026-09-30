@@ -23,7 +23,7 @@ export interface ImplementationPhaseOptions extends DesignPhaseOptions {
 }
 
 export interface GeneratedArtifact {
-  source: string;
+  sources: string[];
   file: string;
   /** "failed": the file is there but could not be read. "not-required": the project keeps no generated files. */
   status: OutputState | "failed" | "not-required";
@@ -89,11 +89,11 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
     file,
   });
   const artifacts = modules.map((module): GeneratedArtifact => {
-    const artifact = { source: module.file, file: module.generatedPath };
+    const artifact = { sources: module.documents.map((document) => document.file), file: module.generatedPath };
     if (!options.generatedFiles) return { ...artifact, status: "not-required" };
     try {
       const status = inspectOutput(module.generatedFile, module.generated.text);
-      if (status !== "current") diagnostics.push(outputProblem(status, module.generatedPath, module.file));
+      if (status !== "current") diagnostics.push(outputProblem(status, module.generatedPath, artifact.sources));
       return { ...artifact, status };
     } catch (cause) {
       diagnostics.push(unreadable("generated file", module.generatedPath, cause));
@@ -130,7 +130,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
   const checks = found.map((implementation, order) => {
     const contract = contracts.get(implementation.contract)!;
     const implementationFile = path.join(root, implementation.location.file);
-    const fileName = `${implementationFile.slice(0, -".ts".length)}.design-check-${order + 1}.ts`;
+    const fileName = `${implementationFile.slice(0, -".ts".length)}.cage-check-${order + 1}.ts`;
     const designFile = modules.find((module) => module.moduleId === contract.module)!.generatedFile;
     const subject = implementation.kind === "class" ? `implementation.${implementation.name}` : `typeof implementation.${implementation.name}`;
     const text = [

@@ -12,18 +12,18 @@ export interface Config {
   tests: string[];
   exclude: string[];
   testAdapter: "node:test" | "vitest";
-  /** Whether each design has a `design.generated.ts` on disk, written by `extract` and required by `check`. */
+  /** Whether each module has a `.cage/generated.ts` on disk, written by `extract` and required by `check`. */
   generatedFiles: boolean;
   /** How `check` treats a contract without a fresh recorded review: not at all, as a warning, or as an error. */
   review: "off" | "warn" | "require";
 }
 
-export const DEFAULT_CONFIG_FILE = ".design/config.json";
+export const DEFAULT_CONFIG_FILE = ".cage/config.json";
 
 export const defaultConfig: Config = {
   version: 1,
   tsconfig: "tsconfig.json",
-  designs: ["src/**/.design/design.mdx"],
+  designs: ["src/**/*.cage.mdx"],
   implementations: ["src/**/*.ts"],
   tests: ["src/**/*.test.ts", "tests/**/*.test.ts"],
   exclude: ["**/node_modules/**", "**/dist/**", "**/build/**", "**/coverage/**"],
@@ -38,7 +38,7 @@ export interface LoadedConfig {
 }
 
 /**
- * Loads `configPath` (relative to `root`), or `.design/config.json` when it
+ * Loads `configPath` (relative to `root`), or `.cage/config.json` when it
  * exists, or the defaults. Fields left out of the file keep their defaults;
  * a given array replaces the default one.
  */

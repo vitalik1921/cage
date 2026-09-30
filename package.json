@@ -1,11 +1,11 @@
 {
-  "name": "design-harness",
+  "name": "@flygen/cage",
   "version": "0.0.0",
   "private": true,
   "description": "Contract harness: MDX design contracts checked with the TypeScript Compiler API.",
   "type": "module",
   "bin": {
-    "design": "dist/cli.js"
+    "cage": "dist/cli.js"
   },
   "files": [
     "dist",

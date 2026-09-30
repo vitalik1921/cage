@@ -9,7 +9,7 @@ import { formatDiagnostic, plural } from "./report.ts";
 import { collectMaterial, createFileReader, fingerprintOf } from "./review-material.ts";
 
 /** Relative to the project root. */
-export const REVIEW_FILE = ".design/review.json";
+export const REVIEW_FILE = ".cage/review.json";
 
 export const ASSESSMENTS = ["adequate", "weak", "unrelated", "insufficient-context"] as const;
 export type Assessment = (typeof ASSESSMENTS)[number];
@@ -89,7 +89,7 @@ export const readReviewFile = (root: string) => readRecordFile(root, REVIEW_FILE
 
 function parseReviewEntries(value: unknown): ReviewEntry[] | string {
   const { version, reviews } = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
-  if (version !== 1 || !Array.isArray(reviews) || !reviews.every(isEntry)) return 'expected { "version": 1, "reviews": [...] } as written by `design review --record`.';
+  if (version !== 1 || !Array.isArray(reviews) || !reviews.every(isEntry)) return 'expected { "version": 1, "reviews": [...] } as written by `cage review --record`.';
   return reviews;
 }
 
@@ -119,7 +119,7 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
       diagnostics.push({
         code: code("MISSING"),
         severity,
-        message: `Contract "${contract.name}" has no recorded review. Run \`design review ${contract.name}\`, have the material reviewed, and record the verdict with \`design review --record\`.`,
+        message: `Contract "${contract.name}" has no recorded review. Run \`cage review ${contract.name}\`, have the material reviewed, and record the verdict with \`cage review --record\`.`,
         ...contract.location,
         contract: contract.name,
       });
@@ -162,7 +162,7 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
     diagnostics.push({
       code: code("STALE"),
       severity,
-      message: `The review file has a review of contract "${entry.contract}" of ${entry.module}, which no longer exists there. \`design review --record\` removes it.`,
+      message: `The review file has a review of contract "${entry.contract}" of ${entry.module}, which no longer exists there. \`cage review --record\` removes it.`,
       file: REVIEW_FILE,
     });
   }
@@ -181,7 +181,7 @@ export interface RecordReport {
 }
 
 /**
- * `design review --record <verdicts>`: records the verdicts of a review in
+ * `cage review --record <verdicts>`: records the verdicts of a review in
  * the review file, each against the material as it is now. A verdict for
  * other material, for an unknown contract or invariant, or that leaves an
  * invariant unassessed is refused, and then nothing is recorded.

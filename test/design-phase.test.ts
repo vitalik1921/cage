@@ -21,7 +21,7 @@ test("the plan fixture passes the design phase with no generated files on disk",
 
   assert.deepEqual(diagnostics.map(summary), [{ code: "W_NO_INVARIANTS", tsCode: undefined, file: MAIL, ...find(fs.readFileSync(path.join(root, MAIL), "utf8"), "Sender {") }]);
   assert.deepEqual(
-    modules.map((module) => [module.moduleId, module.blocks.length]),
+    modules.map((module) => [module.moduleId, module.documents.flatMap((document) => document.blocks).length]),
     [
       ["src/modules/campaigns", 1],
       ["src/modules/mail", 1],
@@ -109,8 +109,8 @@ for (const extension of [".ts", ".js"]) {
     const root = copyFixture(t, "vertical");
     const text = editFile(root, CAMPAIGNS, (s) =>
       s.replace(
-        'import type { AccountId } from "../../quota/.design/design.generated.ts";',
-        `import type { AccountId, Missing } from "../../quota/.design/design.generated${extension}";`,
+        'import type { AccountId } from "../quota/.cage/generated.ts";',
+        `import type { AccountId, Missing } from "../quota/.cage/generated${extension}";`,
       ),
     );
 
@@ -120,7 +120,7 @@ for (const extension of [".ts", ".js"]) {
 
 test("stale or broken generated files on disk never replace the fresh MDX", (t) => {
   const root = copyFixture(t, "vertical");
-  for (const module of checkDesigns(root).modules) fs.writeFileSync(module.generatedFile, module.generated.text);
+  for (const module of checkDesigns(root).modules) writeFile(root, module.generatedPath, module.generated.text);
   writeFile(root, generated(MAIL), "export interface Sender { this is not TypeScript");
   const text = breakQuota(root);
 
@@ -139,7 +139,7 @@ test("plain ts blocks stay examples: not extracted and not type-checked", (t) =>
   const { modules, index, errors } = checkDesigns(root);
   assert.deepEqual(errors, []);
   assert.deepEqual(index.contracts.map((contract) => contract.name), ["Send", "Sender", "Quota"]);
-  assert.equal(modules.at(-1)!.blocks.length, 2);
+  assert.equal(modules.at(-1)!.documents[0].blocks.length, 2);
   assert.ok(!modules.at(-1)!.generated.text.includes("this is not TypeScript"));
 });
 
@@ -219,7 +219,7 @@ test("an unusable TypeScript configuration is an environment error", async (t) =
 test("options that TypeScript 6 deprecates but a TypeScript 5 project uses are accepted", (t) => {
   const root = copyFixture(t, "vertical");
   editTsconfig(root, { baseUrl: ".", paths: { "@quota/*": ["src/modules/quota/*"] } });
-  editFile(root, CAMPAIGNS, (s) => s.replace('"../../quota/.design/design.generated.ts"', '"@quota/.design/design.generated.ts"'));
+  editFile(root, CAMPAIGNS, (s) => s.replace('"../quota/.cage/generated.ts"', '"@quota/.cage/generated.ts"'));
   assert.deepEqual(designErrors(root), []);
 
   // The alias really resolves to the overlay: a member it does not export is an error.
@@ -255,13 +255,13 @@ test("an empty scope or an unreadable design is an error, not an empty success",
     checkDesignPhase({
       root,
       tsconfig: "tsconfig.json",
-      designs: sourceFiles.map((file) => ({ moduleId: file, sourceFile: path.join(root, file), generatedFile: path.join(root, generated(file)) })),
+      designs: sourceFiles.map((file) => ({ moduleId: path.posix.dirname(file), sourceFiles: [path.join(root, file)], generatedFile: path.join(root, generated(file)) })),
     });
 
   assert.deepEqual(phase([]).diagnostics.map(summary), [
     { code: "E_NO_DESIGNS", tsCode: undefined, file: undefined, line: undefined, column: undefined },
   ]);
-  assert.deepEqual(phase([MAIL, "src/gone/.design/design.mdx"]).diagnostics.map(summary), [
-    { code: "E_ENVIRONMENT", tsCode: undefined, file: "src/gone/.design/design.mdx", line: undefined, column: undefined },
+  assert.deepEqual(phase([MAIL, "src/gone/gone.cage.mdx"]).diagnostics.map(summary), [
+    { code: "E_ENVIRONMENT", tsCode: undefined, file: "src/gone/gone.cage.mdx", line: undefined, column: undefined },
   ]);
 });

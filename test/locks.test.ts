@@ -55,7 +55,7 @@ test("a declaration is open unless it is marked: the index records the lock leve
   );
 });
 
-test("a marked declaration must be recorded; `design lock` records it and changes nothing afterwards", (t) => {
+test("a marked declaration must be recorded; `cage lock` records it and changes nothing afterwards", (t) => {
   const root = project(t);
   assert.deepEqual(
     problems(root).map(({ code, line, column }) => ({ code, line, column })),
@@ -132,8 +132,8 @@ test("an @extendable declaration may grow, and what it has must stay", (t) => {
 
   // Additions pass; until they are recorded they are not protected, and the check says so.
   assert.deepEqual(problems(root).map(({ code, message }) => ({ code, message })), [
-    { code: "W_LOCK_UNRECORDED", message: 'Contract "Store" has additions that are not locked yet: `put`. Run `design lock` to record them.' },
-    { code: "W_LOCK_UNRECORDED", message: 'Data type "Row" has additions that are not locked yet: `label`. Run `design lock` to record them.' },
+    { code: "W_LOCK_UNRECORDED", message: 'Contract "Store" has additions that are not locked yet: `put`. Run `cage lock` to record them.' },
+    { code: "W_LOCK_UNRECORDED", message: 'Data type "Row" has additions that are not locked yet: `label`. Run `cage lock` to record them.' },
   ]);
   assert.equal(cli(root, "check", "--phase", "design").code, 0);
   assert.deepEqual(
@@ -320,7 +320,7 @@ test("a lock covers the invariants of a contract: a @final one keeps them as the
   change(root, " * @invariant miss Невідомий ключ дає null.", " * @invariant miss Невідомий ключ дає null.\n * @invariant trim Ключ порівнюється без пробілів.");
   assert.deepEqual(problems(root).map(({ code, message }) => ({ code, message })), [
     { code: "E_LOCK_VIOLATION", message: 'Contract "Quota" is `@final`: it must not change.\ninvariant `empty` changed; it was: Порожня квота відмовляє.\ninvariant `fair` was added' },
-    { code: "W_LOCK_UNRECORDED", message: 'Contract "Store" has additions that are not locked yet: invariant `trim`. Run `design lock` to record them.' },
+    { code: "W_LOCK_UNRECORDED", message: 'Contract "Store" has additions that are not locked yet: invariant `trim`. Run `cage lock` to record them.' },
   ]);
 
   change(root, "Порожня квота чекає.\n * @invariant fair Квота однакова для всіх.", "Порожня квота відмовляє.");
@@ -348,7 +348,7 @@ test("a lock file written before invariants were locked is not usable", (t) => {
     {
       code: "E_CONFIG",
       // Entries are sorted by module, kind and name, so the first contract is the first entry.
-      message: 'The lock file is not usable: entry 1 ("Quota") is not as `design lock` writes it: a contract has "members" and "invariants", a data type only "members".',
+      message: 'The lock file is not usable: entry 1 ("Quota") is not as `cage lock` writes it: a contract has "members" and "invariants", a data type only "members".',
       file: LOCK_FILE,
     },
   ]);
@@ -359,7 +359,7 @@ test("a locked declaration that uses an open type is warned about, once per type
   const final = (declaration: string) => declaration.replace(" * @description", " * @final\n * @description");
   const shared = mdx(open("Money"), open("Currency"), final(data("Code")), contract("Rates", "rate(): number;", "@invariant ok Працює."));
   const orders = mdx(
-    ['import type { Money as Amount, Code } from "../../shared/.design/design.generated.ts";', 'import type * as shared from "../../shared/.design/design.generated.ts";'].join("\n"),
+    ['import type { Money as Amount, Code } from "../shared/.cage/generated.ts";', 'import type * as shared from "../shared/.cage/generated.ts";'].join("\n"),
     open("Note"),
     open("Id"),
     final(data("Line", "{ price: Amount; code: Code; currency: shared.Currency; rates: shared.Rates; note: Note; again: Note }")),

@@ -6,14 +6,14 @@ import { copyFixture, writeFile } from "./helpers.ts";
 const problems = (root: string, configPath?: string) =>
   loadConfig(root, configPath).diagnostics.map(({ code, file, message }) => ({ code, file, message }));
 
-test("defaults apply when there is no .design/config.json", (t) => {
+test("defaults apply when there is no .cage/config.json", (t) => {
   const root = copyFixture(t, "vertical");
   assert.deepEqual(loadConfig(root), { config: defaultConfig, diagnostics: [] });
 });
 
-test(".design/config.json is found; given fields replace the defaults, the rest stay", (t) => {
+test(".cage/config.json is found; given fields replace the defaults, the rest stay", (t) => {
   const root = copyFixture(t, "vertical");
-  writeFile(root, ".design/config.json", JSON.stringify({ version: 1, exclude: ["**/mail/**"], tsconfig: "tsconfig.design.json" }));
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, exclude: ["**/mail/**"], tsconfig: "tsconfig.design.json" }));
   assert.deepEqual(loadConfig(root), {
     config: { ...defaultConfig, exclude: ["**/mail/**"], tsconfig: "tsconfig.design.json" },
     diagnostics: [],
@@ -22,8 +22,8 @@ test(".design/config.json is found; given fields replace the defaults, the rest 
 
 test("--config is relative to the project root, and must exist", (t) => {
   const root = copyFixture(t, "vertical");
-  writeFile(root, "tools/design.json", JSON.stringify({ version: 1, designs: ["lib/**/.design/design.mdx"] }));
-  assert.deepEqual(loadConfig(root, "tools/design.json").config.designs, ["lib/**/.design/design.mdx"]);
+  writeFile(root, "tools/design.json", JSON.stringify({ version: 1, designs: ["lib/**/*.cage.mdx"] }));
+  assert.deepEqual(loadConfig(root, "tools/design.json").config.designs, ["lib/**/*.cage.mdx"]);
 
   const [missing] = problems(root, "tools/nope.json");
   assert.equal(missing.code, "E_CONFIG");
@@ -34,10 +34,10 @@ test("--config is relative to the project root, and must exist", (t) => {
 test("an invalid configuration is reported field by field", (t) => {
   const root = copyFixture(t, "vertical");
   const check = (content: string) => {
-    writeFile(root, ".design/config.json", content);
+    writeFile(root, ".cage/config.json", content);
     return problems(root).map(({ code, file, message }) => {
       assert.equal(code, "E_CONFIG");
-      assert.equal(file, ".design/config.json");
+      assert.equal(file, ".cage/config.json");
       return message;
     });
   };

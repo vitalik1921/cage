@@ -19,8 +19,8 @@ export interface ContractPacket {
    * any of them changes, and a verdict is recorded against it.
    */
   fingerprint: string;
-  /** The module's design document. */
-  design: string;
+  /** The module's design documents. */
+  designs: string[];
   description: string | null;
   lock: LockLevel | null;
   members: { name: string; description: string | null; location: SourceLocation }[];
@@ -79,7 +79,7 @@ export const INSTRUCTION = [
   "included: open them in the repository, or say that the context was insufficient.",
 ].join("\n");
 
-/** What a verdict looks like; `design review --record` reads exactly this. */
+/** What a verdict looks like; `cage review --record` reads exactly this. */
 export const RESULT_FORMAT = {
   version: 1,
   verdicts: [
@@ -100,7 +100,7 @@ export const RESULT_FORMAT = {
 };
 
 /**
- * `design review`: the material of the selected contracts for a reviewer,
+ * `cage review`: the material of the selected contracts for a reviewer,
  * human or model, with an instruction and the format of the verdict. Nothing
  * is sent anywhere; the report goes to stdout. It runs the full check first,
  * so that the structural diagnostics come with the material.
@@ -157,7 +157,7 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
   selected.sort((a, b) => compareText(a.module, b.module) || compareText(a.name, b.name));
 
   const packets = selected.map((contract) => packetOf(root, result, materialOf(contract.name)));
-  const used = new Set(packets.flatMap((packet) => [packet.design, ...packet.dependencies.designs, ...packet.implementations.map((i) => i.location.file), ...packet.tests.map((t) => t.file)]));
+  const used = new Set(packets.flatMap((packet) => [...packet.designs, ...packet.dependencies.designs, ...packet.implementations.map((i) => i.location.file), ...packet.tests.map((t) => t.file)]));
   return report(ok, packets, [...files.values()].filter((file) => used.has(file.path)).sort((a, b) => compareText(a.path, b.path)));
 }
 
@@ -176,7 +176,7 @@ function packetOf(root: string, result: ImplementationPhaseResult, material: Mat
     contract: name,
     module: contract.module,
     fingerprint: fingerprintOf(files).fingerprint,
-    design: own.file,
+    designs: own.documents.map((document) => document.file),
     description: contract.description,
     lock: contract.lock,
     members: contract.members.map(({ name: member, description, location }) => ({ name: member, description, location })),
@@ -218,9 +218,10 @@ function importsOutside(
       const resolved = overlay.resolveFrom(specifier.text, fileName);
       if (!resolved) continue;
       const generated = modules.find((module) => overlay.sameFile(module.generatedFile, resolved));
-      const projectPath = generated ? generated.file : toProjectPath(root, resolved);
-      if (projectPath.startsWith("../") || path.isAbsolute(projectPath) || projectPath.split("/").includes("node_modules") || loaded.has(projectPath)) continue;
-      outside.add(projectPath);
+      for (const projectPath of generated ? generated.documents.map((document) => document.file) : [toProjectPath(root, resolved)]) {
+        if (projectPath.startsWith("../") || path.isAbsolute(projectPath) || projectPath.split("/").includes("node_modules") || loaded.has(projectPath)) continue;
+        outside.add(projectPath);
+      }
     }
   }
   return [...outside].sort(compareText);
@@ -238,7 +239,7 @@ export function formatReviewMarkdown(report: ReviewReport): string {
 
   for (const packet of report.contracts) {
     lines.push(`## Contract ${packet.contract} (${packet.module})`, "");
-    lines.push(`- Design: ${packet.design}`);
+    lines.push(`- Design: ${packet.designs.join(", ")}`);
     lines.push(`- Fingerprint: ${packet.fingerprint}`);
     lines.push(`- Lock: ${packet.lock === null ? "none (open)" : `@${packet.lock}`}`);
     lines.push(`- Description: ${packet.description ?? "none"}`, "");

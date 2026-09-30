@@ -14,6 +14,8 @@ export interface DesignSourceFile {
   locate: (offset: number) => SourceLocation;
   /** Index of the design block that holds an offset of the generated text. */
   blockOf: (offset: number) => number;
+  /** A module specifier as the document writes it; the generated text may spell a relative one differently. */
+  writtenSpecifier: (specifier: ts.StringLiteralLike) => string;
 }
 
 /** Where an import in a design leads: another design of the scope, a generated file outside it, or anything else. */
@@ -443,9 +445,9 @@ function readDesign(
     }
     const target = resolveImport(specifier, sourceFile);
     if (target === "out-of-scope") {
-      report("E_DESIGN_OUT_OF_SCOPE", `"${specifier.text}" is a generated design module whose design document is not in the scope.`, specifier.getStart(sourceFile));
+      report("E_DESIGN_OUT_OF_SCOPE", `"${design.writtenSpecifier(specifier)}" is a generated design module whose design documents are not in the scope.`, specifier.getStart(sourceFile));
     } else if (target === "other") {
-      report("E_DESIGN_IMPORT", `"${specifier.text}" is not the design.generated file of another design; a design may import only types of other designs.`, specifier.getStart(sourceFile));
+      report("E_DESIGN_IMPORT", `"${design.writtenSpecifier(specifier)}" is not the generated module (.cage/generated.ts) of another design; a design may import only types of other designs.`, specifier.getStart(sourceFile));
     } else if (target.moduleId === moduleId) {
       report("E_DESIGN_IMPORT", "A design cannot import its own generated module.", specifier.getStart(sourceFile));
     } else {

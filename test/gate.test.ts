@@ -28,10 +28,10 @@ test("the gate blocks on errors and on review findings, whatever the review leve
   assert.equal(blocked.code, 2);
   assert.equal(blocked.stdout, "");
   assert.match(blocked.stderr, /W_REVIEW_MISSING: Contract "Send" has no recorded review/);
-  assert.match(blocked.stderr, /`design check` is not clean \(3 blocking\)\. Fix what it reports before stopping\./);
-  assert.match(blocked.stderr, /run `design review`, read the material/);
+  assert.match(blocked.stderr, /`cage check` is not clean \(3 blocking\)\. Fix what it reports before stopping\./);
+  assert.match(blocked.stderr, /run `cage review`, read the material/);
 
-  writeFile(root, ".design/config.json", JSON.stringify({ version: 1, review: "off" }));
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "off" }));
   const clean = gate(root, { session_id: id, stop_hook_active: false });
   assert.equal(clean.code, 0);
   assert.equal(clean.stderr, "");
@@ -63,9 +63,9 @@ test("after MAX_BLOCKS blocks in one session the gate lets the agent stop, with 
   assert.equal(gate(root, { session_id: other, stop_hook_active: true }).code, 2);
 
   // A clean check forgets the count.
-  writeFile(root, ".design/config.json", JSON.stringify({ version: 1, review: "off" }));
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "off" }));
   assert.equal(attempt(true).code, 0);
-  writeFile(root, ".design/config.json", JSON.stringify({ version: 1, review: "warn" }));
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "warn" }));
   assert.equal(attempt(true).code, 2);
 });
 
@@ -79,6 +79,6 @@ test("the gate reads the hook's input leniently and takes the options of check",
   assert.match(gate(root, { session_id: id }, "--format", "json").stderr, /gate has no --format/);
   assert.equal(gate(root, { session_id: id }, "--format", "json").code, 2);
   // A configuration problem is reported the way check reports it, and blocks.
-  writeFile(root, ".design/config.json", "{ nope");
+  writeFile(root, ".cage/config.json", "{ nope");
   assert.match(gate(root, { session_id: id }).stderr, /E_CONFIG/);
 });

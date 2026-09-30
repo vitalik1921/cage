@@ -11,7 +11,7 @@ import { readStrictOptions, type StrictOptions, type TypeScriptInfo } from "./ty
 export type Phase = "design" | "implementation";
 
 /**
- * The report of `design check`. What was not looked at is `null` or
+ * The report of `cage check`. What was not looked at is `null` or
  * "not-checked", never 0 or "current": "not checked" is not "not found". The
  * design phase never looks at generated files, implementations and tests,
  * and the implementation phase does not get to them when a design has
@@ -28,7 +28,7 @@ export interface CheckReport {
   ok: boolean;
   /** `lockBase`: the Git revision whose locks the lock file was compared with, or null when it was not. */
   scope: { tsconfig: string; designFiles: string[]; typescript: TypeScriptInfo; compilerOptions: StrictOptions | null; lockBase: string | null };
-  generatedArtifacts: { source: string; file: string; status: "not-checked" | GeneratedArtifact["status"] }[];
+  generatedArtifacts: { sources: string[]; file: string; status: "not-checked" | GeneratedArtifact["status"] }[];
   counts: {
     contracts: number | null;
     data: number | null;
@@ -103,12 +103,12 @@ export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lo
     ok: !hasErrors(diagnostics),
     scope: {
       tsconfig: options.tsconfig,
-      designFiles: options.designs.map((design) => toProjectPath(root, design.sourceFile)),
+      designFiles: options.designs.flatMap((design) => design.sourceFiles.map((file) => toProjectPath(root, file))),
       typescript,
       compilerOptions: compiler ? readStrictOptions(compiler.ts, compiler.options) : null,
       lockBase: configured && lockBase !== undefined ? lockBase : null,
     },
-    generatedArtifacts: artifacts ?? modules.map((module) => ({ source: module.file, file: module.generatedPath, status: "not-checked" })),
+    generatedArtifacts: artifacts ?? modules.map((module) => ({ sources: module.documents.map((document) => document.file), file: module.generatedPath, status: "not-checked" })),
     counts: {
       contracts: index?.contracts.length ?? null,
       data: index?.data.length ?? null,

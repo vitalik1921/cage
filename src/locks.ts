@@ -6,7 +6,7 @@ import { compareText, type Diagnostic } from "./diagnostic.ts";
 import { isText, parseRecordText, readRecordFile } from "./record-file.ts";
 
 /** Relative to the project root. */
-export const LOCK_FILE = ".design/design.lock.json";
+export const LOCK_FILE = ".cage/lock.json";
 
 /** What a locked declaration looked like when it was recorded. */
 export interface LockEntry {
@@ -34,12 +34,12 @@ function parseLockEntries(value: unknown): LockEntry[] | string {
     return isText(module) && isText(name) && isKind && (level === "final" || level === "extendable") && isTexts(members);
   };
   const { version, locks } = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
-  if (version !== 1 || !Array.isArray(locks)) return 'expected { "version": 1, "locks": [...] } as written by `design lock`.';
+  if (version !== 1 || !Array.isArray(locks)) return 'expected { "version": 1, "locks": [...] } as written by `cage lock`.';
   const broken = locks.findIndex((entry) => !isEntry(entry));
   if (broken !== -1) {
     const name = (locks[broken] as { name?: unknown } | null)?.name;
     // A contract entry without "invariants" is what earlier versions wrote.
-    return `entry ${broken + 1}${isText(name) ? ` ("${name}")` : ""} is not as \`design lock\` writes it: a contract has "members" and "invariants", a data type only "members".`;
+    return `entry ${broken + 1}${isText(name) ? ` ("${name}")` : ""} is not as \`cage lock\` writes it: a contract has "members" and "invariants", a data type only "members".`;
   }
   return locks;
 }
@@ -102,7 +102,7 @@ export function compareWithBase(base: readonly LockEntry[], current: readonly Lo
 export interface LockComparison {
   /** A locked declaration differs from its record, lost its tag, or is gone. */
   violations: Diagnostic[];
-  /** A marked declaration, or an addition to an extendable one, that `design lock` has not recorded yet. */
+  /** A marked declaration, or an addition to an extendable one, that `cage lock` has not recorded yet. */
   unrecorded: Diagnostic[];
 }
 
@@ -155,7 +155,7 @@ export function compareLocks(index: DesignIndex, entries: readonly LockEntry[]):
       unrecorded.push({
         code: "E_LOCK_MISSING",
         severity: "error",
-        message: `${subject} is \`@${declaration.level}\` but is not recorded in ${LOCK_FILE} yet. Run \`design lock\`.`,
+        message: `${subject} is \`@${declaration.level}\` but is not recorded in ${LOCK_FILE} yet. Run \`cage lock\`.`,
         ...declaration.location,
       });
       continue;
@@ -175,7 +175,7 @@ export function compareLocks(index: DesignIndex, entries: readonly LockEntry[]):
       unrecorded.push({
         code: "W_LOCK_UNRECORDED",
         severity: "warning",
-        message: `${subject} has additions that are not locked yet: ${additions.join(", ")}. Run \`design lock\` to record them.`,
+        message: `${subject} has additions that are not locked yet: ${additions.join(", ")}. Run \`cage lock\` to record them.`,
         ...declaration.location,
       });
     }

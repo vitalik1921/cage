@@ -10,9 +10,9 @@
 
 | Файл | Зміна |
 | --- | --- |
-| `.design/config.json` | новий, 5 рядків: шаблон тестів `src/**/*.spec.ts`, адаптер `vitest` |
-| `src/modules/accounts/.design/design.mdx` | новий, 172 рядки: проза, 5 типів даних, 2 контракти, 16 інваріантів, відкриті питання |
-| `src/modules/accounts/.design/design.generated.ts` | згенерований `design extract`, 135 рядків |
+| `.cage/config.json` | новий, 5 рядків: шаблон тестів `src/**/*.spec.ts`, адаптер `vitest` |
+| `src/modules/accounts/*.cage.mdx` | новий, 172 рядки: проза, 5 типів даних, 2 контракти, 16 інваріантів, відкриті питання |
+| `src/modules/accounts/.cage/generated.ts` | згенерований `cage extract`, 135 рядків |
 | `accounts.service.ts`, `account-memberships.service.ts` | по одному рядку `/** @implements … */` |
 | `accounts.service.spec.ts`, `account-memberships.service.spec.ts` | 2 рядки `@tests` і 16 рядків `@covers` |
 
@@ -33,13 +33,13 @@ check: 1 design, 2 contracts, 5 data types, 16 invariants, 2 implementations, 16
 - Класи з `@Injectable()` порівнюються з контрактом як звичайні класи.
 - Типи, які Drizzle виводить зі схеми, і DTO з `z.infer` структурно збіглися з типами, написаними в дизайні вручну.
 - Тести з `import { describe, it } from "vitest"` розпізналися; вкладені `describe` за методами успадкували контракт від верхнього.
-- ESLint проєкту на модулі проходить. Prettier проходить після того, як `design.mdx` відформатовано Prettier-ом проєкту: згенерований файл повторює форматування блоків.
+- ESLint проєкту на модулі проходить. Prettier проходить після того, як `*.cage.mdx` відформатовано Prettier-ом проєкту: згенерований файл повторює форматування блоків.
 
 ## Які помилки харнес знаходить
 
 У модулі як він є — жодної: реалізація й тести узгоджені з контрактом, який я з них і виводив. Користь видно на змінах. Три навмисні правки контракту:
 
-| Правка в `design.mdx` | Що сказав `design check` |
+| Правка в `*.cage.mdx` | Що сказав `cage check` |
 | --- | --- |
 | `Account.slug` став обов’язковим рядком | `E_TYPE_MISMATCH`: «Types of property 'slug' are incompatible … Type 'null' is not assignable to type 'string'» |
 | Додано метод `restore` | `E_TYPE_MISMATCH`: «Property 'restore' is missing in type 'AccountsService'», з посиланням на рядок методу в MDX; плюс `E_TEST_MISSING` для його інваріанта |
@@ -55,7 +55,7 @@ check: 1 design, 2 contracts, 5 data types, 16 invariants, 2 implementations, 16
 
 ## Що заважало
 
-1. **Generated-файл тут нікому не потрібен.** Сервіси не імпортують типи контрактів, а `tsc` проєкту цей файл не бачить: `include: ["src/**/*"]` не заходить у dot-каталоги. Проте `design check` вимагає, щоб файл існував і був актуальний, тобто після кожної правки контракту треба запускати `extract` заради файла без читачів. Вирішено: поле `"generatedFiles": false` у конфігурації (пункт 12 у `plan-proposals.md`). У цьому проєкті його ввімкнено, три generated-файли видалено, `design check` дає той самий результат.
+1. **Generated-файл тут нікому не потрібен.** Сервіси не імпортують типи контрактів, а `tsc` проєкту цей файл не бачить: `include: ["src/**/*"]` не заходить у dot-каталоги. Проте `cage check` вимагає, щоб файл існував і був актуальний, тобто після кожної правки контракту треба запускати `extract` заради файла без читачів. Вирішено: поле `"generatedFiles": false` у конфігурації (пункт 12 у `plan-proposals.md`). У цьому проєкті його ввімкнено, три generated-файли видалено, `cage check` дає той самий результат.
 2. **Типи доводиться переписувати.** 5 типів даних займають близько 50 зі 172 рядків дизайну й повторюють схему Drizzle та схеми zod. Імпортувати їх у дизайн план забороняє. Структурна перевірка тримає їх узгодженими в один бік: якщо контракт вимагає поля, якого схема не має, це помилка; нова колонка у схемі контракту не порушує.
 3. **`db: Database` у кожному методі.** Тип з ORM у дизайні назвати не можна, тож у контракті це `DatabaseHandle = unknown`. Відповідність проходить лише завдяки тому, що TypeScript порівнює параметри методів біваріантно; про сам параметр контракт нічого не стверджує. Параметр інфраструктури в кожній сигнатурі — шум для читача контракту.
 4. **Тести проєкту запустити не вдалося.** Vitest на цій машині падає на нативному модулі rollup: проєкт розрахований на devcontainer. Теги — це лише коментарі, але те, що 16 тестів після них проходять, я не перевірив.
@@ -68,7 +68,7 @@ check: 1 design, 2 contracts, 5 data types, 16 invariants, 2 implementations, 16
 
 ## Побічна користь
 
-Щоб написати інваріанти, довелося словами сформулювати поведінку, яка була лише в назвах тестів і в одному коментарі: що робить повторний webhook (`replay`), що відбувається з членством після повторного додавання користувача (`relink`). З’явилися два відкриті питання до продукту, записані в кінці `design.mdx`: чи приймати членство у видаленому акаунті, і чому акаунти видаляються м’яко, а членства — остаточно.
+Щоб написати інваріанти, довелося словами сформулювати поведінку, яка була лише в назвах тестів і в одному коментарі: що робить повторний webhook (`replay`), що відбувається з членством після повторного додавання користувача (`relink`). З’явилися два відкриті питання до продукту, записані в кінці `*.cage.mdx`: чи приймати членство у видаленому акаунті, і чому акаунти видаляються м’яко, а членства — остаточно.
 
 ## Друга частина: всі види декларацій
 
@@ -107,7 +107,7 @@ check: 3 designs, 10 contracts, 7 data types, 34 invariants, 10 implementations,
 
 ### Зміни в проєкті після другої частини
 
-- три `design.mdx` (accounts, versioning, topics) і три згенеровані файли;
+- три `*.cage.mdx` (accounts, versioning, topics) і три згенеровані файли;
 - теги в 6 файлах реалізацій і 5 файлах тестів: 10 `@implements`, 10 `@tests`, 28 `@covers`;
 - `changelog-composer.spec.ts` перебудовано: три вкладені `describe` і новий тест для `isBlank`.
 
@@ -115,21 +115,21 @@ check: 3 designs, 10 contracts, 7 data types, 34 invariants, 10 implementations,
 
 ## Третя частина: замки
 
-Після додавання `@final` і `@extendable` у харнес їх перевірено на модулі `accounts`: контракт `Accounts` позначено `@final`, контракт `AccountMemberships` і тип `Account` — `@extendable`. `design lock` записав три декларації в `.design/design.lock.json`. Далі в дизайн додано метод до `Accounts` і поле до `Account`:
+Після додавання `@final` і `@extendable` у харнес їх перевірено на модулі `accounts`: контракт `Accounts` позначено `@final`, контракт `AccountMemberships` і тип `Account` — `@extendable`. `cage lock` записав три декларації в `.cage/lock.json`. Далі в дизайн додано метод до `Accounts` і поле до `Account`:
 
 ```
-src/modules/accounts/.design/design.mdx:23:18: warning W_LOCK_UNRECORDED: Data type "Account" has additions that are not locked yet: `plan`. Run `design lock` to record them.
-src/modules/accounts/.design/design.mdx:92:18: error E_LOCK_VIOLATION: Contract "Accounts" is `@final`: it must not change.
+src/modules/accounts/*.cage.mdx:23:18: warning W_LOCK_UNRECORDED: Data type "Account" has additions that are not locked yet: `plan`. Run `cage lock` to record them.
+src/modules/accounts/*.cage.mdx:92:18: error E_LOCK_VIOLATION: Contract "Accounts" is `@final`: it must not change.
   `list` was added
 ```
 
 Правки повернуто; теги й файл-замок лишилися в проєкті. Prettier проєкту файл-замок приймає.
 
-Згодом замок розширено: він охоплює інваріанти контракту, а про відкриті типи всередині замкненої декларації харнес попереджає. На цьому модулі з’явилося п’ять попереджень `W_LOCK_OPEN_TYPE`: `Accounts` (`@final`) використовував `DatabaseHandle` і `AccountUpsert` без замка, `AccountMemberships` — `MembershipUpsert`, `DatabaseHandle` і `Membership`. Після позначення цих чотирьох типів файл-замок містить сім декларацій, із них два контракти з 7 і 9 інваріантами, і попереджень про замки немає. `design check --phase design --base origin/main` проходить: на `origin/main` файла-замка ще немає, тож він нічого не вимагає.
+Згодом замок розширено: він охоплює інваріанти контракту, а про відкриті типи всередині замкненої декларації харнес попереджає. На цьому модулі з’явилося п’ять попереджень `W_LOCK_OPEN_TYPE`: `Accounts` (`@final`) використовував `DatabaseHandle` і `AccountUpsert` без замка, `AccountMemberships` — `MembershipUpsert`, `DatabaseHandle` і `Membership`. Після позначення цих чотирьох типів файл-замок містить сім декларацій, із них два контракти з 7 і 9 інваріантами, і попереджень про замки немає. `cage check --phase design --base origin/main` проходить: на `origin/main` файла-замка ще немає, тож він нічого не вимагає.
 
 ## Четверта частина: що дизайн не покриває
 
-Після додавання `W_NOT_DESIGNED` `design check` показав у трьох модулях із дизайном 71 exported декларацію без контракту: 47 у `core/versioning`, 6 в `accounts`, 18 у `topics`. У модулі `accounts` і `topics` додано `.design/ignore` з трьома рядками (`entities/`, `dto/`, `*.module.ts`): таблиці Drizzle, схеми zod і NestJS-модулі власної поведінки не мають. Після цього в цих двох модулях лишилося чотири попередження, і всі по суті:
+Після додавання `W_NOT_DESIGNED` `cage check` показав у трьох модулях із дизайном 71 exported декларацію без контракту: 47 у `core/versioning`, 6 в `accounts`, 18 у `topics`. У модулі `accounts` і `topics` додано `.cage/ignore` з трьома рядками (`entities/`, `dto/`, `*.module.ts`): таблиці Drizzle, схеми zod і NestJS-модулі власної поведінки не мають. Після цього в цих двох модулях лишилося чотири попередження, і всі по суті:
 
 ```
 src/modules/accounts/webhooks-accounts.controller.ts:17:14: warning W_NOT_DESIGNED: Exported class "WebhooksAccountsController" …

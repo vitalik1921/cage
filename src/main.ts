@@ -20,24 +20,24 @@ export interface CliIo {
   stderr: (text: string) => void;
 }
 
-const USAGE = `Usage: design <command> [options]
+const USAGE = `Usage: cage <command> [options]
 
 Commands:
   check                 Check the designs, the generated files, the implementations and the test links
   check --phase design  Check only the designs: documents, contracts, tags, references and types
   check --base <rev>    Also require every lock recorded at that Git revision (for CI: --base origin/main)
-  extract               Check the designs and write each .design/design.generated.ts
+  extract               Check the designs and write each module's .cage/generated.ts
   extract --check       Check the designs and that the generated files are current; write nothing
-  lock                  Record the declarations marked @final or @extendable in .design/design.lock.json
+  lock                  Record the declarations marked @final or @extendable in .cage/lock.json
   review [name...]      The material of the named contracts for a reviewer: markdown (default) or json;
                         without names, the contracts without a fresh recorded review; --all for every contract
-  review --record <f>   Record the verdicts in <f> (json, the shape the review asks for; relative to the current directory) in .design/review.json
+  review --record <f>   Record the verdicts in <f> (json, the shape the review asks for; relative to the current directory) in .cage/review.json
   gate                  Stop hook for an agent's environment: the full check; errors and review findings block (exit 2,
                         report and guidance on stderr); after 3 blocks in one session the agent may stop. Reads the hook's JSON on stdin
 
 Options:
   --root <path>     Project root (default: the current directory)
-  --config <path>   Configuration file, relative to the project root (default: .design/config.json if present)
+  --config <path>   Configuration file, relative to the project root (default: .cage/config.json if present)
   --format <format> Report format: text (default) or json; for review markdown (default) or json
   --all             review: every contract, not only those in need of a review
   -h, --help        Show this help
@@ -55,12 +55,12 @@ export function runCli(argv: readonly string[], io: CliIo): number {
     return run(argv, io);
   } catch (cause) {
     if (cause instanceof UsageError) {
-      io.stderr(`design: ${cause.message}\nRun \`design --help\` for usage.\n`);
+      io.stderr(`cage: ${cause.message}\nRun \`cage --help\` for usage.\n`);
     } else if (cause instanceof Error && "syscall" in cause) {
       // A file system failure, such as a directory that cannot be read: the message names the path.
-      io.stderr(`design: ${cause.message}\n`);
+      io.stderr(`cage: ${cause.message}\n`);
     } else {
-      io.stderr(`design: internal error: ${cause instanceof Error ? (cause.stack ?? cause.message) : String(cause)}\n`);
+      io.stderr(`cage: internal error: ${cause instanceof Error ? (cause.stack ?? cause.message) : String(cause)}\n`);
     }
     return 2;
   }

@@ -1,35 +1,36 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Config } from "./config.ts";
-import { GENERATED_FILE_NAME } from "./extraction.ts";
+import { CAGE_DIRECTORY, GENERATED_FILE_NAME } from "./extraction.ts";
 
+/** A module: the directory that holds its design documents. */
 export interface DesignSource {
   /** Project-relative POSIX path of the module root; "." for the project root. */
   moduleId: string;
-  /** Absolute path of the authored design.mdx. */
-  sourceFile: string;
-  /** Absolute path of the design.generated.ts next to it; the file may not exist. */
+  /** Absolute paths of the module's `*.cage.mdx` documents, sorted by name. */
+  sourceFiles: string[];
+  /** Absolute path of `.cage/generated.ts` in the module; the file may not exist. */
   generatedFile: string;
 }
 
-const MODULE_MARKER = ".design/design.mdx";
+/** The suffix that makes a file a design document. */
+export const DESIGN_SUFFIX = ".cage.mdx";
 
 /**
- * Finds the design documents of the scope, sorted by path. Only files named
- * `.design/design.mdx` are module markers; anything else a pattern matches,
- * such as a generated file, is not a design.
+ * Finds the design documents of the scope and groups them by directory: the
+ * documents of one directory are one module's design. Only files named
+ * `*.cage.mdx` count; anything else a pattern matches is not a design.
  */
 export function discoverDesigns(root: string, config: Pick<Config, "designs" | "exclude">): DesignSource[] {
-  return findFiles(root, config.designs, config.exclude)
-    .filter((file) => file === MODULE_MARKER || file.endsWith(`/${MODULE_MARKER}`))
-    .map((file) => {
-      const designDirectory = path.posix.dirname(file);
-      return {
-        moduleId: path.posix.dirname(designDirectory),
-        sourceFile: path.join(root, file),
-        generatedFile: path.join(root, designDirectory, GENERATED_FILE_NAME),
-      };
-    });
+  const byModule = new Map<string, string[]>();
+  for (const file of findFiles(root, config.designs, config.exclude)) {
+    if (!file.endsWith(DESIGN_SUFFIX) || path.posix.basename(file) === DESIGN_SUFFIX) continue;
+    const moduleId = path.posix.dirname(file);
+    byModule.set(moduleId, [...(byModule.get(moduleId) ?? []), path.join(root, file)]);
+  }
+  return [...byModule]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([moduleId, sourceFiles]) => ({ moduleId, sourceFiles, generatedFile: path.join(root, moduleId, CAGE_DIRECTORY, GENERATED_FILE_NAME) }));
 }
 
 export interface SourceFiles {
@@ -42,13 +43,13 @@ export interface SourceFiles {
 /**
  * The ordinary source files of the scope: `.ts` files only, whatever else
  * the patterns match. A test file is not an implementation, and nothing
- * inside a `.design` directory is either; declaration files are neither.
+ * inside a `.cage` directory is either; declaration files are neither.
  */
 export function discoverSources(root: string, config: Pick<Config, "implementations" | "tests" | "exclude">): SourceFiles {
   const isSource = (file: string) => file.endsWith(".ts") && !file.endsWith(".d.ts");
   const tests = findFiles(root, config.tests, config.exclude).filter(isSource);
   const isTest = new Set(tests);
-  const inDesign = (file: string) => file.split("/").includes(".design");
+  const inDesign = (file: string) => file.split("/").includes(CAGE_DIRECTORY);
   const implementations = findFiles(root, config.implementations, config.exclude).filter((file) => isSource(file) && !isTest.has(file) && !inDesign(file));
   return { implementations, tests };
 }

@@ -5,7 +5,7 @@ import { indexDesigns, type ImportTarget } from "./design-index.ts";
 import type { DesignIndex } from "./design-model.ts";
 import { compareDiagnostics, isError, type Diagnostic } from "./diagnostic.ts";
 import type { DesignSource } from "./discovery.ts";
-import { blockAt, buildGeneratedModule, extractBlock, toSourceOffset, type ExtractedText, type GeneratedModule } from "./extraction.ts";
+import { blockAt, buildGeneratedModule, CAGE_DIRECTORY, extractBlock, toSourceOffset, type ExtractedText, type GeneratedModule, type Insert } from "./extraction.ts";
 import { lineStarts, positionAt, stripBom, toProjectPath, type Position } from "./location.ts";
 import { parseDesignMdx, type DesignBlock } from "./mdx.ts";
 import {
@@ -19,15 +19,21 @@ import {
   type TypeScriptInfo,
 } from "./typescript.ts";
 
-export interface DesignModule extends DesignSource {
-  /** The design document, relative to the project root. */
+/** One `*.cage.mdx` document of a module. */
+export interface DesignDocument {
+  /** Relative to the project root. */
   file: string;
-  /** The generated file, relative to the project root. */
-  generatedPath: string;
-  /** Document text without a byte order mark. */
+  /** Text without a byte order mark. */
   source: string;
   sourceLines: readonly number[];
   blocks: DesignBlock[];
+}
+
+/** A module's design: its documents, and the generated module assembled from all their blocks. */
+export interface DesignModule extends DesignSource {
+  documents: DesignDocument[];
+  /** The generated file, relative to the project root. */
+  generatedPath: string;
   generated: GeneratedModule;
 }
 
@@ -80,7 +86,7 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
   diagnostics.push(...(options.problems ?? []));
   if (failed()) return done();
 
-  readDocuments(root, options.designs, modules, diagnostics);
+  readDocuments(ts, root, options.designs, modules, diagnostics);
   if (failed()) return done();
 
   diagnostics.push(...checkBlocks(ts, root, modules));
@@ -110,18 +116,20 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
       locate: (offset) => {
         // What the index reports are tokens and comments of the blocks, so every offset has an authored position.
         const position = authoredPosition(origin, offset);
-        if (!position) throw new Error(`Offset ${offset} of ${origin.module.generatedPath} was not copied from the design document.`);
-        return { file: origin.module.file, ...position };
+        if (!position) throw new Error(`Offset ${offset} of ${origin.module.generatedPath} was not copied from a design document.`);
+        return position;
       },
       blockOf: (offset) => blockAt(origin.module.generated, offset),
+      writtenSpecifier: (specifier) => origin.module.generated.writtenSpecifiers.get(specifier.getStart(sourceFile)) ?? specifier.text,
     })),
     (specifier, from): ImportTarget => {
       const resolved = overlay.resolveModule(specifier, from);
       const target = resolved === undefined ? undefined : modules.find((module) => overlay.sameFile(module.generatedFile, resolved));
       if (target) return { moduleId: target.moduleId };
       // An unresolved specifier may have no extension; a resolved one is a file name.
-      const fileName = path.posix.basename((resolved ?? specifier.text).replaceAll("\\", "/"));
-      return /^design\.generated(\.[cm]?[jt]s)?$/.test(fileName) ? "out-of-scope" : "other";
+      const parts = (resolved ?? specifier.text).replaceAll("\\", "/").split("/");
+      const isGenerated = parts.at(-2) === CAGE_DIRECTORY && /^generated(\.[cm]?[jt]s)?$/.test(parts.at(-1) ?? "");
+      return isGenerated ? "out-of-scope" : "other";
     },
   );
   result.index = indexed.index;
@@ -136,43 +144,88 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
   return done();
 }
 
-function readDocuments(root: string, designs: readonly DesignSource[], modules: DesignModule[], diagnostics: Diagnostic[]): void {
+/**
+ * Reads the documents of every module. The documents of one module are one
+ * design: their blocks make one generated module, in the order of their
+ * names, and prose in any of them is the business context of all.
+ */
+function readDocuments(ts: TypeScript, root: string, designs: readonly DesignSource[], modules: DesignModule[], diagnostics: Diagnostic[]): void {
   if (designs.length === 0) {
     diagnostics.push({
       code: "E_NO_DESIGNS",
       severity: "error",
-      message: "No .design/design.mdx documents were found. Check the project root and the `designs` patterns.",
+      message: "No *.cage.mdx documents were found. Check the project root and the `designs` patterns.",
     });
   }
   for (const design of designs) {
-    const file = toProjectPath(root, design.sourceFile);
-    let source: string;
-    try {
-      source = stripBom(fs.readFileSync(design.sourceFile, "utf8"));
-    } catch (cause) {
-      diagnostics.push({ code: "E_ENVIRONMENT", severity: "error", message: `Cannot read the design document: ${(cause as Error).message}`, file });
-      continue;
+    const documents: DesignDocument[] = [];
+    let readable = true;
+    let hasBusinessContext = false;
+    let hasProblems = false;
+    for (const sourceFile of design.sourceFiles) {
+      const file = toProjectPath(root, sourceFile);
+      let source: string;
+      try {
+        source = stripBom(fs.readFileSync(sourceFile, "utf8"));
+      } catch (cause) {
+        diagnostics.push({ code: "E_ENVIRONMENT", severity: "error", message: `Cannot read the design document: ${(cause as Error).message}`, file });
+        readable = false;
+        continue;
+      }
+      const parsed = parseDesignMdx(source, file);
+      diagnostics.push(...parsed.diagnostics);
+      hasProblems ||= parsed.diagnostics.length > 0;
+      hasBusinessContext ||= parsed.hasBusinessContext;
+      documents.push({ file, source, sourceLines: lineStarts(source), blocks: parsed.blocks });
     }
-    const parsed = parseDesignMdx(source, file);
-    diagnostics.push(...parsed.diagnostics);
-    if (parsed.blocks.length > 0 && !parsed.hasBusinessContext) {
+    if (!readable) continue;
+    const names = documents.map((document) => document.file);
+    // Misplaced or empty blocks are already reported; do not cascade into "missing".
+    if (documents.every((document) => document.blocks.length === 0) && !hasProblems) {
+      diagnostics.push({
+        code: "E_DESIGN_BLOCK_MISSING",
+        severity: "error",
+        message: `The design of ${design.moduleId} has no ts design block in any of its documents: ${names.join(", ")}.`,
+        file: names[0],
+      });
+    } else if (!hasBusinessContext && documents.some((document) => document.blocks.length > 0)) {
       diagnostics.push({
         code: "W_BUSINESS_CONTEXT_MISSING",
         severity: "warning",
-        message: "The design document has no prose outside its code blocks: a reviewer gets the contracts without their business context.",
-        file,
+        message: `The design of ${design.moduleId} has no prose outside its code blocks: a reviewer gets the contracts without their business context.`,
+        file: names[0],
       });
     }
     modules.push({
       ...design,
-      file,
+      documents,
       generatedPath: toProjectPath(root, design.generatedFile),
-      source,
-      sourceLines: lineStarts(source),
-      blocks: parsed.blocks,
-      generated: buildGeneratedModule(parsed.blocks),
+      generated: buildGeneratedModule(
+        documents.map((document) => ({ name: path.posix.basename(document.file), blocks: document.blocks, inserts: relativeSpecifierInserts(ts, document.blocks) })),
+      ),
     });
   }
+}
+
+/**
+ * A relative specifier in a document is relative to the document's directory;
+ * the generated module lives in `.cage/` below it, so every such specifier
+ * gets a `../` in front. What is not relative (bare names, path aliases) is
+ * the same from anywhere.
+ */
+function relativeSpecifierInserts(ts: TypeScript, blocks: readonly DesignBlock[]): Map<number, Insert[]> {
+  const inserts = new Map<number, Insert[]>();
+  blocks.forEach((block, order) => {
+    const text = block.lines.map((line) => line.text).join("\n");
+    const sourceFile = ts.createSourceFile("block.ts", text, ts.ScriptTarget.Latest, false);
+    for (const statement of sourceFile.statements) {
+      const specifier = (ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement)) && statement.moduleSpecifier;
+      if (!specifier || !ts.isStringLiteral(specifier) || !/^\.\.?\//.test(specifier.text)) continue;
+      const { line, character } = sourceFile.getLineAndCharacterOfPosition(specifier.getStart(sourceFile) + 1);
+      inserts.set(order, [...(inserts.get(order) ?? []), { line, column: character, text: "../", original: specifier.text }]);
+    }
+  });
+  return inserts;
 }
 
 /** Problems of the compiler setup, as diagnostics of the project's tsconfig unless the compiler names another file. */
@@ -189,10 +242,12 @@ export interface Origin {
   extracted: ExtractedText;
 }
 
-/** The position in the MDX of an offset of extracted text; undefined for text that was not copied from a block. */
-function authoredPosition({ module, extracted }: Origin, offset: number): Position | undefined {
-  const sourceOffset = toSourceOffset(extracted, offset);
-  return sourceOffset === undefined ? undefined : positionAt(module.sourceLines, sourceOffset);
+/** The document and position of an offset of extracted text; undefined for text that was not copied from a block. */
+function authoredPosition({ module, extracted }: Origin, offset: number): (Position & { file: string }) | undefined {
+  const source = toSourceOffset(extracted, offset);
+  if (source === undefined) return undefined;
+  const document = module.documents[source.document];
+  return { file: document.file, ...positionAt(document.sourceLines, source.offset) };
 }
 
 type Location = Pick<Diagnostic, "file" | "line" | "column" | "endLine" | "endColumn">;
@@ -216,9 +271,10 @@ export function createConverter(ts: TypeScript, root: string, program: ts.Progra
       return { file: name, line: from.line + 1, column: from.character + 1, endLine: to.line + 1, endColumn: to.character + 1 };
     }
     const from = start === undefined ? undefined : authoredPosition(origin, start);
-    if (start === undefined || !from) return { file: origin.module.file, unmapped: start !== undefined };
+    // Header and separators belong to no document; the first one stands for the module.
+    if (start === undefined || !from) return { file: origin.module.documents[0].file, unmapped: start !== undefined };
     const to = authoredPosition(origin, start + length);
-    return to ? { file: origin.module.file, ...from, endLine: to.line, endColumn: to.column } : { file: origin.module.file, ...from };
+    return to ? { ...from, endLine: to.line, endColumn: to.column } : from;
   };
 
   // The compiler names a type that is ambiguous by the absolute path of its module; the report keeps paths from the project root.
@@ -255,19 +311,22 @@ function checkBlocks(ts: TypeScript, root: string, modules: readonly DesignModul
   const diagnostics: Diagnostic[] = [];
   const files = new Map<string, Origin>();
   for (const module of modules) {
-    for (const block of module.blocks) {
-      const origin: Origin = { module, extracted: extractBlock(block) };
-      files.set(path.join(path.dirname(module.generatedFile), `design.block-${block.order + 1}.ts`), origin);
-      const { text } = origin.extracted;
-      for (const comment of ts.getLeadingCommentRanges(text, 0) ?? []) {
-        if (!/^\/\/\/\s*<reference\b/.test(text.slice(comment.pos, comment.end))) continue;
-        diagnostics.push({
-          code: "E_DESIGN_IMPORT",
-          severity: "error",
-          message: "`/// <reference>` is not allowed in a ts design block; a design may import only types of other designs, with `import type`.",
-          file: module.file,
-          ...authoredPosition(origin, comment.pos),
-        });
+    let order = 0;
+    for (const [index, document] of module.documents.entries()) {
+      for (const block of document.blocks) {
+        const origin: Origin = { module, extracted: extractBlock(block, index) };
+        order += 1;
+        files.set(path.join(path.dirname(module.generatedFile), `block-${order}.ts`), origin);
+        const { text } = origin.extracted;
+        for (const comment of ts.getLeadingCommentRanges(text, 0) ?? []) {
+          if (!/^\/\/\/\s*<reference\b/.test(text.slice(comment.pos, comment.end))) continue;
+          diagnostics.push({
+            code: "E_DESIGN_IMPORT",
+            severity: "error",
+            message: "`/// <reference>` is not allowed in a ts design block; a design may import only types of other designs, with `import type`.",
+            ...authoredPosition(origin, comment.pos),
+          });
+        }
       }
     }
   }

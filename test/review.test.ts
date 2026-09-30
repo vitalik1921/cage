@@ -49,7 +49,7 @@ test("a packet holds the contract, its design, the designs it depends on, its im
   assert.equal(report.contracts.length, 1);
   assert.equal(packet.contract, "Send");
   assert.equal(packet.module, "src/modules/campaigns");
-  assert.equal(packet.design, CAMPAIGNS);
+  assert.deepEqual(packet.designs, [CAMPAIGNS]);
   assert.match(packet.fingerprint, /^sha256:[0-9a-f]{64}$/);
   assert.deepEqual(packet.dependencies, {
     uses: [
@@ -111,7 +111,7 @@ test("the markdown document lists the contracts and every file once, in fences l
   assert.equal(stdout.match(/^## Contract /gm)?.length, 2);
   assert.deepEqual(
     stdout.match(/^### src\/.*$/gm),
-    [`### ${CAMPAIGNS} (design)`, `### ${SEND_SERVICE} (implementation)`, `### ${SEND_TEST} (test)`, `### ${MAIL} (design)`, `### ${QUOTA} (design)`, "### src/modules/quota/memory-quota.ts (implementation)", "### src/modules/quota/quota.test.ts (test)"],
+    [`### ${CAMPAIGNS} (design)`, `### ${SEND_SERVICE} (implementation)`, `### ${SEND_TEST} (test)`, `### ${MAIL} (design)`, "### src/modules/quota/memory-quota.ts (implementation)", `### ${QUOTA} (design)`, "### src/modules/quota/quota.test.ts (test)"],
   );
   assert.ok(stdout.includes("\n`````ts\n"), "fences are five backticks");
   assert.ok(!stdout.includes("\n````ts\n"));
@@ -173,7 +173,7 @@ test("structural errors do not stop the export: the packet carries them and comp
   assert.deepEqual(broken.report.files, []);
   assert.ok(broken.report.diagnostics.some(({ code }) => code === "E_TYPESCRIPT"));
 
-  writeFile(root, ".design/config.json", "{ nope");
+  writeFile(root, ".cage/config.json", "{ nope");
   assert.equal(cli(root, "review").code, 2);
 });
 
@@ -213,7 +213,7 @@ test("a recorded verdict makes check content with the contract, and the review f
     reviewDiagnostics(root).map(({ code, contract }) => ({ code, contract })),
     [{ code: "W_REVIEW_MISSING", contract: "Send" }, { code: "W_REVIEW_MISSING", contract: "Sender" }, { code: "W_REVIEW_MISSING", contract: "Quota" }],
   );
-  assert.ok(before.report.diagnostics.find(({ code }) => code === "W_REVIEW_MISSING")?.message.includes("Run `design review Send`"));
+  assert.ok(before.report.diagnostics.find(({ code }) => code === "W_REVIEW_MISSING")?.message.includes("Run `cage review Send`"));
   // The design phase does not have the material of a review.
   assert.deepEqual(reviewDiagnostics(root, "--phase", "design"), []);
 
@@ -245,13 +245,13 @@ test("a recorded verdict makes check content with the contract, and the review f
   // What is fresh is not exported again by default.
   assert.deepEqual(review(root).report.contracts.map(({ contract }) => contract), ["Sender", "Quota"]);
 
-  writeFile(root, ".design/config.json", JSON.stringify({ version: 1, review: "require" }));
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "require" }));
   const required = check(root);
   assert.equal(required.code, 1);
   assert.deepEqual(required.report.diagnostics.filter(isError).map(({ code, contract }) => ({ code, contract })), [{ code: "E_REVIEW_MISSING", contract: "Sender" }, { code: "E_REVIEW_MISSING", contract: "Quota" }]);
-  writeFile(root, ".design/config.json", JSON.stringify({ version: 1, review: "off" }));
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "off" }));
   assert.deepEqual(reviewDiagnostics(root), []);
-  writeFile(root, ".design/config.json", JSON.stringify({ version: 1, review: "maybe" }));
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "maybe" }));
   assert.match(check(root).report.diagnostics[0].message, /"review" must be "off", "warn" or "require"/);
 });
 
@@ -350,9 +350,9 @@ test("findings other than adequate are reported where the invariant is, with the
       invariant: "sender-error",
       ...at("@invariant sender-error"),
     },
-    { code: "W_REVIEW_MISSING", message: 'Contract "Quota" has no recorded review. Run `design review Quota`, have the material reviewed, and record the verdict with `design review --record`.', contract: "Quota", invariant: undefined, ...inFixture(QUOTA, "Quota {") },
+    { code: "W_REVIEW_MISSING", message: 'Contract "Quota" has no recorded review. Run `cage review Quota`, have the material reviewed, and record the verdict with `cage review --record`.', contract: "Quota", invariant: undefined, ...inFixture(QUOTA, "Quota {") },
   ]);
-  writeFile(root, ".design/config.json", JSON.stringify({ version: 1, review: "require" }));
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "require" }));
   assert.equal(check(root).code, 1);
 });
 
@@ -397,14 +397,14 @@ test("a review of a contract that no longer exists is reported by check and remo
   const mail = readFile(root, MAIL);
   const callbackSender = readFile(root, CALLBACK_SENDER);
   fs.rmSync(path.join(root, "src/modules/mail"), { recursive: true });
-  writeFile(root, "src/modules/post/.design/design.mdx", mail);
+  writeFile(root, "src/modules/post/post.cage.mdx", mail);
   writeFile(root, "src/modules/post/callback-sender.ts", callbackSender);
   editFile(root, SEND_SERVICE, (s) => s.replace("../mail/", "../post/"));
   editFile(root, SEND_TEST, (s) => s.replace("../mail/", "../post/"));
   assert.equal(cli(root, "extract").code, 0);
   assert.deepEqual(
     reviewDiagnostics(root).filter(({ file }) => file === REVIEW_FILE).map(({ code, message }) => ({ code, message })),
-    [{ code: "W_REVIEW_STALE", message: 'The review file has a review of contract "Sender" of src/modules/mail, which no longer exists there. `design review --record` removes it.' }],
+    [{ code: "W_REVIEW_STALE", message: 'The review file has a review of contract "Sender" of src/modules/mail, which no longer exists there. `cage review --record` removes it.' }],
   );
   const withDeadEntry = readFile(root, REVIEW_FILE);
   const recorded = record(root, { version: 1, verdicts: [{ contract: "Sender", fingerprint: fingerprintOf(root, "Sender"), findings: [finding(null)] }] });

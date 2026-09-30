@@ -130,6 +130,8 @@ export function createOverlay(ts: TypeScript, options: ts.CompilerOptions, initi
   const base = ts.createCompilerHost(options, true);
   const key = (fileName: string) => base.getCanonicalFileName(path.resolve(fileName));
   const files = new Map<string, string>();
+  // The directories of in-memory files, and their parents: module resolution asks before it looks for a file.
+  const directories = new Set<string>();
   // The library and the project's files are the same for every program of one run: parse them once.
   const parsed = new Map<string, ts.SourceFile>();
   const overlayText = (fileName: string) => files.get(key(fileName));
@@ -137,6 +139,10 @@ export function createOverlay(ts: TypeScript, options: ts.CompilerOptions, initi
     for (const [fileName, text] of added) {
       files.set(key(fileName), text);
       parsed.delete(key(fileName));
+      for (let directory = path.dirname(path.resolve(fileName)); !directories.has(key(directory)); directory = path.dirname(directory)) {
+        directories.add(key(directory));
+        if (path.dirname(directory) === directory) break;
+      }
     }
   };
   add(initial);
@@ -144,6 +150,7 @@ export function createOverlay(ts: TypeScript, options: ts.CompilerOptions, initi
   const host: ts.CompilerHost = {
     ...base,
     fileExists: (fileName) => overlayText(fileName) !== undefined || base.fileExists(fileName),
+    directoryExists: (directory) => directories.has(key(directory)) || (base.directoryExists?.(directory) ?? false),
     readFile: (fileName) => overlayText(fileName) ?? base.readFile(fileName),
     realpath: (fileName) => (overlayText(fileName) !== undefined ? fileName : (base.realpath?.(fileName) ?? fileName)),
     getSourceFile: (fileName, languageVersion, onError, shouldCreateNewSourceFile) => {

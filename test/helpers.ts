@@ -14,10 +14,11 @@ import { runCli } from "../src/main.ts";
 export const fixturesDir = path.join(import.meta.dirname, "fixtures");
 
 // The vertical fixture holds the three designs of section 13 of the plan.
-export const QUOTA = "src/modules/quota/.design/design.mdx";
-export const MAIL = "src/modules/mail/.design/design.mdx";
-export const CAMPAIGNS = "src/modules/campaigns/.design/design.mdx";
-export const generated = (design: string) => design.replace("design.mdx", "design.generated.ts");
+export const QUOTA = "src/modules/quota/quota.cage.mdx";
+export const MAIL = "src/modules/mail/mail.cage.mdx";
+export const CAMPAIGNS = "src/modules/campaigns/campaigns.cage.mdx";
+/** The generated module of the module a design document belongs to. */
+export const generated = (design: string) => `${path.posix.dirname(design)}/.cage/generated.ts`;
 
 export const doc = (...lines: string[]) => lines.join("\n");
 
@@ -122,14 +123,15 @@ export const contract = (name: string, body = "run(): void;", ...tags: string[])
 /** A valid data type declaration. */
 export const data = (name: string, type = "string") => ["/**", " * @data", ` * @description ${name}.`, " */", `export type ${name} = ${type};`].join("\n");
 
-export const designFile = (module: string) => `src/${module}/.design/design.mdx`;
+/** The design document of a `designProject` module: `src/<module>/<name>.cage.mdx`, named after the module's last directory. */
+export const designFile = (module: string) => `src/${module}/${path.posix.basename(module)}.cage.mdx`;
 
 /** The compiler options of a `designProject`. */
 export const PROJECT_OPTIONS = { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, allowImportingTsExtensions: true };
 
 /**
  * A small project removed after the test: `designs` maps a module name to the
- * text of its design document, stored at `src/<module>/.design/design.mdx`.
+ * text of its design document, stored at `src/<module>/<module>.cage.mdx`.
  */
 export function designProject(t: TestContext, designs: Record<string, string>, files: Record<string, string> = {}): string {
   const root = scratchDirectory(t, "designs");
