@@ -3,7 +3,9 @@
 //
 // Install: copy this file to .claude/hooks/design-gate.mjs of your project and add the
 // entry from settings.json here to .claude/settings.json. Requires the harness as a
-// dependency of the project (node_modules/.bin/design) or `design` on PATH.
+// dependency of the project (node_modules/.bin/design), `design` on PATH, or DESIGN_BIN
+// naming the executable. An optional argument names the project root relative to the
+// repository, for a project inside a monorepo: `design-gate.mjs apps/api`.
 //
 // A failing check is fed back to the agent (exit 2 + stderr). Review findings count as
 // failures whatever the "review" level in .design/config.json says, so that the loop
@@ -23,9 +25,11 @@ try {
 } catch {
   // No or malformed input: the check still decides.
 }
-const root = process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd();
-const local = path.join(root, "node_modules", ".bin", process.platform === "win32" ? "design.cmd" : "design");
-const command = fs.existsSync(local) ? local : "design";
+const repository = process.env.CLAUDE_PROJECT_DIR || input.cwd || process.cwd();
+const root = path.resolve(repository, process.argv[2] ?? ".");
+const bin = process.platform === "win32" ? "design.cmd" : "design";
+const candidates = [process.env.DESIGN_BIN, path.join(root, "node_modules", ".bin", bin), path.join(repository, "node_modules", ".bin", bin)].filter(Boolean);
+const command = candidates.find((candidate) => fs.existsSync(candidate)) ?? "design";
 
 const result = spawnSync(command, ["check", "--root", root, "--format", "json"], { encoding: "utf8", windowsHide: true, shell: process.platform === "win32" });
 if (result.error) {
