@@ -234,6 +234,12 @@ test("a project TypeScript that cannot be loaded does not stop the check", (t) =
   assert.deepEqual(JSON.parse(stdout).diagnostics.map((diagnostic: { code: string }) => diagnostic.code), ["E_CONFIG"]);
 });
 
+/** The warning for a contract that nobody has reviewed yet, as the text report prints it. */
+function reviewMissing(design: string, name: string): string {
+  const { line, column } = inFixture(design, `${name} {`);
+  return `${design}:${line}:${column}: warning W_REVIEW_MISSING: Contract "${name}" has no recorded review. Run \`design review ${name}\`, have the material reviewed, and record the verdict with \`design review --record\`.`;
+}
+
 function fullCheck(root: string, ...args: string[]): { code: number; report: CheckReport } {
   const { code, stdout, stderr } = cli(root, "check", "--format", "json", ...args);
   assert.equal(stderr, "");
@@ -264,7 +270,8 @@ test("check reports the whole plan fixture: 3 current outputs, 3 implementations
     "Quota: race": 1,
   });
   assert.deepEqual(report.scope.compilerOptions, { strictNullChecks: true, strictFunctionTypes: true, noImplicitAny: true });
-  assert.deepEqual(report.diagnostics.map((diagnostic) => diagnostic.code), ["W_NO_INVARIANTS"]);
+  // Nothing has been reviewed yet: by default that is a warning per contract, in the order of the documents.
+  assert.deepEqual(report.diagnostics.map((diagnostic) => diagnostic.code), ["W_REVIEW_MISSING", "W_NO_INVARIANTS", "W_REVIEW_MISSING", "W_REVIEW_MISSING"]);
   // Nothing in the report claims that a test ran or passed.
   assert.doesNotMatch(JSON.stringify(report), /passed|failed|proven|testRunStatus/);
   assert.deepEqual(snapshot(root), before);
@@ -272,8 +279,11 @@ test("check reports the whole plan fixture: 3 current outputs, 3 implementations
   assert.equal(
     cli(root, "check").stdout,
     [
+      reviewMissing(CAMPAIGNS, "Send"),
       senderWarning(),
-      "check: 3 designs, 3 contracts, 1 data type, 8 invariants, 3 implementations, 8 test declarations, 8 of 8 invariants linked to a test declaration; 0 errors, 1 warning. TypeScript 6.0.3 (project).",
+      reviewMissing(MAIL, "Sender"),
+      reviewMissing(QUOTA, "Quota"),
+      "check: 3 designs, 3 contracts, 1 data type, 8 invariants, 3 implementations, 8 test declarations, 8 of 8 invariants linked to a test declaration; 0 errors, 4 warnings. TypeScript 6.0.3 (project).",
       "",
     ].join("\n"),
   );
@@ -349,7 +359,7 @@ test("an invariant without a test and a contract without an implementation are e
   // The class that lost its tag is now also code that no design covers.
   const sender = inFixture("src/modules/mail/callback-sender.ts", "CallbackSender");
   assert.ok(cli(root, "check").stdout.includes(`${sender.file}:${sender.line}:${sender.column}: warning W_NOT_DESIGNED: Exported class "CallbackSender"`));
-  assert.match(cli(root, "check").stdout, /2 implementations, 8 test declarations, 7 of 8 invariants linked to a test declaration; 2 errors, 2 warnings\./);
+  assert.match(cli(root, "check").stdout, /2 implementations, 8 test declarations, 7 of 8 invariants linked to a test declaration; 2 errors, 5 warnings\./);
 });
 
 test("with an error in a design nothing beyond the designs is checked, and the report says so", (t) => {
@@ -400,12 +410,12 @@ test("under TypeScript 5 `strict` is off unless the project turns it on", (t) =>
   assert.equal(strict.code, 0);
   assert.deepEqual(strict.report.scope.typescript, { version: "5.9.3", source: "project" });
   assert.deepEqual(strict.report.counts, { contracts: 3, data: 1, invariants: 8, implementations: 3, testDeclarations: 8, linkedInvariants: 8 });
-  assert.deepEqual(strict.report.diagnostics.map((diagnostic) => diagnostic.code), ["W_NO_INVARIANTS"]);
+  assert.deepEqual(strict.report.diagnostics.map((diagnostic) => diagnostic.code).filter((code) => code !== "W_REVIEW_MISSING"), ["W_NO_INVARIANTS"]);
 
   editFile(root, "tsconfig.json", (s) => s.replace('"strict": true,', ""));
   const loose = fullCheck(root);
   assert.deepEqual(loose.report.scope.compilerOptions, { strictNullChecks: false, strictFunctionTypes: false, noImplicitAny: false });
-  assert.deepEqual(loose.report.diagnostics.map((diagnostic) => diagnostic.code), ["W_NO_INVARIANTS", "W_WEAK_TYPECHECK"]);
+  assert.deepEqual(loose.report.diagnostics.map((diagnostic) => diagnostic.code).filter((code) => code !== "W_REVIEW_MISSING"), ["W_NO_INVARIANTS", "W_WEAK_TYPECHECK"]);
 });
 
 test("files that cannot be read are environment errors in the report, not a crash", { skip: process.getuid?.() === 0 }, (t) => {

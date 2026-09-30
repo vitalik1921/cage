@@ -14,6 +14,8 @@ export interface Config {
   testAdapter: "node:test" | "vitest";
   /** Whether each design has a `design.generated.ts` on disk, written by `extract` and required by `check`. */
   generatedFiles: boolean;
+  /** How `check` treats a contract without a fresh recorded review: not at all, as a warning, or as an error. */
+  review: "off" | "warn" | "require";
 }
 
 export const DEFAULT_CONFIG_FILE = ".design/config.json";
@@ -27,6 +29,7 @@ export const defaultConfig: Config = {
   exclude: ["**/node_modules/**", "**/dist/**", "**/build/**", "**/coverage/**"],
   testAdapter: "node:test",
   generatedFiles: true,
+  review: "warn",
 };
 
 export interface LoadedConfig {
@@ -75,6 +78,7 @@ const fields: Record<keyof Config, { expected: string; valid: (value: unknown) =
   exclude: { expected: "an array of non-empty strings", valid: isTextList },
   testAdapter: { expected: '"node:test" or "vitest"', valid: (value) => value === "node:test" || value === "vitest" },
   generatedFiles: { expected: "true or false", valid: (value) => typeof value === "boolean" },
+  review: { expected: '"off", "warn" or "require"', valid: (value) => value === "off" || value === "warn" || value === "require" },
 };
 
 function validate(value: unknown): string[] {

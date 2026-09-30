@@ -7,6 +7,7 @@ import { isError, type Diagnostic } from "./diagnostic.ts";
 import { discoverDesigns, discoverSources } from "./discovery.ts";
 import { runExtract } from "./extract.ts";
 import { runLock } from "./lock-command.ts";
+import { formatRecordReport, recordVerdicts } from "./review-record.ts";
 import { formatReviewMarkdown, runReview } from "./review.ts";
 import { formatCheckReport, formatExtractReport, formatLockReport } from "./report.ts";
 
@@ -25,13 +26,15 @@ Commands:
   extract               Check the designs and write each .design/design.generated.ts
   extract --check       Check the designs and that the generated files are current; write nothing
   lock                  Record the declarations marked @final or @extendable in .design/design.lock.json
-  review [name...]      The material of the named contracts (or all) for a reviewer: markdown (default) or json
+  review [name...]      The material of the named contracts for a reviewer: markdown (default) or json;
+                        without names, the contracts without a fresh recorded review; --all for every contract
+  review --record <f>   Record the verdicts in <f> (json, the shape the review asks for) in .design/review.json
 
 Options:
   --root <path>     Project root (default: the current directory)
   --config <path>   Configuration file, relative to the project root (default: .design/config.json if present)
   --format <format> Report format: text (default) or json; for review markdown (default) or json
-  --all             review: every contract (the default when no name is given)
+  --all             review: every contract, not only those in need of a review
   -h, --help        Show this help
   --version         Show the version
 
@@ -71,6 +74,7 @@ function run(argv: readonly string[], io: CliIo): number {
         base: { type: "string" },
         check: { type: "boolean" },
         all: { type: "boolean" },
+        record: { type: "string" },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean" },
       },
@@ -95,6 +99,9 @@ function run(argv: readonly string[], io: CliIo): number {
   if (command !== "review" && extra.length > 0) throw new UsageError(`Unexpected argument "${extra[0]}".`);
   if (command !== "review" && values.all) throw new UsageError("--all is an option of the review command.");
   if (command === "review" && values.all && extra.length > 0) throw new UsageError("--all reviews every contract; do not name contracts with it.");
+  if (command !== "review" && values.record !== undefined) throw new UsageError("--record is an option of the review command.");
+  if (values.record !== undefined && (values.all || extra.length > 0)) throw new UsageError("--record takes the verdicts file only; the contracts are those in it.");
+  if (values.record !== undefined && values.record.trim() === "") throw new UsageError("--record needs the path of a verdicts file.");
   if (command !== "check" && values.phase !== undefined) throw new UsageError("--phase is an option of the check command.");
   if (command !== "check" && values.base !== undefined) throw new UsageError("--base is an option of the check command.");
   if (values.base !== undefined && values.base.trim() === "") throw new UsageError("--base needs a Git revision, such as origin/main.");
@@ -105,7 +112,7 @@ function run(argv: readonly string[], io: CliIo): number {
     }
   }
 
-  const formats = command === "review" ? ["markdown", "json"] : ["text", "json"];
+  const formats = command === "review" && values.record === undefined ? ["markdown", "json"] : ["text", "json"];
   const format = values.format ?? formats[0];
   if (!formats.includes(format)) throw new UsageError(`Unknown format "${format}"; expected ${formats.join(" or ")}.`);
 
@@ -129,7 +136,7 @@ function run(argv: readonly string[], io: CliIo): number {
     const phase = values.phase === "design" ? "design" : "implementation";
     // The design phase does not look at source files, so it does not search for them either.
     const sources = phase === "design" || diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
-    const report = runCheck({ ...scope, sources, testAdapter: config.testAdapter, generatedFiles: config.generatedFiles }, phase, values.base);
+    const report = runCheck({ ...scope, sources, testAdapter: config.testAdapter, generatedFiles: config.generatedFiles }, phase, { lockBase: values.base, review: config.review });
     return print(report, formatCheckReport(report));
   }
   if (command === "lock") {
@@ -138,7 +145,12 @@ function run(argv: readonly string[], io: CliIo): number {
   }
   if (command === "review") {
     const sources = diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
-    const report = runReview({ ...scope, sources, testAdapter: config.testAdapter, generatedFiles: config.generatedFiles }, extra.length > 0 ? extra : "all");
+    const phaseOptions = { ...scope, sources, testAdapter: config.testAdapter, generatedFiles: config.generatedFiles };
+    if (values.record !== undefined) {
+      const report = recordVerdicts(phaseOptions, values.record);
+      return print(report, formatRecordReport(report));
+    }
+    const report = runReview(phaseOptions, extra.length > 0 ? extra : values.all ? "all" : "needed");
     io.stdout(format === "json" ? `${JSON.stringify(report, null, 2)}\n` : formatReviewMarkdown(report));
     // An export succeeds with structural errors in the material; it fails when the packets could not be made.
     return exitCode(report.diagnostics) === 2 ? 2 : report.ok ? 0 : 1;

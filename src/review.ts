@@ -1,19 +1,14 @@
-import crypto from "node:crypto";
-import fs from "node:fs";
 import path from "node:path";
-import type { Edge, LockLevel, SourceLocation } from "./design-model.ts";
+import type { Contract, LockLevel, SourceLocation } from "./design-model.ts";
 import type { DesignModule } from "./design-phase.ts";
 import { compareDiagnostics, compareText, hasErrors, type Diagnostic } from "./diagnostic.ts";
 import { checkImplementationPhase, type ImplementationPhaseOptions, type ImplementationPhaseResult } from "./implementation-phase.ts";
-import { stripBom, toProjectPath } from "./location.ts";
+import { toProjectPath } from "./location.ts";
+import { collectMaterial, createFileReader, fingerprintOf, type FileReader, type PacketFile } from "./review-material.ts";
+import { readReviewFile } from "./review-record.ts";
 import type { Overlay, TypeScript } from "./typescript.ts";
 
-/** A file the reviewer reads, once, whatever number of contracts it serves. */
-export interface PacketFile {
-  path: string;
-  role: "design" | "implementation" | "test";
-  text: string;
-}
+export type { PacketFile } from "./review-material.ts";
 
 /** Everything the harness knows about one contract, with pointers into `files`. */
 export interface ContractPacket {
@@ -51,7 +46,8 @@ export interface ReviewReport {
   ok: boolean;
   /** False when the check found errors: the reviewer sees material that the harness has already rejected in part. */
   complete: boolean;
-  selection: "all" | "named";
+  /** "needed": the contracts without a recorded review or whose material changed since; the default. */
+  selection: "all" | "named" | "needed";
   instruction: string;
   resultFormat: typeof RESULT_FORMAT;
   contracts: ContractPacket[];
@@ -106,7 +102,7 @@ export const RESULT_FORMAT = {
  * is sent anywhere; the report goes to stdout. It runs the full check first,
  * so that the structural diagnostics come with the material.
  */
-export function runReview(options: ImplementationPhaseOptions, names: readonly string[] | "all"): ReviewReport {
+export function runReview(options: ImplementationPhaseOptions, names: readonly string[] | "all" | "needed"): ReviewReport {
   const root = path.resolve(options.root);
   const result = checkImplementationPhase(options);
   const diagnostics = [...result.diagnostics];
@@ -116,7 +112,7 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
     command: "review",
     ok,
     complete,
-    selection: names === "all" ? "all" : "named",
+    selection: typeof names === "string" ? names : "named",
     instruction: INSTRUCTION,
     resultFormat: RESULT_FORMAT,
     contracts,
@@ -125,85 +121,43 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
   });
   const { index } = result;
   if (!index) return report(false, [], []);
+  const { read, files } = createFileReader(root, diagnostics);
 
   let ok = true;
-  const selected = names === "all" ? [...index.contracts] : [];
-  for (const name of names === "all" ? [] : names) {
-    const contract = index.contracts.find((candidate) => candidate.name === name);
-    if (contract) {
-      if (!selected.includes(contract)) selected.push(contract);
-    } else {
-      ok = false;
-      diagnostics.push({ code: "E_REFERENCE_UNKNOWN", severity: "error", message: `There is no contract "${name}" in the designs.` });
+  let selected: Contract[];
+  if (names === "needed") {
+    // Without a usable review file every contract needs a review; its problem is reported.
+    const reviews = readReviewFile(root);
+    diagnostics.push(...reviews.diagnostics);
+    selected = index.contracts.filter((contract) => {
+      const recorded = reviews.entries.find((entry) => entry.module === contract.module && entry.contract === contract.name);
+      return !recorded || recorded.fingerprint !== fingerprintOf(collectMaterial(result, contract.name, read).files).fingerprint;
+    });
+  } else {
+    selected = names === "all" ? [...index.contracts] : [];
+    for (const name of names === "all" ? [] : names) {
+      const contract = index.contracts.find((candidate) => candidate.name === name);
+      if (contract) {
+        if (!selected.includes(contract)) selected.push(contract);
+      } else {
+        ok = false;
+        diagnostics.push({ code: "E_REFERENCE_UNKNOWN", severity: "error", message: `There is no contract "${name}" in the designs.` });
+      }
     }
   }
   selected.sort((a, b) => compareText(a.module, b.module) || compareText(a.name, b.name));
 
-  const files = new Map<string, PacketFile>();
-  const readFile = (file: string, role: PacketFile["role"], text?: string): PacketFile | undefined => {
-    const known = files.get(file);
-    if (known) return known;
-    try {
-      const loaded = { path: file, role, text: text ?? stripBom(fs.readFileSync(path.join(root, file), "utf8")) };
-      files.set(file, loaded);
-      return loaded;
-    } catch (cause) {
-      diagnostics.push({ code: "E_ENVIRONMENT", severity: "error", message: `Cannot read a file of the review: ${(cause as Error).message}`, file });
-      return undefined;
-    }
-  };
-
-  const packets = selected.map((contract) => packetOf(root, result, contract.name, readFile));
-  return report(ok, packets, [...files.values()].sort((a, b) => compareText(a.path, b.path)));
+  const packets = selected.map((contract) => packetOf(root, result, contract.name, read));
+  const used = new Set(packets.flatMap((packet) => [packet.design, ...packet.dependencies.designs, ...packet.implementations.map((i) => i.location.file), ...packet.tests.map((t) => t.file)]));
+  return report(ok, packets, [...files.values()].filter((file) => used.has(file.path)).sort((a, b) => compareText(a.path, b.path)));
 }
 
-function packetOf(
-  root: string,
-  result: ImplementationPhaseResult,
-  name: string,
-  readFile: (file: string, role: PacketFile["role"], text?: string) => PacketFile | undefined,
-): ContractPacket {
-  const { modules, index, linking, compiler, diagnostics } = result;
-  const contract = index!.contracts.find((candidate) => candidate.name === name)!;
-  const moduleOf = (moduleId: string) => modules.find((module) => module.moduleId === moduleId)!;
-  const own = moduleOf(contract.module);
-  const design = (module: DesignModule) => readFile(module.file, "design", module.source);
-  const packetFiles: PacketFile[] = [];
-  const include = (file: PacketFile | undefined) => {
-    if (file && !packetFiles.includes(file)) packetFiles.push(file);
-  };
-  include(design(own));
-
-  // Declared dependencies: the contracts it uses, and the designs its module imports types from, transitively.
-  const usesEdges = index!.edges.filter((edge): edge is Edge & { kind: "uses" } => edge.kind === "uses");
-  const uses = usesEdges.filter((edge) => edge.from === name).map((edge) => ({ contract: edge.to, module: edge.toModule }));
-  const usedBy = usesEdges.filter((edge) => edge.to === name).map((edge) => ({ contract: edge.from, module: edge.fromModule }));
-  const reached = new Set<string>([contract.module]);
-  const queue = [contract.module];
-  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
-    for (const edge of index!.edges) {
-      if (edge.kind === "type-import" && edge.fromModule === next && !reached.has(edge.toModule)) {
-        reached.add(edge.toModule);
-        queue.push(edge.toModule);
-      }
-    }
-  }
-  for (const { module } of uses) reached.add(module);
-  reached.delete(contract.module);
-  const dependencyDesigns = [...reached].sort(compareText).map((moduleId) => moduleOf(moduleId).file);
-  for (const moduleId of [...reached].sort(compareText)) include(design(moduleOf(moduleId)));
-
-  const implementations = (linking?.implementations ?? []).filter((implementation) => implementation.contract === name);
-  for (const implementation of implementations) include(readFile(implementation.location.file, "implementation"));
-  const declarations = (linking?.tests ?? []).filter((test) => test.contract === name);
-  const testFiles = [...new Set(declarations.map((test) => test.location.file))].sort(compareText);
-  for (const file of testFiles) include(readFile(file, "test"));
-
-  const loaded = new Set(packetFiles.map((file) => file.path));
-  const unloaded = compiler ? importsOutside(root, compiler.ts, compiler.overlay, modules, packetFiles, loaded) : [];
-
-  const hash = crypto.createHash("sha256");
-  for (const file of [...packetFiles].sort((a, b) => compareText(a.path, b.path))) hash.update(`${file.path}\n${file.text}\0`);
+function packetOf(root: string, result: ImplementationPhaseResult, name: string, read: FileReader): ContractPacket {
+  const { modules, compiler, diagnostics } = result;
+  const material = collectMaterial(result, name, read);
+  const { contract, own, dependencyDesigns, uses, usedBy, implementations, declarations, testFiles, files } = material;
+  const loaded = new Set(files.map((file) => file.path));
+  const unloaded = compiler ? importsOutside(root, compiler.ts, compiler.overlay, modules, files, loaded) : [];
 
   const testsOf = (id: string) =>
     declarations
@@ -212,12 +166,12 @@ function packetOf(
   return {
     contract: name,
     module: contract.module,
-    fingerprint: `sha256:${hash.digest("hex")}`,
+    fingerprint: fingerprintOf(files).fingerprint,
     design: own.file,
     description: contract.description,
     lock: contract.lock,
     members: contract.members.map(({ name: member, description, location }) => ({ name: member, description, location })),
-    invariants: index!.invariants.filter((invariant) => invariant.contract === name).map(({ id, text, member, location }) => ({ id, text, member, location, tests: testsOf(id) })),
+    invariants: result.index!.invariants.filter((invariant) => invariant.contract === name).map(({ id, text, member, location }) => ({ id, text, member, location, tests: testsOf(id) })),
     dependencies: { uses, usedBy, designs: dependencyDesigns },
     implementations: implementations.map(({ name: implementation, kind, compatible, location }) => ({ name: implementation, kind, compatible, location })),
     tests: testFiles.map((file) => ({

@@ -4,6 +4,7 @@ import { compareDiagnostics, hasErrors, type Diagnostic } from "./diagnostic.ts"
 import { checkImplementationPhase, testsLinkedTo, type GeneratedArtifact, type ImplementationPhaseOptions, type ImplementationPhaseResult } from "./implementation-phase.ts";
 import { toProjectPath } from "./location.ts";
 import { compareLocks, compareWithBase, readBaseLocks, readLockFile } from "./locks.ts";
+import { checkReviews } from "./review-record.ts";
 import { readStrictOptions, type StrictOptions, type TypeScriptInfo } from "./typescript.ts";
 
 export type Phase = "design" | "implementation";
@@ -39,12 +40,14 @@ export interface CheckReport {
   diagnostics: Diagnostic[];
 }
 
-/**
- * `lockBase` is a Git revision: the lock file is then also compared with
- * the one recorded there, so that a lock cannot be lifted by editing the
- * file.
- */
-export function runCheck(options: ImplementationPhaseOptions, phase: Phase, lockBase?: string): CheckReport {
+export interface CheckOptions {
+  /** A Git revision: the lock file is then also compared with the one recorded there, so that a lock cannot be lifted by editing the file. */
+  lockBase?: string;
+  /** Whether a contract without a fresh recorded review is reported, and how; the full check only. */
+  review?: "off" | "warn" | "require";
+}
+
+export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lockBase, review = "off" }: CheckOptions = {}): CheckReport {
   const root = path.resolve(options.root);
   const result: ImplementationPhaseResult = phase === "design" ? { ...checkDesignPhase(options), artifacts: null, linking: null } : checkImplementationPhase(options);
   const { modules, index, artifacts, linking, typescript, compiler, diagnostics } = result;
@@ -62,6 +65,11 @@ export function runCheck(options: ImplementationPhaseOptions, phase: Phase, lock
       const base = readBaseLocks(root, lockBase);
       diagnostics.push(...base.diagnostics, ...compareWithBase(base.entries, lockFile.entries, lockBase));
     }
+    diagnostics.sort(compareDiagnostics);
+  }
+  // Reviews are about material that only the full check establishes: implementations and tests.
+  if (configured && review !== "off" && phase === "implementation" && result.linking) {
+    diagnostics.push(...checkReviews(root, result, review));
     diagnostics.sort(compareDiagnostics);
   }
   const linkedTestCount = (contract: string, id: string) => (linking ? testsLinkedTo(linking.tests, contract, id).length : null);
