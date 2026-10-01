@@ -4,7 +4,7 @@ import type { Diagnostic } from "./diagnostic.ts";
 import { splitLines, stripBom } from "./location.ts";
 
 /** Relative to the module root. */
-export const IGNORE_FILE = ".cage/ignore";
+export const IGNORE_FILE = ".cageignore";
 
 /** A module with a design: where it is, and which of its files its design deliberately leaves out. */
 export interface ModuleScope {
@@ -14,7 +14,7 @@ export interface ModuleScope {
 }
 
 /**
- * Reads each module's `.cage/ignore`: the files and folders that need no
+ * Reads each module's `.cageignore`: the files and folders that need no
  * design. For a person or an LLM working on the module it says "do not write
  * a contract for this"; for the harness, "do not warn that there is none".
  *

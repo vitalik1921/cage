@@ -1,5 +1,10 @@
-import type { Quota } from "../quota/.cage/generated.ts";
-import type { Sender } from "../mail/.cage/generated.ts";
+/** The ports the service needs; the Quota and Sender contracts of the designs describe them. */
+interface Quota {
+  take(accountId: string): Promise<boolean>;
+}
+interface Sender {
+  send(text: string): Promise<void>;
+}
 
 /** @implements Send */
 export class SendService {

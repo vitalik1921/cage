@@ -3,8 +3,8 @@ import path from "node:path";
 import type { LockLevel } from "./design-model.ts";
 import { checkDesignPhase, type DesignPhaseOptions } from "./design-phase.ts";
 import { hasErrors, type Diagnostic } from "./diagnostic.ts";
-import { writeOutput } from "./generated-files.ts";
 import { compareLocks, formatLockFile, LOCK_FILE, readLockFile, recordLocks } from "./locks.ts";
+import { writeRecordFile } from "./record-file.ts";
 
 export interface LockReport {
   schemaVersion: 1;
@@ -36,8 +36,7 @@ export function runLock(options: DesignPhaseOptions): LockReport {
   const { entries, recorded } = recordLocks(index, lockFile.entries);
   if (recorded.some(({ status }) => status !== "unchanged")) {
     try {
-      fs.mkdirSync(path.dirname(path.join(root, LOCK_FILE)), { recursive: true });
-      writeOutput(path.join(root, LOCK_FILE), formatLockFile(entries));
+      writeRecordFile(path.join(root, LOCK_FILE), formatLockFile(entries));
     } catch (cause) {
       diagnostics.push({ code: "E_ENVIRONMENT", severity: "error", message: `Cannot write the lock file: ${(cause as Error).message}`, file: LOCK_FILE });
       return report([]);

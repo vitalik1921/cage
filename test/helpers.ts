@@ -7,7 +7,6 @@ import type { DesignIndex } from "../src/design-model.ts";
 import { checkDesignPhase, type DesignPhaseResult } from "../src/design-phase.ts";
 import { isError, type Diagnostic } from "../src/diagnostic.ts";
 import { discoverDesigns, discoverSources } from "../src/discovery.ts";
-import { runExtract } from "../src/extract.ts";
 import { checkImplementationPhase, type ImplementationPhaseResult } from "../src/implementation-phase.ts";
 import { runCli } from "../src/main.ts";
 
@@ -17,8 +16,6 @@ export const fixturesDir = path.join(import.meta.dirname, "fixtures");
 export const QUOTA = "src/modules/quota/quota.cage.mdx";
 export const MAIL = "src/modules/mail/mail.cage.mdx";
 export const CAMPAIGNS = "src/modules/campaigns/campaigns.cage.mdx";
-/** The generated module of the module a design document belongs to. */
-export const generated = (design: string) => `${path.posix.dirname(design)}/.cage/generated.ts`;
 
 export const doc = (...lines: string[]) => lines.join("\n");
 
@@ -150,17 +147,15 @@ export const at = (root: string, module: string, needle: string, offset = 0) => 
 };
 
 /**
- * The implementation phase over the default scope of a project, after its
- * generated files were written, so that only the mistakes a test sets up are
- * reported. `linking` asserts that the phase got past the designs.
+ * The implementation phase over the default scope of a project. `linking`
+ * asserts that the phase got past the designs.
  */
 export function checkLinking(
   root: string,
   testAdapter: Config["testAdapter"] = defaultConfig.testAdapter,
 ): Omit<ImplementationPhaseResult, "linking"> & { linking: NonNullable<ImplementationPhaseResult["linking"]>; errors: Diagnostic[] } {
   const scope = { root, tsconfig: defaultConfig.tsconfig, designs: discoverDesigns(root, defaultConfig) };
-  runExtract(scope, false);
-  const result = checkImplementationPhase({ ...scope, sources: discoverSources(root, defaultConfig), testAdapter, generatedFiles: true });
+  const result = checkImplementationPhase({ ...scope, sources: discoverSources(root, defaultConfig), testAdapter });
   return {
     ...result,
     errors: result.diagnostics.filter(isError),

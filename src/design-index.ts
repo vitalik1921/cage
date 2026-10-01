@@ -18,8 +18,8 @@ export interface DesignSourceFile {
   writtenSpecifier: (specifier: ts.StringLiteralLike) => string;
 }
 
-/** Where an import in a design leads: another design of the scope, a generated file outside it, or anything else. */
-export type ImportTarget = { moduleId: string } | "out-of-scope" | "other";
+/** Where an import in a design leads: another design of the scope (with the names of its documents), a design document outside it, or anything else. */
+export type ImportTarget = { moduleId: string; documents: string[] } | "out-of-scope" | "other";
 
 export type ResolveImport = (specifier: ts.StringLiteralLike, from: ts.SourceFile) => ImportTarget;
 
@@ -444,12 +444,15 @@ function readDesign(
       return;
     }
     const target = resolveImport(specifier, sourceFile);
+    const written = design.writtenSpecifier(specifier);
     if (target === "out-of-scope") {
-      report("E_DESIGN_OUT_OF_SCOPE", `"${design.writtenSpecifier(specifier)}" is a generated design module whose design documents are not in the scope.`, specifier.getStart(sourceFile));
+      report("E_DESIGN_OUT_OF_SCOPE", `"${written}" is a design document that is not in the scope.`, specifier.getStart(sourceFile));
     } else if (target === "other") {
-      report("E_DESIGN_IMPORT", `"${design.writtenSpecifier(specifier)}" is not the generated module (.cage/generated.ts) of another design; a design may import only types of other designs.`, specifier.getStart(sourceFile));
+      report("E_DESIGN_IMPORT", `"${written}" is not a design document (*.cage.mdx); a design may import only types of other designs.`, specifier.getStart(sourceFile));
     } else if (target.moduleId === moduleId) {
-      report("E_DESIGN_IMPORT", "A design cannot import its own generated module.", specifier.getStart(sourceFile));
+      report("E_DESIGN_IMPORT", "A design cannot import itself: the documents of one directory are one design, and they share their types.", specifier.getStart(sourceFile));
+    } else if (!target.documents.includes(written.split("/").at(-1) ?? "")) {
+      report("E_DESIGN_IMPORT", `"${written}" is not a document of the design of ${target.moduleId}; it has ${target.documents.join(", ")}.`, specifier.getStart(sourceFile));
     } else {
       const bindings = declaration.importClause.namedBindings;
       if (bindings && ts.isNamespaceImport(bindings)) imported.set(bindings.name.text, { moduleId: target.moduleId, name: null });

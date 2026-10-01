@@ -1,10 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { compareDiagnostics, compareText, hasErrors, type Diagnostic } from "./diagnostic.ts";
-import { writeOutput } from "./generated-files.ts";
 import { checkImplementationPhase, type ImplementationPhaseOptions, type ImplementationPhaseResult } from "./implementation-phase.ts";
 import { toProjectPath } from "./location.ts";
-import { isText, parseRecordText, readRecordFile } from "./record-file.ts";
+import { isText, parseRecordText, readRecordFile, writeRecordFile } from "./record-file.ts";
 import { formatDiagnostic, plural } from "./report.ts";
 import { collectMaterial, createFileReader, fingerprintOf } from "./review-material.ts";
 
@@ -280,8 +279,7 @@ export function recordVerdicts(options: ImplementationPhaseOptions, verdictsFile
   }
 
   try {
-    fs.mkdirSync(path.dirname(path.join(root, REVIEW_FILE)), { recursive: true });
-    writeOutput(path.join(root, REVIEW_FILE), formatReviewFile([...entries.values()].sort((a, b) => compareText(keyOf(a), keyOf(b)))));
+    writeRecordFile(path.join(root, REVIEW_FILE), formatReviewFile([...entries.values()].sort((a, b) => compareText(keyOf(a), keyOf(b)))));
   } catch (cause) {
     diagnostics.push({ code: "E_ENVIRONMENT", severity: "error", message: `Cannot write the review file: ${(cause as Error).message}`, file: REVIEW_FILE });
     return report([]);

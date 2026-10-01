@@ -6,7 +6,6 @@ import { checkDesignPhase, createConverter, environmentDiagnostics, type Convert
 import { IGNORE_FILE, ownerOf, readModuleScopes, type ModuleScope } from "./coverage.ts";
 import { compareDiagnostics, hasErrors, type Diagnostic } from "./diagnostic.ts";
 import type { SourceFiles } from "./discovery.ts";
-import { inspectOutput, outputProblem, type OutputState } from "./generated-files.ts";
 import { readImplementations, type FoundImplementation } from "./implementations.ts";
 import { stripBom, toProjectPath } from "./location.ts";
 import { BINDING_TAGS } from "./metadata.ts";
@@ -18,15 +17,6 @@ export interface ImplementationPhaseOptions extends DesignPhaseOptions {
   sources: SourceFiles;
   /** The test runner whose declarations are read. */
   testAdapter: TestAdapter;
-  /** False when the project keeps no generated files: then the ones on disk, if any, are not looked at. */
-  generatedFiles: boolean;
-}
-
-export interface GeneratedArtifact {
-  sources: string[];
-  file: string;
-  /** "failed": the file is there but could not be read. "not-required": the project keeps no generated files. */
-  status: OutputState | "failed" | "not-required";
 }
 
 /** The test declarations that link an invariant: inside a `@tests` suite of its contract, with its id in `@covers`. */
@@ -35,8 +25,8 @@ export function testsLinkedTo(tests: readonly TestDeclaration[], contract: strin
 }
 
 export interface ImplementationPhaseResult extends DesignPhaseResult {
-  /** The generated files on disk. Null when the design phase had errors: then they were not looked at. */
-  artifacts: GeneratedArtifact[] | null;
+  /** Whether the design phase ended without errors: only then are implementations and tests looked at. */
+  designSound: boolean;
   /**
    * Implementations and test declarations. Null when they were not read,
    * which is not "none found": the design phase had errors, or the compiler
@@ -68,7 +58,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
   const root = path.resolve(options.root);
   const design = checkDesignPhase(options);
   const { modules, index, compiler, diagnostics } = design;
-  if (hasErrors(diagnostics) || !index || !compiler) return { ...design, artifacts: null, linking: null };
+  if (hasErrors(diagnostics) || !index || !compiler) return { ...design, designSound: false, linking: null };
   const { ts, overlay } = compiler;
   const tsconfig = toProjectPath(root, path.resolve(root, options.tsconfig));
 
@@ -88,19 +78,6 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
     message: `Cannot read the ${what}: ${(cause as Error).message}`,
     file,
   });
-  const artifacts = modules.map((module): GeneratedArtifact => {
-    const artifact = { sources: module.documents.map((document) => document.file), file: module.generatedPath };
-    if (!options.generatedFiles) return { ...artifact, status: "not-required" };
-    try {
-      const status = inspectOutput(module.generatedFile, module.generated.text);
-      if (status !== "current") diagnostics.push(outputProblem(status, module.generatedPath, artifact.sources));
-      return { ...artifact, status };
-    } catch (cause) {
-      diagnostics.push(unreadable("generated file", module.generatedPath, cause));
-      return { ...artifact, status: "failed" };
-    }
-  });
-
   const { scopes, diagnostics: ignoreProblems } = readModuleScopes(root, modules.map((module) => module.moduleId));
   diagnostics.push(...ignoreProblems);
 
@@ -131,7 +108,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
     const contract = contracts.get(implementation.contract)!;
     const implementationFile = path.join(root, implementation.location.file);
     const fileName = `${implementationFile.slice(0, -".ts".length)}.cage-check-${order + 1}.ts`;
-    const designFile = modules.find((module) => module.moduleId === contract.module)!.generatedFile;
+    const designFile = modules.find((module) => module.moduleId === contract.module)!.virtualFile;
     const subject = implementation.kind === "class" ? `implementation.${implementation.name}` : `typeof implementation.${implementation.name}`;
     const text = [
       `import type * as implementation from ${JSON.stringify(specifierFor(overlay, fileName, implementationFile))};`,
@@ -147,9 +124,9 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
   overlay.add(new Map([...sources.map(({ fileName, text }): [string, string] => [fileName, text]), ...checks.map((check): [string, string] => [check.fileName, check.text])]));
 
   // The project's own files are part of the program for the sake of its global declarations.
-  const roots = [...compiler.fileNames, ...modules.map((module) => module.generatedFile), ...sources.map(({ fileName }) => fileName), ...checks.map((check) => check.fileName)];
+  const roots = [...compiler.fileNames, ...modules.map((module) => module.virtualFile), ...sources.map(({ fileName }) => fileName), ...checks.map((check) => check.fileName)];
   const program = overlay.createProgram([...new Set(roots)]);
-  const origins = new Map(modules.map((module): [ts.SourceFile, Origin] => [requireSourceFile(program, module.generatedFile), { module, extracted: module.generated }]));
+  const origins = new Map(modules.map((module): [ts.SourceFile, Origin] => [requireSourceFile(program, module.virtualFile), { module, extracted: module.generated }]));
   const convert = createConverter(ts, root, program, origins);
 
   // The design phase checked the compiler setup with the designs alone; with the project's files as roots
@@ -158,7 +135,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
   if (setupProblems.length > 0) {
     diagnostics.push(...environmentDiagnostics(convert, tsconfig, setupProblems));
     diagnostics.sort(compareDiagnostics);
-    return { ...design, artifacts, linking: null };
+    return { ...design, designSound: true, linking: null };
   }
 
   // A file the harness makes a claim about must itself be sound: a type error in it makes its types unreliable.
@@ -226,7 +203,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
   }
 
   diagnostics.sort(compareDiagnostics);
-  return { ...design, artifacts, linking: { implementations, tests } };
+  return { ...design, designSound: true, linking: { implementations, tests } };
 }
 
 const unknownContract = (tag: string, name: string, location: SourceLocation): Diagnostic => ({

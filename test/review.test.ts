@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { test, type TestContext } from "node:test";
+import { test } from "node:test";
 import type { ReviewReport } from "../src/review.ts";
 import type { CheckReport } from "../src/check.ts";
 import { REVIEW_FILE, type Finding, type RecordReport } from "../src/review-record.ts";
@@ -17,15 +17,8 @@ function review(root: string, ...args: string[]): { code: number; report: Review
   return { code, report: JSON.parse(stdout) };
 }
 
-/** The plan fixture with its generated files written, so that the check behind the review is clean. */
-function extracted(t: TestContext): string {
-  const root = copyFixture(t, "vertical");
-  assert.equal(cli(root, "extract").code, 0);
-  return root;
-}
-
 test("a packet holds the contract, its design, the designs it depends on, its implementations and its tests, each file once", (t) => {
-  const root = extracted(t);
+  const root = copyFixture(t, "vertical");
   const before = snapshot(root);
   const { code, report } = review(root, "Send");
   assert.equal(code, 0);
@@ -79,7 +72,7 @@ test("a packet holds the contract, its design, the designs it depends on, its im
 });
 
 test("the fingerprint changes with any file of the packet and with nothing else", (t) => {
-  const root = extracted(t);
+  const root = copyFixture(t, "vertical");
   const fingerprint = () => review(root, "Send").report.contracts[0].fingerprint;
   const first = fingerprint();
   assert.equal(fingerprint(), first);
@@ -103,7 +96,7 @@ test("the fingerprint changes with any file of the packet and with nothing else"
 });
 
 test("the markdown document lists the contracts and every file once, in fences longer than any run of backticks inside", (t) => {
-  const root = extracted(t);
+  const root = copyFixture(t, "vertical");
   editFile(root, SEND_TEST, (s) => `${s}// a comment with \`\`\`\` four backticks\n`);
   const { code, stdout } = cli(root, "review", "Send", "Quota");
   assert.equal(code, 0);
@@ -121,7 +114,7 @@ test("the markdown document lists the contracts and every file once, in fences l
 });
 
 test("without names the contracts in need of a review are exported, which is all of them at first; an unknown name is an error", (t) => {
-  const root = extracted(t);
+  const root = copyFixture(t, "vertical");
   const needed = review(root);
   assert.equal(needed.code, 0);
   assert.equal(needed.report.selection, "needed");
@@ -147,7 +140,7 @@ test("without names the contracts in need of a review are exported, which is all
 });
 
 test("structural errors do not stop the export: the packet carries them and complete is false", (t) => {
-  const root = extracted(t);
+  const root = copyFixture(t, "vertical");
   editFile(root, SEND_TEST, (s) => s.replace("/** @covers sender-error */", "/** no cover */"));
   const { code, report } = review(root, "Send");
   assert.equal(code, 0);
@@ -205,7 +198,7 @@ const SEND_INVARIANTS = ["quota", "limit", "quota-error", "sender-error"];
 const fingerprintOf = (root: string, name: string) => review(root, name).report.contracts[0].fingerprint;
 
 test("a recorded verdict makes check content with the contract, and the review file says what was reviewed", (t) => {
-  const root = extracted(t);
+  const root = copyFixture(t, "vertical");
   // Until something is recorded, every contract is reported; by default as a warning.
   const before = check(root);
   assert.equal(before.code, 0);
@@ -256,7 +249,7 @@ test("a recorded verdict makes check content with the contract, and the review f
 });
 
 test("a change to the material makes the review stale, naming the file, and the old verdict cannot be recorded", (t) => {
-  const root = extracted(t);
+  const root = copyFixture(t, "vertical");
   const fingerprint = fingerprintOf(root, "Send");
   const verdicts = { version: 1, verdicts: [{ contract: "Send", fingerprint, findings: SEND_INVARIANTS.map((id) => finding(id)) }] };
   assert.equal(record(root, verdicts).code, 0);
@@ -299,7 +292,7 @@ test("a change to the material makes the review stale, naming the file, and the 
 });
 
 test("findings other than adequate are reported where the invariant is, with the reason and the suggestion", (t) => {
-  const root = extracted(t);
+  const root = copyFixture(t, "vertical");
   const verdicts = {
     version: 1,
     verdicts: [
@@ -357,7 +350,7 @@ test("findings other than adequate are reported where the invariant is, with the
 });
 
 test("a verdict is refused when it is not about the designs as they are, and then nothing is recorded", (t) => {
-  const root = extracted(t);
+  const root = copyFixture(t, "vertical");
   const good = { contract: "Send", fingerprint: fingerprintOf(root, "Send"), findings: SEND_INVARIANTS.map((id) => finding(id)) };
   const quota = { contract: "Quota", fingerprint: fingerprintOf(root, "Quota"), findings: ["accounts", "empty", "consume", "race"].map((id) => finding(id)) };
   // A sound verdict for another contract goes with each refused one: nothing of it is recorded either.
@@ -391,7 +384,7 @@ test("a verdict is refused when it is not about the designs as they are, and the
 });
 
 test("a review of a contract that no longer exists is reported by check and removed by the next record", (t) => {
-  const root = extracted(t);
+  const root = copyFixture(t, "vertical");
   assert.equal(record(root, { version: 1, verdicts: [{ contract: "Sender", fingerprint: fingerprintOf(root, "Sender"), findings: [finding(null)] }] }).code, 0);
   // The contract moves to another module: its old entry answers to nothing.
   const mail = readFile(root, MAIL);
@@ -399,9 +392,7 @@ test("a review of a contract that no longer exists is reported by check and remo
   fs.rmSync(path.join(root, "src/modules/mail"), { recursive: true });
   writeFile(root, "src/modules/post/post.cage.mdx", mail);
   writeFile(root, "src/modules/post/callback-sender.ts", callbackSender);
-  editFile(root, SEND_SERVICE, (s) => s.replace("../mail/", "../post/"));
   editFile(root, SEND_TEST, (s) => s.replace("../mail/", "../post/"));
-  assert.equal(cli(root, "extract").code, 0);
   assert.deepEqual(
     reviewDiagnostics(root).filter(({ file }) => file === REVIEW_FILE).map(({ code, message }) => ({ code, message })),
     [{ code: "W_REVIEW_STALE", message: 'The review file has a review of contract "Sender" of src/modules/mail, which no longer exists there. `cage review --record` removes it.' }],

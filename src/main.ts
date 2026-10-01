@@ -5,12 +5,11 @@ import { runCheck } from "./check.ts";
 import { loadConfig } from "./config.ts";
 import { isError, type Diagnostic } from "./diagnostic.ts";
 import { discoverDesigns, discoverSources } from "./discovery.ts";
-import { runExtract } from "./extract.ts";
 import { parseHookInput, runGate } from "./gate.ts";
 import { runLock } from "./lock-command.ts";
 import { formatRecordReport, recordVerdicts } from "./review-record.ts";
 import { formatReviewMarkdown, runReview } from "./review.ts";
-import { formatCheckReport, formatExtractReport, formatLockReport } from "./report.ts";
+import { formatCheckReport, formatLockReport } from "./report.ts";
 
 export interface CliIo {
   cwd: string;
@@ -23,11 +22,9 @@ export interface CliIo {
 const USAGE = `Usage: cage <command> [options]
 
 Commands:
-  check                 Check the designs, the generated files, the implementations and the test links
+  check                 Check the designs, the implementations, the test links, the locks and the reviews
   check --phase design  Check only the designs: documents, contracts, tags, references and types
   check --base <rev>    Also require every lock recorded at that Git revision (for CI: --base origin/main)
-  extract               Check the designs and write each module's .cage/generated.ts
-  extract --check       Check the designs and that the generated files are current; write nothing
   lock                  Record the declarations marked @final or @extendable in .cage/lock.json
   review [name...]      The material of the named contracts for a reviewer: markdown (default) or json;
                         without names, the contracts without a fresh recorded review; --all for every contract
@@ -43,7 +40,7 @@ Options:
   -h, --help        Show this help
   --version         Show the version
 
-Exit codes: 0 success; 1 rule violations or generated files not current; 2 invalid arguments, configuration or environment.
+Exit codes: 0 success; 1 rule violations; 2 invalid arguments, configuration or environment.
 For gate: 0 the agent may stop, 2 it may not (the hook protocol).
 `;
 
@@ -78,7 +75,6 @@ function run(argv: readonly string[], io: CliIo): number {
         format: { type: "string" },
         phase: { type: "string" },
         base: { type: "string" },
-        check: { type: "boolean" },
         all: { type: "boolean" },
         record: { type: "string" },
         help: { type: "boolean", short: "h" },
@@ -101,7 +97,7 @@ function run(argv: readonly string[], io: CliIo): number {
 
   const [command, ...extra] = positionals;
   if (command === undefined) throw new UsageError("Missing command.");
-  const COMMANDS = ["extract", "check", "lock", "review", "gate"];
+  const COMMANDS = ["check", "lock", "review", "gate"];
   if (!COMMANDS.includes(command)) throw new UsageError(`Unknown command "${command}".`);
   if (command !== "review" && extra.length > 0) throw new UsageError(`Unexpected argument "${extra[0]}".`);
   if (command !== "review" && values.all) throw new UsageError("--all is an option of the review command.");
@@ -113,7 +109,6 @@ function run(argv: readonly string[], io: CliIo): number {
   if (command !== "check" && command !== "gate" && values.base !== undefined) throw new UsageError("--base is an option of the check and gate commands.");
   if (command === "gate" && values.format !== undefined) throw new UsageError("gate has no --format: its report goes to the agent as text.");
   if (values.base !== undefined && values.base.trim() === "") throw new UsageError("--base needs a Git revision, such as origin/main.");
-  if (command !== "extract" && values.check) throw new UsageError("--check is an option of the extract command.");
   if (command === "check") {
     if (values.phase !== undefined && values.phase !== "design" && values.phase !== "implementation") {
       throw new UsageError(`Unknown phase "${values.phase}"; expected design or implementation.`);
@@ -144,7 +139,7 @@ function run(argv: readonly string[], io: CliIo): number {
     const phase = values.phase === "design" ? "design" : "implementation";
     // The design phase does not look at source files, so it does not search for them either.
     const sources = phase === "design" || diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
-    const report = runCheck({ ...scope, sources, testAdapter: config.testAdapter, generatedFiles: config.generatedFiles }, phase, { lockBase: values.base, review: config.review });
+    const report = runCheck({ ...scope, sources, testAdapter: config.testAdapter }, phase, { lockBase: values.base, review: config.review });
     return print(report, formatCheckReport(report));
   }
   if (command === "lock") {
@@ -153,13 +148,13 @@ function run(argv: readonly string[], io: CliIo): number {
   }
   if (command === "gate") {
     const sources = diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
-    const { exitCode, feedback } = runGate({ ...scope, sources, testAdapter: config.testAdapter, generatedFiles: config.generatedFiles }, { lockBase: values.base, review: config.review }, parseHookInput(io.stdin));
+    const { exitCode, feedback } = runGate({ ...scope, sources, testAdapter: config.testAdapter }, { lockBase: values.base, review: config.review }, parseHookInput(io.stdin));
     if (feedback !== "") io.stderr(feedback);
     return exitCode;
   }
   if (command === "review") {
     const sources = diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
-    const phaseOptions = { ...scope, sources, testAdapter: config.testAdapter, generatedFiles: config.generatedFiles };
+    const phaseOptions = { ...scope, sources, testAdapter: config.testAdapter };
     if (values.record !== undefined) {
       const report = recordVerdicts(phaseOptions, path.resolve(io.cwd, values.record));
       return print(report, formatRecordReport(report));
@@ -169,8 +164,7 @@ function run(argv: readonly string[], io: CliIo): number {
     // An export succeeds with structural errors in the material; it fails when the packets could not be made.
     return exitCode(report.diagnostics) === 2 ? 2 : report.ok ? 0 : 1;
   }
-  const report = runExtract(scope, values.check ?? false, config.generatedFiles);
-  return print(report, formatExtractReport(report));
+  throw new UsageError(`Unknown command "${command}".`);
 }
 
 /** 2 when the configuration or environment is unusable, 1 for any other error, 0 otherwise. */

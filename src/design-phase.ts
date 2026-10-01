@@ -4,8 +4,8 @@ import type ts from "typescript";
 import { indexDesigns, type ImportTarget } from "./design-index.ts";
 import type { DesignIndex } from "./design-model.ts";
 import { compareDiagnostics, isError, type Diagnostic } from "./diagnostic.ts";
-import type { DesignSource } from "./discovery.ts";
-import { blockAt, buildGeneratedModule, CAGE_DIRECTORY, extractBlock, toSourceOffset, type ExtractedText, type GeneratedModule, type Insert } from "./extraction.ts";
+import { DESIGN_SUFFIX, type DesignSource } from "./discovery.ts";
+import { blockAt, buildGeneratedModule, CAGE_DIRECTORY, extractBlock, toSourceOffset, VIRTUAL_FILE_NAME, type ExtractedText, type GeneratedModule, type Replacement } from "./extraction.ts";
 import { lineStarts, positionAt, stripBom, toProjectPath, type Position } from "./location.ts";
 import { parseDesignMdx, type DesignBlock } from "./mdx.ts";
 import {
@@ -29,11 +29,11 @@ export interface DesignDocument {
   blocks: DesignBlock[];
 }
 
-/** A module's design: its documents, and the generated module assembled from all their blocks. */
+/** A module's design: its documents, and the virtual module assembled from all their blocks. */
 export interface DesignModule extends DesignSource {
   documents: DesignDocument[];
-  /** The generated file, relative to the project root. */
-  generatedPath: string;
+  /** The virtual design file, relative to the project root. */
+  virtualPath: string;
   generated: GeneratedModule;
 }
 
@@ -99,9 +99,9 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
   environment(createConverter(ts, root, undefined, new Map()), setup.errors);
   if (failed()) return done();
 
-  const overlay = createOverlayProgram(ts, setup.options, new Map(modules.map((module) => [module.generatedFile, module.generated.text])));
+  const overlay = createOverlayProgram(ts, setup.options, new Map(modules.map((module) => [module.virtualFile, module.generated.text])));
   const origins = new Map(
-    modules.map((module): [ts.SourceFile, Origin] => [requireSourceFile(overlay.program, module.generatedFile), { module, extracted: module.generated }]),
+    modules.map((module): [ts.SourceFile, Origin] => [requireSourceFile(overlay.program, module.virtualFile), { module, extracted: module.generated }]),
   );
   const convert = createConverter(ts, root, overlay.program, origins);
   environment(convert, [...overlay.program.getOptionsDiagnostics(), ...overlay.program.getGlobalDiagnostics()]);
@@ -116,7 +116,7 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
       locate: (offset) => {
         // What the index reports are tokens and comments of the blocks, so every offset has an authored position.
         const position = authoredPosition(origin, offset);
-        if (!position) throw new Error(`Offset ${offset} of ${origin.module.generatedPath} was not copied from a design document.`);
+        if (!position) throw new Error(`Offset ${offset} of ${origin.module.virtualPath} was not copied from a design document.`);
         return position;
       },
       blockOf: (offset) => blockAt(origin.module.generated, offset),
@@ -124,12 +124,11 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
     })),
     (specifier, from): ImportTarget => {
       const resolved = overlay.resolveModule(specifier, from);
-      const target = resolved === undefined ? undefined : modules.find((module) => overlay.sameFile(module.generatedFile, resolved));
-      if (target) return { moduleId: target.moduleId };
-      // An unresolved specifier may have no extension; a resolved one is a file name.
-      const parts = (resolved ?? specifier.text).replaceAll("\\", "/").split("/");
-      const isGenerated = parts.at(-2) === CAGE_DIRECTORY && /^generated(\.[cm]?[jt]s)?$/.test(parts.at(-1) ?? "");
-      return isGenerated ? "out-of-scope" : "other";
+      const target = resolved === undefined ? undefined : modules.find((module) => overlay.sameFile(module.virtualFile, resolved));
+      if (target) return { moduleId: target.moduleId, documents: target.documents.map((document) => path.posix.basename(document.file)) };
+      // A design document is named as such in the document; it resolved to nothing when its module is not in the scope.
+      const written = origins.get(from)?.module.generated.writtenSpecifiers.get(specifier.getStart(from)) ?? specifier.text;
+      return written.endsWith(DESIGN_SUFFIX) ? "out-of-scope" : "other";
     },
   );
   result.index = indexed.index;
@@ -199,33 +198,41 @@ function readDocuments(ts: TypeScript, root: string, designs: readonly DesignSou
     modules.push({
       ...design,
       documents,
-      generatedPath: toProjectPath(root, design.generatedFile),
+      virtualPath: toProjectPath(root, design.virtualFile),
       generated: buildGeneratedModule(
-        documents.map((document) => ({ name: path.posix.basename(document.file), blocks: document.blocks, inserts: relativeSpecifierInserts(ts, document.blocks) })),
+        documents.map((document) => ({ name: path.posix.basename(document.file), blocks: document.blocks, replacements: specifierReplacements(ts, document.blocks) })),
       ),
     });
   }
 }
 
 /**
- * A relative specifier in a document is relative to the document's directory;
- * the generated module lives in `.cage/` below it, so every such specifier
- * gets a `../` in front. What is not relative (bare names, path aliases) is
- * the same from anywhere.
+ * How the virtual module spells the module specifiers of a document. A design
+ * imports another design by one of its documents: `../quota/quota.cage.mdx`,
+ * or through a path alias. The compiler is given the other module's virtual
+ * file instead, `../quota/.cage/design.ts`. And a relative specifier is
+ * written for the document's directory while the virtual file lives in
+ * `.cage/` below it, so it gets a `../` in front. What is not relative (bare
+ * names, path aliases) is the same from anywhere.
  */
-function relativeSpecifierInserts(ts: TypeScript, blocks: readonly DesignBlock[]): Map<number, Insert[]> {
-  const inserts = new Map<number, Insert[]>();
+function specifierReplacements(ts: TypeScript, blocks: readonly DesignBlock[]): Map<number, Replacement[]> {
+  const replacements = new Map<number, Replacement[]>();
   blocks.forEach((block, order) => {
     const text = block.lines.map((line) => line.text).join("\n");
     const sourceFile = ts.createSourceFile("block.ts", text, ts.ScriptTarget.Latest, false);
     for (const statement of sourceFile.statements) {
       const specifier = (ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement)) && statement.moduleSpecifier;
-      if (!specifier || !ts.isStringLiteral(specifier) || !/^\.\.?\//.test(specifier.text)) continue;
+      if (!specifier || !ts.isStringLiteral(specifier)) continue;
+      const relative = /^\.\.?\//.test(specifier.text);
+      const isDocument = specifier.text.endsWith(DESIGN_SUFFIX);
+      if (!relative && !isDocument) continue;
+      const toModule = isDocument ? `${path.posix.dirname(specifier.text)}/${CAGE_DIRECTORY}/${VIRTUAL_FILE_NAME}` : specifier.text;
+      const rewritten = relative ? `../${toModule}` : toModule;
       const { line, character } = sourceFile.getLineAndCharacterOfPosition(specifier.getStart(sourceFile) + 1);
-      inserts.set(order, [...(inserts.get(order) ?? []), { line, column: character, text: "../", original: specifier.text }]);
+      replacements.set(order, [...(replacements.get(order) ?? []), { line, column: character, length: specifier.text.length, text: rewritten, original: specifier.text }]);
     }
   });
-  return inserts;
+  return replacements;
 }
 
 /** Problems of the compiler setup, as diagnostics of the project's tsconfig unless the compiler names another file. */
@@ -316,7 +323,7 @@ function checkBlocks(ts: TypeScript, root: string, modules: readonly DesignModul
       for (const block of document.blocks) {
         const origin: Origin = { module, extracted: extractBlock(block, index) };
         order += 1;
-        files.set(path.join(path.dirname(module.generatedFile), `block-${order}.ts`), origin);
+        files.set(path.join(path.dirname(module.virtualFile), `block-${order}.ts`), origin);
         const { text } = origin.extracted;
         for (const comment of ts.getLeadingCommentRanges(text, 0) ?? []) {
           if (!/^\/\/\/\s*<reference\b/.test(text.slice(comment.pos, comment.end))) continue;

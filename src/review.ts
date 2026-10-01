@@ -162,11 +162,11 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
 }
 
 function packetOf(root: string, result: ImplementationPhaseResult, material: Material): ContractPacket {
-  const { modules, compiler, diagnostics } = result;
+  const { compiler, diagnostics } = result;
   const { contract, own, dependencyDesigns, uses, usedBy, implementations, declarations, testFiles, files } = material;
   const name = contract.name;
   const loaded = new Set(files.map((file) => file.path));
-  const unloaded = compiler ? importsOutside(root, compiler.ts, compiler.overlay, modules, files, loaded) : [];
+  const unloaded = compiler ? importsOutside(root, compiler.ts, compiler.overlay, files, loaded) : [];
 
   const testsOf = (id: string) =>
     declarations
@@ -196,14 +196,12 @@ function packetOf(root: string, result: ImplementationPhaseResult, material: Mat
 
 /**
  * Project files that the implementation and test files of a packet import
- * and that the packet does not hold: helpers, other modules. An import of a
- * generated design module stands for that module's design document.
+ * and that the packet does not hold: helpers, other modules.
  */
 function importsOutside(
   root: string,
   ts: TypeScript,
-  overlay: Pick<Overlay, "resolveFrom" | "sameFile">,
-  modules: readonly DesignModule[],
+  overlay: Pick<Overlay, "resolveFrom">,
   packetFiles: readonly PacketFile[],
   loaded: ReadonlySet<string>,
 ): string[] {
@@ -217,11 +215,9 @@ function importsOutside(
       if (!specifier || !ts.isStringLiteral(specifier)) continue;
       const resolved = overlay.resolveFrom(specifier.text, fileName);
       if (!resolved) continue;
-      const generated = modules.find((module) => overlay.sameFile(module.generatedFile, resolved));
-      for (const projectPath of generated ? generated.documents.map((document) => document.file) : [toProjectPath(root, resolved)]) {
-        if (projectPath.startsWith("../") || path.isAbsolute(projectPath) || projectPath.split("/").includes("node_modules") || loaded.has(projectPath)) continue;
-        outside.add(projectPath);
-      }
+      const projectPath = toProjectPath(root, resolved);
+      if (projectPath.startsWith("../") || path.isAbsolute(projectPath) || projectPath.split("/").includes("node_modules") || loaded.has(projectPath)) continue;
+      outside.add(projectPath);
     }
   }
   return [...outside].sort(compareText);

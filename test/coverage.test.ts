@@ -55,7 +55,7 @@ test("exported code of a module that its design does not cover is a warning", (t
   ]);
   assert.equal(
     diagnostics.find((diagnostic) => diagnostic.code === "W_NOT_DESIGNED")?.message,
-    'Exported class "Controller" is not covered by the design of src/m: nothing marks it `@implements`. Describe its contract in the design, or list the file in src/m/.cage/ignore.',
+    'Exported class "Controller" is not covered by the design of src/m: nothing marks it `@implements`. Describe its contract in the design, or list the file in src/m/.cageignore.',
   );
   // Warnings do not fail the check, and the design phase does not look at code at all.
   assert.equal(cli(root, "check").code, 0);

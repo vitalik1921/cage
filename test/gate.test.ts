@@ -19,7 +19,6 @@ const gate = (root: string, input: object | string | undefined, ...args: string[
 
 test("the gate blocks on errors and on review findings, whatever the review level, and passes a clean check", (t) => {
   const root = copyFixture(t, "vertical");
-  assert.equal(cli(root, "extract").code, 0);
   const id = session(t);
 
   // Warnings about reviews are not errors of `check`, and still block the gate.
@@ -45,7 +44,6 @@ test("the gate blocks on errors and on review findings, whatever the review leve
 
 test("after MAX_BLOCKS blocks in one session the gate lets the agent stop, with the report; a pass resets the count", (t) => {
   const root = copyFixture(t, "vertical");
-  assert.equal(cli(root, "extract").code, 0);
   const id = session(t);
   const attempt = (active: boolean) => gate(root, { session_id: id, stop_hook_active: active });
 
@@ -71,7 +69,6 @@ test("after MAX_BLOCKS blocks in one session the gate lets the agent stop, with 
 
 test("the gate reads the hook's input leniently and takes the options of check", (t) => {
   const root = copyFixture(t, "vertical");
-  assert.equal(cli(root, "extract").code, 0);
   const id = session(t);
   assert.equal(gate(root, "not json").code, 2);
   assert.equal(gate(root, undefined).code, 2);

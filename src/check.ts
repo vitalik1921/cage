@@ -2,7 +2,7 @@ import path from "node:path";
 import { checkDesignPhase } from "./design-phase.ts";
 import type { Edge, LockLevel, SourceLocation } from "./design-model.ts";
 import { compareDiagnostics, hasErrors, type Diagnostic } from "./diagnostic.ts";
-import { checkImplementationPhase, testsLinkedTo, type GeneratedArtifact, type ImplementationPhaseOptions, type ImplementationPhaseResult } from "./implementation-phase.ts";
+import { checkImplementationPhase, testsLinkedTo, type ImplementationPhaseOptions, type ImplementationPhaseResult } from "./implementation-phase.ts";
 import { toProjectPath } from "./location.ts";
 import { compareLocks, compareWithBase, readBaseLocks, readLockFile } from "./locks.ts";
 import { checkReviews } from "./review-record.ts";
@@ -28,7 +28,6 @@ export interface CheckReport {
   ok: boolean;
   /** `lockBase`: the Git revision whose locks the lock file was compared with, or null when it was not. */
   scope: { tsconfig: string; designFiles: string[]; typescript: TypeScriptInfo; compilerOptions: StrictOptions | null; lockBase: string | null };
-  generatedArtifacts: { sources: string[]; file: string; status: "not-checked" | GeneratedArtifact["status"] }[];
   counts: {
     contracts: number | null;
     data: number | null;
@@ -71,10 +70,11 @@ export interface CheckOptions {
 
 export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lockBase, review = "off" }: CheckOptions = {}): CheckReport {
   const root = path.resolve(options.root);
-  const result: ImplementationPhaseResult = phase === "design" ? { ...checkDesignPhase(options), artifacts: null, linking: null } : checkImplementationPhase(options);
-  const { modules, index, artifacts, linking, typescript, compiler, diagnostics } = result;
+  const design = phase === "design" ? checkDesignPhase(options) : undefined;
+  const result: ImplementationPhaseResult = design ? { ...design, designSound: !hasErrors(design.diagnostics), linking: null } : checkImplementationPhase(options);
+  const { index, linking, typescript, compiler, diagnostics } = result;
   // Locks are compared with designs that are sound: a rejected declaration would look like a lock that was lifted.
-  const designsAreSound = index !== null && (phase === "design" ? !hasErrors(diagnostics) : artifacts !== null);
+  const designsAreSound = index !== null && result.designSound;
   const configured = (options.problems?.length ?? 0) === 0;
   if (configured && (designsAreSound || lockBase !== undefined)) {
     const lockFile = readLockFile(root);
@@ -108,7 +108,6 @@ export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lo
       compilerOptions: compiler ? readStrictOptions(compiler.ts, compiler.options) : null,
       lockBase: configured && lockBase !== undefined ? lockBase : null,
     },
-    generatedArtifacts: artifacts ?? modules.map((module) => ({ sources: module.documents.map((document) => document.file), file: module.generatedPath, status: "not-checked" })),
     counts: {
       contracts: index?.contracts.length ?? null,
       data: index?.data.length ?? null,

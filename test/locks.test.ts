@@ -291,16 +291,6 @@ test("a lock compares what the type says, not how it is written", (t) => {
   ]);
 });
 
-test("extract does not look at locks; check and lock do", (t) => {
-  const root = project(t);
-  assert.equal(cli(root, "extract").code, 0);
-  assert.equal(cli(root, "check", "--phase", "design").code, 1);
-  lock(root);
-  change(root, "take(account: AccountId): boolean;", "take(account: AccountId): number;");
-  assert.equal(cli(root, "extract").code, 0);
-  assert.equal(cli(root, "check", "--phase", "design").code, 1);
-});
-
 test("a lock covers the invariants of a contract: a @final one keeps them as they are, an @extendable one may get more", (t) => {
   const root = project(t);
   lock(root);
@@ -359,7 +349,7 @@ test("a locked declaration that uses an open type is warned about, once per type
   const final = (declaration: string) => declaration.replace(" * @description", " * @final\n * @description");
   const shared = mdx(open("Money"), open("Currency"), final(data("Code")), contract("Rates", "rate(): number;", "@invariant ok Працює."));
   const orders = mdx(
-    ['import type { Money as Amount, Code } from "../shared/.cage/generated.ts";', 'import type * as shared from "../shared/.cage/generated.ts";'].join("\n"),
+    ['import type { Money as Amount, Code } from "../shared/shared.cage.mdx";', 'import type * as shared from "../shared/shared.cage.mdx";'].join("\n"),
     open("Note"),
     open("Id"),
     final(data("Line", "{ price: Amount; code: Code; currency: shared.Currency; rates: shared.Rates; note: Note; again: Note }")),

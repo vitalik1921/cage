@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test } from "node:test";
 import { checkDesignPhase } from "../src/design-phase.ts";
-import { CAMPAIGNS, checkDesigns, copyFixture, data, designErrors, editFile, find, fixturesDir, generated, MAIL, QUOTA, summary, writeFile } from "./helpers.ts";
+import { CAMPAIGNS, checkDesigns, copyFixture, data, designErrors, editFile, find, fixturesDir, MAIL, QUOTA, summary, writeFile } from "./helpers.ts";
 
 const breakQuota = (root: string) =>
   editFile(root, QUOTA, (s) => s.replace("take(accountId: AccountId)", "take(accountId: AccountIdd)"));
@@ -15,7 +15,7 @@ const editTsconfig = (root: string, compilerOptions: object) =>
     return JSON.stringify(config, null, 2);
   });
 
-test("the plan fixture passes the design phase with no generated files on disk", () => {
+test("the plan fixture passes the design phase; the virtual design files never exist on disk", () => {
   const root = path.join(fixturesDir, "vertical");
   const { modules, diagnostics } = checkDesigns(root);
 
@@ -29,8 +29,8 @@ test("the plan fixture passes the design phase with no generated files on disk",
     ],
   );
   // Quota's second block uses AccountId from its first block; Send imports it
-  // through quota's future design.generated.ts. Neither file exists.
-  for (const module of modules) assert.equal(fs.existsSync(module.generatedFile), false);
+  // through quota's design document, which the compiler sees as a virtual file. None of those exists.
+  for (const module of modules) assert.equal(fs.existsSync(module.virtualFile), false);
 });
 
 test("a type error in the second block is reported at its MDX location", (t) => {
@@ -104,27 +104,20 @@ test("locations stay exact with a byte order mark, CRLF line endings and non-ASC
   assert.equal(marked.modules.at(-1)!.generated.text, plain.modules.at(-1)!.generated.text);
 });
 
-for (const extension of [".ts", ".js"]) {
-  test(`a cross-design import via a ${extension} specifier resolves the future generated file`, (t) => {
-    const root = copyFixture(t, "vertical");
-    const text = editFile(root, CAMPAIGNS, (s) =>
-      s.replace(
-        'import type { AccountId } from "../quota/.cage/generated.ts";',
-        `import type { AccountId, Missing } from "../quota/.cage/generated${extension}";`,
-      ),
-    );
-
-    assert.deepEqual(designErrors(root).map(summary), [{ code: "E_TYPESCRIPT", tsCode: 2305, file: CAMPAIGNS, ...find(text, "Missing") }]);
-  });
-}
-
-test("stale or broken generated files on disk never replace the fresh MDX", (t) => {
+test("a cross-design import names a document of the other design and resolves to that design's types", (t) => {
   const root = copyFixture(t, "vertical");
-  for (const module of checkDesigns(root).modules) writeFile(root, module.generatedPath, module.generated.text);
-  writeFile(root, generated(MAIL), "export interface Sender { this is not TypeScript");
-  const text = breakQuota(root);
+  const text = editFile(root, CAMPAIGNS, (s) =>
+    s.replace('import type { AccountId } from "../quota/quota.cage.mdx";', 'import type { AccountId, Missing } from "../quota/quota.cage.mdx";'),
+  );
+  assert.deepEqual(designErrors(root).map(summary), [{ code: "E_TYPESCRIPT", tsCode: 2305, file: CAMPAIGNS, ...find(text, "Missing") }]);
 
-  assert.deepEqual(designErrors(root).map(summary), [{ code: "E_TYPESCRIPT", tsCode: 2552, file: QUOTA, ...find(text, "AccountIdd") }]);
+  // A second document of the other design is the same design; a document it does not have is an error.
+  writeFile(root, "src/modules/quota/limits.cage.mdx", "# Ліміти\n\nПроза лімітів.\n");
+  editFile(root, CAMPAIGNS, (s) => s.replace("../quota/quota.cage.mdx", "../quota/limits.cage.mdx").replace("AccountId, Missing", "AccountId"));
+  assert.deepEqual(designErrors(root), []);
+  const typo = editFile(root, CAMPAIGNS, (s) => s.replace("../quota/limits.cage.mdx", "../quota/limit.cage.mdx"));
+  assert.deepEqual(designErrors(root).map(summary), [{ code: "E_DESIGN_IMPORT", tsCode: undefined, file: CAMPAIGNS, ...find(typo, '"../quota/limit.cage.mdx"') }]);
+  assert.match(designErrors(root)[0].message, /is not a document of the design of src\/modules\/quota; it has limits\.cage\.mdx, quota\.cage\.mdx/);
 });
 
 test("plain ts blocks stay examples: not extracted and not type-checked", (t) => {
@@ -219,7 +212,7 @@ test("an unusable TypeScript configuration is an environment error", async (t) =
 test("options that TypeScript 6 deprecates but a TypeScript 5 project uses are accepted", (t) => {
   const root = copyFixture(t, "vertical");
   editTsconfig(root, { baseUrl: ".", paths: { "@quota/*": ["src/modules/quota/*"] } });
-  editFile(root, CAMPAIGNS, (s) => s.replace('"../quota/.cage/generated.ts"', '"@quota/.cage/generated.ts"'));
+  editFile(root, CAMPAIGNS, (s) => s.replace('"../quota/quota.cage.mdx"', '"@quota/quota.cage.mdx"'));
   assert.deepEqual(designErrors(root), []);
 
   // The alias really resolves to the overlay: a member it does not export is an error.
@@ -255,7 +248,7 @@ test("an empty scope or an unreadable design is an error, not an empty success",
     checkDesignPhase({
       root,
       tsconfig: "tsconfig.json",
-      designs: sourceFiles.map((file) => ({ moduleId: path.posix.dirname(file), sourceFiles: [path.join(root, file)], generatedFile: path.join(root, generated(file)) })),
+      designs: sourceFiles.map((file) => ({ moduleId: path.posix.dirname(file), sourceFiles: [path.join(root, file)], virtualFile: path.join(root, path.posix.dirname(file), ".cage/design.ts") })),
     });
 
   assert.deepEqual(phase([]).diagnostics.map(summary), [

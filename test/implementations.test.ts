@@ -154,7 +154,7 @@ test("only a tag links an implementation: a contract without one has no implemen
   const root = project(t, {
     "src/m/clean-title.ts": CLEAN_FUNCTION,
     // Native `implements`, and the right shape, but no `@implements` tag.
-    "src/m/memory-store.ts": `import type { Store } from "./.cage/generated.ts";\n\n${STORE_CLASS.replace("/** @implements Store */\n", "").replace("export class MemoryStore {", "export class MemoryStore implements Store {")}`,
+    "src/m/memory-store.ts": `interface Store {\n  get(key: string): Promise<string | null>;\n}\n\n${STORE_CLASS.replace("/** @implements Store */\n", "").replace("export class MemoryStore {", "export class MemoryStore implements Store {")}`,
   });
   assert.deepEqual(codes(root), [{ code: "E_IMPLEMENTATION_MISSING", file: designFile("m"), ...position(root, "interface Store", "interface ".length) }]);
 });
@@ -162,7 +162,7 @@ test("only a tag links an implementation: a contract without one has no implemen
 test("the tag decides the contract, whatever a native implements clause says", (t) => {
   const root = project(t, {
     "src/m/clean-title.ts": CLEAN_FUNCTION,
-    "src/m/memory-store.ts": `import type { CleanTitle } from "./.cage/generated.ts";\n\n${STORE_CLASS}`.replace("export class MemoryStore {", "export class MemoryStore implements Partial<CleanTitle> {"),
+    "src/m/memory-store.ts": `interface CleanTitle {\n  (input: string): string;\n}\n\n${STORE_CLASS}`.replace("export class MemoryStore {", "export class MemoryStore implements Partial<CleanTitle> {"),
   });
   const { linking, errors } = checkLinking(root);
   assert.deepEqual(errors, []);
@@ -312,13 +312,14 @@ test("compiler messages carry no path of this machine", (t) => {
       b: mdx(["/**", " * @data", " * @description Account of b.", " */", "export interface Account {", "  id: number;", "}"].join("\n")),
     },
     {
-      "src/a/writer.ts": 'import type { Account } from "../b/.cage/generated.ts";\n\n/** @implements Writer */\nexport class WrongWriter {\n  save(_account: Account): void {}\n}\n',
+      "src/a/account.ts": "export interface Account {\n  id: number;\n}\n",
+      "src/a/writer.ts": 'import type { Account } from "./account.ts";\n\n/** @implements Writer */\nexport class WrongWriter {\n  save(_account: Account): void {}\n}\n',
     },
   );
   const [mismatch] = checkLinking(root).errors;
   assert.equal(mismatch.code, "E_TYPE_MISMATCH");
   // The two types have one name, so the compiler tells them apart by their modules.
-  assert.match(mismatch.message, /import\("src\/b\/\.cage\/generated/);
+  assert.match(mismatch.message, /import\("src\/a\/account"/);
   assert.ok(!JSON.stringify(mismatch).includes(root), mismatch.message);
 });
 
@@ -407,16 +408,15 @@ test("a type error in a file with an implementation is reported: its types canno
   );
 });
 
-test("implementations may live anywhere in the scope, but not in tests or design directories", (t) => {
+test("implementations may live anywhere in the scope, but not in tests or declaration files", (t) => {
   const root = project(t, {
     "src/elsewhere/deep/clean-title.ts": CLEAN_FUNCTION,
     "src/m/store.test.ts": STORE_CLASS,
-    "src/m/.cage/memory-store.ts": STORE_CLASS,
     "src/m/types.d.ts": "/** @implements Store */\nexport declare class DeclaredStore {}\n",
   });
   const { linking, errors } = checkLinking(root);
   assert.deepEqual(linking.implementations.map((implementation) => [implementation.contract, implementation.location.file]), [["CleanTitle", "src/elsewhere/deep/clean-title.ts"]]);
-  // The tag in a test file is misplaced; the other two files are not read at all.
+  // The tag in a test file is misplaced; the declaration file is not read at all.
   assert.deepEqual(errors.map(located), [
     { code: "E_IMPLEMENTATION_MISSING", file: designFile("m"), ...position(root, "interface Store", "interface ".length) },
     { code: "E_TAG_LOCATION", ...inFile(root, "src/m/store.test.ts", "@implements Store") },

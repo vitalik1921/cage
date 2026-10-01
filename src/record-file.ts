@@ -32,3 +32,16 @@ export function readRecordFile<T>(root: string, file: string, label: string, par
 }
 
 export const isText = (value: unknown): value is string => typeof value === "string";
+
+/** Replaces a record file atomically, creating its directory: readers see the old or the new text, never a partial one. */
+export function writeRecordFile(file: string, text: string): void {
+  const temporary = `${file}.${process.pid}.tmp`;
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(temporary, text, { flag: "wx" });
+    fs.renameSync(temporary, file);
+  } catch (cause) {
+    fs.rmSync(temporary, { force: true });
+    throw cause;
+  }
+}

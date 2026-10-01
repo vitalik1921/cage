@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { Config } from "./config.ts";
-import { CAGE_DIRECTORY, GENERATED_FILE_NAME } from "./extraction.ts";
+import { CAGE_DIRECTORY, VIRTUAL_FILE_NAME } from "./extraction.ts";
 
 /** A module: the directory that holds its design documents. */
 export interface DesignSource {
@@ -9,8 +9,8 @@ export interface DesignSource {
   moduleId: string;
   /** Absolute paths of the module's `*.cage.mdx` documents, sorted by name. */
   sourceFiles: string[];
-  /** Absolute path of `.cage/generated.ts` in the module; the file may not exist. */
-  generatedFile: string;
+  /** Absolute path of the module's virtual design file, `.cage/design.ts`; it never exists on disk. */
+  virtualFile: string;
 }
 
 /** The suffix that makes a file a design document. */
@@ -30,7 +30,7 @@ export function discoverDesigns(root: string, config: Pick<Config, "designs" | "
   }
   return [...byModule]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([moduleId, sourceFiles]) => ({ moduleId, sourceFiles, generatedFile: path.join(root, moduleId, CAGE_DIRECTORY, GENERATED_FILE_NAME) }));
+    .map(([moduleId, sourceFiles]) => ({ moduleId, sourceFiles, virtualFile: path.join(root, moduleId, CAGE_DIRECTORY, VIRTUAL_FILE_NAME) }));
 }
 
 export interface SourceFiles {
@@ -42,15 +42,14 @@ export interface SourceFiles {
 
 /**
  * The ordinary source files of the scope: `.ts` files only, whatever else
- * the patterns match. A test file is not an implementation, and nothing
- * inside a `.cage` directory is either; declaration files are neither.
+ * the patterns match. A test file is not an implementation; declaration
+ * files are neither.
  */
 export function discoverSources(root: string, config: Pick<Config, "implementations" | "tests" | "exclude">): SourceFiles {
   const isSource = (file: string) => file.endsWith(".ts") && !file.endsWith(".d.ts");
   const tests = findFiles(root, config.tests, config.exclude).filter(isSource);
   const isTest = new Set(tests);
-  const inDesign = (file: string) => file.split("/").includes(CAGE_DIRECTORY);
-  const implementations = findFiles(root, config.implementations, config.exclude).filter((file) => isSource(file) && !isTest.has(file) && !inDesign(file));
+  const implementations = findFiles(root, config.implementations, config.exclude).filter((file) => isSource(file) && !isTest.has(file));
   return { implementations, tests };
 }
 

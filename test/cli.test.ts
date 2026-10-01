@@ -30,15 +30,15 @@ test("invalid arguments exit 2 with a message on stderr and nothing on stdout", 
     [[], /Missing command/],
     [["frobnicate"], /Unknown command "frobnicate"/],
     [["check", "--phase", "review"], /Unknown phase "review"/],
-    [["check", "--phase", "design", "--check"], /--check is an option of the extract command/],
+    [["check", "--phase", "design", "--check"], /Unknown option '--check'/],
     [["inspect"], /Unknown command "inspect"/],
-    [["extract", "extra"], /Unexpected argument "extra"/],
-    [["extract", "--fix"], /Unknown option '--fix'/],
-    [["extract", "--phase", "design"], /--phase is an option of the check command/],
-    [["extract", "--format", "xml"], /Unknown format "xml"/],
-    [["extract", "--format"], /--format/],
-    [["extract", "--check=yes"], /--check/],
-    [["extract", "--root", "no/such/dir"], /is not a directory/],
+    [["extract"], /Unknown command "extract"/],
+    [["check", "extra"], /Unexpected argument "extra"/],
+    [["check", "--fix"], /Unknown option '--fix'/],
+    [["lock", "--phase", "design"], /--phase is an option of the check command/],
+    [["check", "--format", "xml"], /Unknown format "xml"/],
+    [["check", "--format"], /--format/],
+    [["check", "--root", "no/such/dir"], /is not a directory/],
   ];
   for (const [args, message] of cases) {
     const result = cli(vertical, ...args);
@@ -53,7 +53,7 @@ test("a file system failure during discovery is exit 2 and names the path", { sk
   const locked = path.join(root, "src/modules/locked");
   fs.mkdirSync(locked, { mode: 0o000 });
   try {
-    const result = cli(root, "extract");
+    const result = cli(root, "check");
     assert.equal(result.code, 2);
     assert.equal(result.stdout, "");
     assert.match(result.stderr, /^cage: EACCES: permission denied, scandir '.*src\/modules\/locked'\n$/);
@@ -67,22 +67,17 @@ test("the entry point reports through stdout and the exit code only", (t) => {
   const before = snapshot(root);
 
   // --root is resolved against the working directory; the report stays relative to the root.
-  const check = spawnCli(path.dirname(root), "extract", "--check", "--format", "json", "--root", path.basename(root));
-  assert.equal(check.code, 1);
+  const check = spawnCli(path.dirname(root), "check", "--phase", "design", "--format", "json", "--root", path.basename(root));
+  assert.equal(check.code, 0);
   assert.equal(check.stderr, "");
   const report = JSON.parse(check.stdout);
-  assert.equal(report.ok, false);
-  assert.equal(report.outputs[0].path, "src/modules/campaigns/.cage/generated.ts");
+  assert.equal(report.ok, true);
+  assert.equal(report.scope.designFiles[0], "src/modules/campaigns/campaigns.cage.mdx");
   assert.deepEqual(snapshot(root), before);
 
-  const extract = spawnCli(root, "extract", "--format", "json");
-  assert.equal(extract.code, 0);
-  assert.equal(extract.stderr, "");
-  assert.equal(JSON.parse(extract.stdout).ok, true);
-
   // Reports are deterministic: no timestamps, no run identifiers.
-  const first = spawnCli(root, "extract", "--check", "--format", "json");
-  const second = spawnCli(root, "extract", "--check", "--format", "json");
+  const first = spawnCli(root, "check", "--format", "json");
+  const second = spawnCli(root, "check", "--format", "json");
   assert.equal(first.code, 0);
   assert.equal(second.stdout, first.stdout);
 });

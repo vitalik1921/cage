@@ -17,7 +17,6 @@ try {
   const bin = path.join(project, "node_modules", ".bin", process.platform === "win32" ? "cage.cmd" : "cage");
   const run = (...args) => execFileSync(bin, args, { cwd: project, encoding: "utf8", shell: process.platform === "win32" });
   const version = run("--version").trim();
-  execFileSync(bin, ["extract"], { cwd: project, stdio: "inherit", shell: process.platform === "win32" });
   const report = JSON.parse(run("check", "--format", "json"));
   const errors = report.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
   if (!report.ok || errors.length > 0) throw new Error(`check of the fixture failed:\n${errors.map((d) => `${d.code}: ${d.message}`).join("\n")}`);
