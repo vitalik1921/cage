@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.1.1
+
+What the first design written with the published package, and its review, showed.
 
 - `cage gate` lets the agent stop when the project has no `*.cage.mdx` design yet: right after `cage init` there is nothing to hold it to. Before, the Stop hook blocked three times with `E_NO_DESIGNS`.
 - `cage init` says where the hook files went when the project is not the repository root.
