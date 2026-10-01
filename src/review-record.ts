@@ -161,8 +161,8 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
       // The files may all match while the recorded fingerprint does not: the entry was edited or made by other rules.
       const since = what.length > 0 ? `since then: ${what.join(", ")}` : "its recorded fingerprint does not match its files";
       // A changed declaration is a changed promise: whoever imports its implementation from outside the module relies on the old one.
-      const users = changed.includes("contract") && result.compiler ? externalUses(root, result.compiler.ts, result.compiler.overlay, material.implementations, contract.module, sourceFiles) : [];
-      const outside = users.length > 0 ? ` The contract changed and is used outside its module by ${users.map((use) => `${use.file}:${use.line}`).join(", ")}: they rely on the old promise.` : "";
+      const users = changed.includes("contract") && result.compiler ? externalUses(root, result.compiler.ts, result.compiler.overlay, material.implementations, contract.module, contract.members.map((member) => member.name), sourceFiles) : [];
+      const outside = users.length > 0 ? ` The contract changed and is used outside its module by ${users.map((use) => `${use.file}:${use.line}${use.members.length > 0 ? ` (${use.members.join(", ")})` : ""}`).join(", ")}: they rely on the old promise.` : "";
       diagnostics.push({
         code: code("STALE"),
         severity,
@@ -206,7 +206,8 @@ export interface RecordReport {
   command: "review";
   ok: boolean;
   file: string;
-  recorded: { module: string; contract: string; fingerprint: string; assessments: Record<Assessment, number> }[];
+  /** `assessments` count the findings about invariants; `notes` are the contract-level findings, first sentence each. */
+  recorded: { module: string; contract: string; fingerprint: string; assessments: Record<Assessment, number>; notes: string[] }[];
   /** Entries of contracts that no longer exist, taken out of the file. */
   removed: { module: string; contract: string }[];
   diagnostics: Diagnostic[];
@@ -301,8 +302,11 @@ export function recordVerdicts(options: ImplementationPhaseOptions, verdictsFile
 
     const entry: ReviewEntry = { module: contract.module, contract: contract.name, fingerprint, material: digests, findings: verdict.findings };
     entries.set(keyOf(entry), entry);
-    const assessments = Object.fromEntries(ASSESSMENTS.map((assessment) => [assessment, verdict.findings.filter((finding) => finding.assessment === assessment).length])) as Record<Assessment, number>;
-    recorded.push({ module: contract.module, contract: contract.name, fingerprint, assessments });
+    // A contract-level finding is an observation, not an assessment of an invariant: it is not an "adequate" in the count.
+    const about = verdict.findings.filter((finding) => finding.invariant !== null);
+    const assessments = Object.fromEntries(ASSESSMENTS.map((assessment) => [assessment, about.filter((finding) => finding.assessment === assessment).length])) as Record<Assessment, number>;
+    const notes = verdict.findings.filter((finding) => finding.invariant === null).map((finding) => firstSentence(finding.reason));
+    recorded.push({ module: contract.module, contract: contract.name, fingerprint, assessments, notes });
   }
   if (hasErrors(diagnostics)) return report([]);
   for (const [key, entry] of entries) {
@@ -320,10 +324,16 @@ export function recordVerdicts(options: ImplementationPhaseOptions, verdictsFile
   return report(recorded);
 }
 
+/** The first sentence of a reason: what `check` and `--record` print of it. */
+export function firstSentence(text: string): string {
+  return /^.*?[.!?](?=\s|$)/s.exec(text)?.[0] ?? text;
+}
+
 export function formatRecordReport(report: RecordReport): string {
-  const lines = report.recorded.map((entry) => {
+  const lines = report.recorded.flatMap((entry) => {
     const counts = ASSESSMENTS.filter((assessment) => entry.assessments[assessment] > 0).map((assessment) => `${entry.assessments[assessment]} ${assessment}`);
-    return `recorded  ${entry.contract} (${counts.join(", ")})`;
+    const notes = entry.notes.length === 0 ? "" : `; ${plural(entry.notes.length, "note")}`;
+    return [`recorded  ${entry.contract} (${counts.length === 0 ? "no invariants" : counts.join(", ")}${notes})`, ...entry.notes.map((note) => `          note: ${note}`)];
   });
   lines.push(...report.removed.map((entry) => `removed   ${entry.contract} (no longer in ${entry.module})`));
   lines.push(...report.diagnostics.map(formatDiagnostic));

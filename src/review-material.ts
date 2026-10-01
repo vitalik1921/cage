@@ -144,6 +144,31 @@ export interface ExternalUse {
   line: number;
   /** The implementations it imports, by name. */
   names: string[];
+  /** The contract's members the file calls on them, as far as the syntax shows: `this.accounts.findById(…)` on a property or parameter declared with the implementation's type. */
+  members: string[];
+}
+
+/** The members, among `members`, that the file calls on something declared with one of the `names` as its type. */
+function membersCalled(ts: TypeScript, sourceFile: ts.SourceFile, names: ReadonlySet<string>, members: ReadonlySet<string>): string[] {
+  const holders = new Set<string>();
+  const declared = (node: ts.Node): void => {
+    if ((ts.isParameter(node) || ts.isPropertyDeclaration(node) || ts.isVariableDeclaration(node)) && node.type && ts.isTypeReferenceNode(node.type) && ts.isIdentifier(node.type.typeName) && names.has(node.type.typeName.text) && ts.isIdentifier(node.name)) {
+      holders.add(node.name.text);
+    }
+    ts.forEachChild(node, declared);
+  };
+  declared(sourceFile);
+  const called = new Set<string>();
+  const calls = (node: ts.Node): void => {
+    if (ts.isPropertyAccessExpression(node) && members.has(node.name.text)) {
+      const target = node.expression;
+      const holder = ts.isPropertyAccessExpression(target) ? target.name.text : ts.isIdentifier(target) ? target.text : undefined;
+      if (holder !== undefined && holders.has(holder)) called.add(node.name.text);
+    }
+    ts.forEachChild(node, calls);
+  };
+  calls(sourceFile);
+  return [...called].sort(compareText);
 }
 
 /**
@@ -157,10 +182,12 @@ export function externalUses(
   overlay: Pick<Overlay, "resolveFrom">,
   implementations: readonly Implementation[],
   moduleId: string,
+  members: readonly string[],
   candidates: readonly string[],
 ): ExternalUse[] {
   if (implementations.length === 0) return [];
   const names = new Set(implementations.map((implementation) => implementation.name));
+  const memberNames = new Set(members);
   const implementationFiles = new Set(implementations.map((implementation) => implementation.location.file));
   const mentions = new RegExp(`\\b(${[...names].map((name) => name.replace(/[$]/g, "\\$&")).join("|")})\\b`);
   const found: ExternalUse[] = [];
@@ -182,7 +209,7 @@ export function externalUses(
       if (imported.length === 0) continue;
       const resolved = overlay.resolveFrom(statement.moduleSpecifier.text, fileName);
       if (!resolved || !implementationFiles.has(toProjectPath(root, resolved))) continue;
-      found.push({ file, line: sourceFile.getLineAndCharacterOfPosition(statement.getStart(sourceFile)).line + 1, names: imported.sort(compareText) });
+      found.push({ file, line: sourceFile.getLineAndCharacterOfPosition(statement.getStart(sourceFile)).line + 1, names: imported.sort(compareText), members: membersCalled(ts, sourceFile, names, memberNames) });
     }
   }
   return found.sort((a, b) => compareText(a.file, b.file) || a.line - b.line);

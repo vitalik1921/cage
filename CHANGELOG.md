@@ -8,6 +8,10 @@
 - The summary of `check` says how many invariants are "not checked while a rejected tag names their contract", instead of silently showing fewer errors until the tag is fixed (`counts.uncheckedInvariants` in JSON).
 - `@tests` with two names, and `@covers` with another contract's invariant, say how a test of a second contract is tagged (its own `@tests` line).
 - `cage gate` sweeps block counters older than a day from the temporary directory; sessions that ended while blocked no longer leave a file each.
+- `cage review --record` counts assessments over the invariants only and prints the contract-level findings as notes; the next packet of the contract repeats them ("Notes of the previous review"). Before, three notes read as "3 adequate" on a contract whose five invariants were all weak.
+- The packet's "Not loaded" list no longer follows what helpers import (an application module imports everything) and no longer names files another packet of the same report holds.
+- "Used outside the module" names the contract's members the file calls, where the syntax shows them; `REVIEW_STALE` repeats them.
+- The packet's instruction says what the `cage-review` skill says: a boundary the types allow counts; what only a real database shows is weak even with the clause asserted; evidence may cite a file outside the packet.
 - Skill `cage-design`: `@tests` names one contract and `@covers` resolves in it; the per-test `@tests` override; a payload shape against `Record<string, unknown>` is a `type`, not an `interface`; fix tag errors first.
 
 ## 0.1.0

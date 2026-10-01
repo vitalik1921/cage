@@ -5,7 +5,7 @@ import { compareDiagnostics, compareText, hasErrors, type Diagnostic } from "./d
 import { checkImplementationPhase, type ImplementationPhaseOptions, type ImplementationPhaseResult } from "./implementation-phase.ts";
 import { toProjectPath } from "./location.ts";
 import { collectMaterial, createFileReader, externalUses, fingerprintOf, type ExternalUse, type FileReader, type Material, type PacketFile } from "./review-material.ts";
-import { readReviewFile, VERDICTS_SCHEMA } from "./review-record.ts";
+import { firstSentence, readReviewFile, VERDICTS_SCHEMA } from "./review-record.ts";
 import type { Overlay, TypeScript } from "./typescript.ts";
 
 export type { PacketFile } from "./review-material.ts";
@@ -35,8 +35,10 @@ export interface ContractPacket {
   };
   implementations: { name: string; kind: "class" | "function" | "const"; compatible: boolean; location: SourceLocation }[];
   tests: { file: string; declarations: { title: string; suitePath: string[]; covers: string[]; line: number; column: number }[] }[];
-  /** Files outside the module that import an implementation of the contract: they rely on its promises. Imports only, not calls. */
+  /** Files outside the module that import an implementation of the contract: they rely on its promises; with the members they call, where that is visible. */
   usedBy: ExternalUse[];
+  /** The contract-level findings of the recorded review, first sentence each: observations that stay until the design's owner acts on them. */
+  priorNotes: string[];
   /** Project files the test files import, loaded into `files` as helpers: a stub or a fixture decides what a test observes. */
   helpers: string[];
   /** Project files that the packet's files import but that are not in the packet, with who imports what: the reviewer opens them in the repository. */
@@ -75,7 +77,10 @@ export const INSTRUCTION = [
   "- Do the assertions observe the right result, order or effect — not just that nothing was thrown?",
   "- Do mocks or stubs stand in for the very guarantee the test claims to check? A test that asserts the exact statement, clause or call that carries the promise",
   "  is adequate for that clause; a clause left unasserted while a stub returns a canned result regardless is weak; what only a real database or service",
-  "  can show (one row, an id kept) is weak unless a test against the real thing is linked — say which test to tag.",
+  "  can show (one row kept, an id unchanged, a value the column type rejects) is weak even when the clause is asserted, unless a test against the",
+  "  real thing is linked — say which test to tag. The helpers the tests import are loaded with them: read the stub before judging what a test observes.",
+  "- A boundary the contract's types allow counts even when today's callers cannot reach it (\"\" where the type says string, undefined where it says",
+  "  an object): the contract is the promise, not the callers. Say so in the reason; the design's owner may narrow the type instead.",
   "- Are the relevant errors, boundaries, concurrency and retries covered?",
   "- For a rule about the whole interface: is the interaction of methods checked?",
   "- Where there are several implementations, does each have the scenarios it needs?",
@@ -83,8 +88,11 @@ export const INSTRUCTION = [
   "- Does the business description add material requirements, or contradict the invariants?",
   "",
   "Assess each invariant as `adequate`, `weak`, `unrelated` or `insufficient-context`, with a reason and the evidence (file and line) it rests on;",
-  "evidence is null only for insufficient-context. An observation about the design that is not a test weakness goes in a contract-level finding",
-  "(invariant null, assessment adequate) so that the design's owner sees it.",
+  "evidence is null only for insufficient-context, and may cite a file the packet does not hold when you opened it in the repository. An observation",
+  "about the design or the code that is not a test weakness goes in a contract-level finding (invariant null, assessment adequate): several may",
+  "stand next to the per-invariant findings; `cage review --record` prints them, the next packet of the contract repeats them, and they are not",
+  "counted as assessments. Files used outside the module rely on the contract's promises: a change to an invariant reaches them, and they may",
+  "assume the old one — say so in a contract-level finding.",
   "This is an assessment, not a proof and not a test run. A contract without invariants gets one contract-level finding (invariant null).",
   "When you are the agent that wrote the code or the tests under review, judge them as a stranger would: the verdict is recorded and read by others.",
   "Do not remove or soften invariants and do not rewrite business requirements to make a check pass; a missing or weak test is a recommendation",
@@ -173,6 +181,8 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
 
   const packets = selected.map((contract) => packetOf(root, result, materialOf(contract.name), options.sources.tests, options.sources.implementations, read));
   const used = new Set(packets.flatMap((packet) => [...packet.designs, ...packet.dependencies.designs, ...packet.implementations.map((i) => i.location.file), ...packet.tests.map((t) => t.file), ...packet.helpers]));
+  // A file another packet of this report holds is in the document; it is not "not loaded" for anyone.
+  for (const packet of packets) packet.unloaded = packet.unloaded.filter((entry) => !used.has(entry.file));
   return report(ok, packets, [...files.values()].filter((file) => used.has(file.path)).sort((a, b) => compareText(a.path, b.path)));
 }
 
@@ -192,6 +202,8 @@ function packetOf(root: string, result: ImplementationPhaseResult, material: Mat
   }
   const loaded = new Set(files.map((file) => file.path));
   const unloaded = compiler ? importsOutside(root, compiler.ts, compiler.overlay, files, loaded) : [];
+  const prior = readReviewFile(root).entries.find((entry) => entry.module === contract.module && entry.contract === name);
+  const priorNotes = prior ? prior.findings.filter((finding) => finding.invariant === null).map((finding) => firstSentence(finding.reason)) : [];
   const declaring = new Set((result.linking?.tests ?? []).map((test) => test.location.file));
   const inModule = (file: string) => contract.module === "." || file.startsWith(`${contract.module}/`);
   const untaggedTests = testFiles_.filter((file) => inModule(file) && !declaring.has(file)).sort(compareText);
@@ -217,7 +229,8 @@ function packetOf(root: string, result: ImplementationPhaseResult, material: Mat
         .filter((test) => test.location.file === file)
         .map(({ title, suitePath, covers, location }) => ({ title, suitePath, covers, line: location.line, column: location.column })),
     })),
-    usedBy: compiler ? externalUses(root, compiler.ts, compiler.overlay, implementations, contract.module, sourceFiles) : [],
+    usedBy: compiler ? externalUses(root, compiler.ts, compiler.overlay, implementations, contract.module, contract.members.map((member) => member.name), sourceFiles) : [],
+    priorNotes,
     helpers: files.filter((file) => file.role === "helper").map((file) => file.path).sort(compareText),
     unloaded,
     untaggedTests,
@@ -255,7 +268,8 @@ function importsOutside(
 ): ContractPacket["unloaded"] {
   const outside = new Map<string, Map<string, Set<string>>>();
   for (const file of packetFiles) {
-    if (file.role === "design") continue;
+    // What a helper imports is one level further from the contract; listing it drowns the files that matter (a NestJS AppModule imports everything).
+    if (file.role === "design" || file.role === "helper") continue;
     const fileName = path.join(root, file.path);
     const sourceFile = ts.createSourceFile(fileName, file.text, ts.ScriptTarget.Latest, false);
     for (const statement of sourceFile.statements) {
@@ -332,7 +346,10 @@ export function formatReviewMarkdown(report: ReviewReport): string {
     lines.push(`- uses: ${named(packet.dependencies.uses)}`, `- used by: ${named(packet.dependencies.usedBy)}`, `- designs included: ${packet.dependencies.designs.length === 0 ? "none" : packet.dependencies.designs.join(", ")}`);
     lines.push("", "### Used outside the module", "");
     if (packet.usedBy.length === 0) lines.push("- nothing in the project imports an implementation of this contract from outside its module");
-    for (const use of packet.usedBy) lines.push(`- ${use.file}:${use.line} imports ${use.names.join(", ")} — relies on the promises above; a change here reaches it`);
+    for (const use of packet.usedBy) lines.push(`- ${use.file}:${use.line} imports ${use.names.join(", ")}${use.members.length > 0 ? ` and calls ${use.members.join(", ")}` : ""} — relies on the promises above; a change here reaches it`);
+    lines.push("", "### Notes of the previous review", "");
+    if (packet.priorNotes.length === 0) lines.push("- none recorded");
+    for (const note of packet.priorNotes) lines.push(`- ${note}`);
     lines.push("", "### Helpers loaded with the tests", "");
     if (packet.helpers.length === 0) lines.push("- none: the tests import nothing else from the project");
     for (const file of packet.helpers) lines.push(`- ${file}`);
