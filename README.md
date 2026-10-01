@@ -106,7 +106,7 @@ Commit `.cage/` (config, locks, reviews) and `.cageignore` with the designs.
 
 ## More
 
-- Tags, rules and diagnostics in detail: [docs/reference.md](docs/reference.md).
+- Tags, rules and diagnostics in detail: [docs/reference.md](https://github.com/vitalik1921/cage/blob/main/docs/reference.md).
 - Development: `npm test`, `npm run verify`, `npm run smoke`.
 
 MIT.
