@@ -1,51 +1,32 @@
-# cage — contract harness (`cage` CLI)
+# cage — development notes
 
-Специфікація: `docs/contract-workflow-mvp.md` — єдине джерело вимог. Перед задачею прочитай розділи, які вона зачіпає, а також §14 (етапи), §15 (acceptance matrix) і §16 (поза MVP). Рішення, уже прийняті в коді, описані в `docs/reference.uk.md` (детальна довідка; `README.md` — короткий англійський старт); відхилення від плану й прийняті рішення — у `docs/plan-proposals.md`.
+`cage` checks TypeScript projects against design documents (`*.cage.mdx`); what it does and the rules it enforces are in `README.md` (start) and `docs/reference.md` (everything). Read the part of the reference that a task touches before changing it.
 
-## Поточний етап
+Work in steps: a concrete task → implementation → `npm run verify` → code review → a person reads the diff → commit.
 
-Готово: технічний зріз, «Витягування», «Контракти», «Зв’язування» і перевірка на реальному модулі (`docs/real-module-trial.md`). Наступний етап — **Вивід**.
+## Commands
 
-| Етап | Що має працювати | План | Стан |
-| --- | --- | --- | --- |
-| Технічний зріз | MDX parser, compiler overlay, мапінг діагностик у MDX | §14 | готово |
-| Витягування | Склейка блоків у віртуальний модуль з мапінгом позицій (generated-файли й `extract` прибрано рішенням 20) | §4, §10; етапи 1–3 | готово |
-| Контракти | Директиви, реєстр, посилання, інваріанти методів, `check --phase design` | §6, §9; етапи 4–5 | готово |
-| Зв’язування | `@implements`, структурна перевірка, `@tests` / `@covers`, повний `cage check` | §7, §8; етапи 6–7 | готово |
-| Перевірка на реальному модулі | Один модуль з існуючими реалізацією й тестами: скільки анотацій, які помилки, чи зрозумілі повідомлення | — | готово |
-| Вивід | Рев’ю як другі ворота: `cage review` (пакет із відбитком) → `--record` висновку → `check` вимагає свіжого рев’ю; `cage gate` як Stop-hook; індекс у `check --format json` замість `inspect`/`graph` (рішення 18); лишились зрозумілі помилки компілятора й README | §10–12 і `plan-proposals.md` #17–18; етапи 8–10 | у роботі |
+- `npm run typecheck` — tsc for `src/` and `test/`
+- `npm test` — `node --test test/*.test.ts`, no build
+- `npm run build` — compile to `dist/`
+- `npm run verify` — all of the above and a run of the built CLI; run before handing a step over
+- `npm run smoke` — `npm pack`, install the tarball into an empty project and run `cage` there; CI and `prepublishOnly` do the same
+- Release: `npm version <minor|patch>` → `git push --follow-tags` → the `Publish` workflow puts the package on npm (needs the `NPM_TOKEN` secret)
+- `node src/cli.ts check --root <project>` — run the CLI without a build
 
-Усі рішення після перевірки на реальному модулі прийняті (`docs/plan-proposals.md`, пункти 12–17); відкритим лишається пункт 8 (варіант C).
+## Rules
 
-Розділ «Чого ще немає» в `docs/reference.uk.md` перелічує, що лишилось.
+- Never change a requirement or delete a negative fixture to make a check pass.
+- Routine technical decisions are yours; record them briefly in `docs/reference.md`, section "Implementation notes".
+- The harness never runs the tests of the user's project. The harness's own tests are mandatory.
+- A report says what was done, the actual results of the checks, and any deviation. A check that was not run is never called successful.
 
-Робочий цикл етапу: конкретне завдання → реалізація → перевірки (`npm run verify`) → рев’ю коду → перегляд diff людиною → коміт.
+## Code
 
-## Команди
-
-- `npm run typecheck` — tsc для `src/` і `test/`
-- `npm test` — `node --test test/*.test.ts`, без збірки
-- `npm run build` — компіляція в `dist/`
-- `npm run verify` — усе разом і запуск зібраного CLI; запускати перед здачею етапу
-- `npm run smoke` — `npm pack`, встановлення тарбола в порожній проєкт і запуск `cage` там; CI і `prepublishOnly` роблять те саме
-- Публікація: `npm version <minor|patch>` → `git push --follow-tags` → workflow `Publish` кладе пакет на npm (потрібен secret `NPM_TOKEN`)
-- `node src/cli.ts check --root <project>` — запуск CLI без збірки
-
-## Правила
-
-- Не змінюй вимоги й не видаляй негативні fixtures, щоб перевірка пройшла.
-- Якщо знайдеш суперечність у плані, назви два конкретні правила з номерами розділів і запропонуй мінімальне уточнення. План не редагуй без явного погодження. Пропозиції та відхилення записуй у `docs/plan-proposals.md` і повторюй у звіті етапу.
-- Рутинні технічні рішення приймай сам і коротко записуй у `docs/reference.uk.md`, розділ «Технічні рішення».
-- Харнес не запускає тести користувацького проєкту. Тести самого харнесу обов’язкові.
-- Звіт етапу: що зроблено, фактичні результати перевірок, відхилення від плану. Невиконану перевірку не називай успішною.
-- Після кожного етапу оновлюй карту етапів (артефакт «Етапи contract harness», https://claude.ai/artifact/812rQTEPNwe7rWHTh1nDEF).
-
-## Код
-
-- ESM і лише erasable TypeScript: Node запускає `.ts` без збірки. Відносні імпорти пишуться з `.ts`, при збірці їх переписує `rewriteRelativeImportExtensions`.
-- Харнес завантажує TypeScript цільового проєкту (`loadTypeScript`), вбудований 6.0.3 — запасний. Тому `typescript` імпортується лише як тип (`import type ts`), а екземпляр передається параметром `ts`. Код має працювати на TS 5.x і 6.x: лише документований API, без `as any`. Major-версію вбудованого не оновлюй без окремої задачі: у TS 7 немає Compiler API.
-- `typescript-5` у devDependencies потрібен лише тестам; через нього `node_modules/.bin/tsc` — це 5.9, тож скрипти викликають `node_modules/typescript/bin/tsc` явно.
-- Тести харнесу: `node:test` у `test/*.test.ts`. Fixtures лежать у `test/fixtures/<name>/` і не входять у typecheck харнесу. Тест, що змінює fixture, працює з копією (`copyFixture`); малі проєкти для одного правила будує `designProject`. Обидва пишуть у `test/.tmp/`.
-- Очікувані позиції в тестах рахуються незалежно від харнесу (`find` у `test/helpers.ts`), а не копіюються з його виводу.
-- Діагностики мають коди з §11. Locations: project-relative POSIX-шлях, line/column з 1, колонки в UTF-16.
-- Помилки конфігурації та середовища — `E_CONFIG` / `E_ENVIRONMENT` і код виходу 2; порушення правил — код виходу 1.
+- ESM and erasable TypeScript only: Node runs `.ts` without a build. Relative imports are written with `.ts`; the build rewrites them (`rewriteRelativeImportExtensions`).
+- The harness loads the target project's TypeScript (`loadTypeScript`); the bundled 6.0.3 is the fallback. So `typescript` is imported as a type only (`import type ts`) and the instance is passed as the `ts` parameter. The code has to work on TS 5.x and 6.x: documented API only, no `as any`. Do not bump the bundled major without a task of its own: TS 7 has no Compiler API.
+- `typescript-5` in devDependencies is for the tests only; because of it `node_modules/.bin/tsc` is 5.9, so the scripts call `node_modules/typescript/bin/tsc` explicitly.
+- Tests: `node:test` in `test/*.test.ts`. Fixtures live in `test/fixtures/<name>/` and are outside the harness's typecheck. A test that changes a fixture works on a copy (`copyFixture`); small projects for one rule are built by `designProject`. Both write to `test/.tmp/`.
+- Expected positions in tests are computed independently of the harness (`find` in `test/helpers.ts`), never copied from its output.
+- Diagnostics carry codes (`E_…` errors, `W_…` warnings). Locations: project-relative POSIX path, line and column from 1, columns in UTF-16 units.
+- Configuration and environment errors are `E_CONFIG` / `E_ENVIRONMENT` with exit code 2; rule violations exit 1.

@@ -106,8 +106,7 @@ Commit `.cage/` (config, locks, reviews) and `.cageignore` with the designs.
 
 ## More
 
-- Tags, rules and diagnostics in detail: [docs/reference.uk.md](docs/reference.uk.md) (Ukrainian).
-- Decisions and deviations from the original plan: [docs/plan-proposals.md](docs/plan-proposals.md).
+- Tags, rules and diagnostics in detail: [docs/reference.md](docs/reference.md).
 - Development: `npm test`, `npm run verify`, `npm run smoke`.
 
 MIT.
