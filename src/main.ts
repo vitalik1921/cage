@@ -111,6 +111,7 @@ function run(argv: readonly string[], io: CliIo): number {
     if (agent === "claude" || agent === "codex") agents.add(agent);
     else if (agent !== "none") throw new UsageError(`Unknown agent "${agent}"; expected claude, codex or none.`);
   }
+  if (values.agent?.includes("none") && agents.size > 0) throw new UsageError("--agent none means no Stop gate; do not combine it with an agent.");
   const testAdapter = values["test-adapter"];
   if (testAdapter !== undefined && testAdapter !== "node:test" && testAdapter !== "vitest") throw new UsageError(`Unknown test adapter "${testAdapter}"; expected node:test or vitest.`);
   if (command !== "review" && extra.length > 0) throw new UsageError(`Unexpected argument "${extra[0]}".`);
