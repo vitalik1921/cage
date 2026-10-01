@@ -42,6 +42,8 @@ export interface DesignPhaseOptions {
   /** Relative to `root`. */
   tsconfig: string;
   designs: readonly DesignSource[];
+  /** The `designs` patterns the sources were found with; named when there are none. */
+  designPatterns?: readonly string[];
   /** Errors found before the phase, in the configuration. With any, nothing is checked and only they are reported. */
   problems?: readonly Diagnostic[];
 }
@@ -86,7 +88,7 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
   diagnostics.push(...(options.problems ?? []));
   if (failed()) return done();
 
-  readDocuments(ts, root, options.designs, modules, diagnostics);
+  readDocuments(ts, root, options.designs, options.designPatterns ?? [], modules, diagnostics);
   if (failed()) return done();
 
   diagnostics.push(...checkBlocks(ts, root, modules));
@@ -148,12 +150,13 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
  * design: their blocks make one generated module, in the order of their
  * names, and prose in any of them is the business context of all.
  */
-function readDocuments(ts: TypeScript, root: string, designs: readonly DesignSource[], modules: DesignModule[], diagnostics: Diagnostic[]): void {
+function readDocuments(ts: TypeScript, root: string, designs: readonly DesignSource[], patterns: readonly string[], modules: DesignModule[], diagnostics: Diagnostic[]): void {
   if (designs.length === 0) {
+    const where = patterns.length > 0 ? `the \`designs\` patterns of the configuration (${patterns.join(", ")}) match nothing under the project root` : "check the project root and the `designs` patterns";
     diagnostics.push({
       code: "E_NO_DESIGNS",
       severity: "error",
-      message: "No *.cage.mdx documents were found. Check the project root and the `designs` patterns.",
+      message: `No *.cage.mdx documents were found: ${where}. A design lives next to its module, such as src/quota/quota.cage.mdx.`,
     });
   }
   for (const design of designs) {

@@ -162,7 +162,7 @@ export function readTestDeclarations(
     const [tag, second] = tags.get("tests") ?? [];
     if (second) report("E_TAG_FORMAT", `\`@tests\` is given more than once; ${what} is about one contract.`, second.start);
     const contract = tag && parseName(tag.text);
-    if (tag && contract === undefined) report("E_TAG_FORMAT", "`@tests` needs exactly one contract name.", tag.start);
+    if (tag && contract === undefined) report("E_TAG_FORMAT", "`@tests` needs exactly one contract name. A test of a second contract gets its own `@tests Name` line above its `@covers`.", tag.start);
     const written = all.filter((candidate) => candidate.name === "tests");
     if (written.length === 0) return inherited;
     if (tag && contract !== undefined && !second) {

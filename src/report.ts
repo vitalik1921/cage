@@ -40,10 +40,12 @@ export function formatCheckReport(report: CheckReport): string {
       } else {
         // A link is a tag. What it proves is what the review says, so the two are never one number.
         const reviewed = counts.reviewedInvariants === null || counts.weakInvariants === null ? "" : ` (${counts.reviewedInvariants} confirmed by review, ${counts.weakInvariants} found weak, ${counts.invariants - counts.reviewedInvariants - counts.weakInvariants} unreviewed)`;
+        // Invariants behind a rejected tag are not "missing a test" yet; saying so keeps a half-fixed file from looking nearly done.
+        const unchecked = counts.uncheckedInvariants ? `, ${counts.uncheckedInvariants} not checked while a rejected tag names their contract` : "";
         facts.push(
           plural(counts.implementations, "implementation"),
           plural(counts.testDeclarations, "test declaration"),
-          `${counts.linkedInvariants} of ${plural(counts.invariants, "invariant")} linked to a test declaration${reviewed}`,
+          `${counts.linkedInvariants} of ${plural(counts.invariants, "invariant")} linked to a test declaration${reviewed}${unchecked}`,
         );
       }
     }

@@ -59,8 +59,8 @@ A layer runs only when the earlier ones left no error that its results would be 
 
 `node:test` (the default) and Vitest are supported: `"testAdapter": "vitest"` in the configuration. The rules are the same.
 
-- `@tests A` stands in the JSDoc directly before a `describe` / `suite` call; nested suites inherit the contract, a nested `@tests` replaces it for its suite.
-- `@covers a b` stands before an `it` / `test` call inside such a suite and names invariants of its contract. One test may cover several invariants; one invariant may have several tests.
+- `@tests A` stands in the JSDoc directly before a `describe` / `suite` call and names exactly one contract; nested suites inherit the contract, a nested `@tests` replaces it for its suite.
+- `@covers a b` stands before an `it` / `test` call inside such a suite and names invariants of its contract, and only of it. One test may cover several invariants; one invariant may have several tests.
 - `@tests A` may also stand on the test itself, on its own line before `@covers`: for a test without a `describe`, or in a suite that holds tests of several contracts. Such a tag applies to that test only.
 - The functions are recognised by their import from the runner's module, not by name: aliases and namespace imports work, for `node:test` also the default import; a local function named `it` is not a test. Vitest globals `describe` / `it` are recognised when the project includes their types (`"types": ["vitest/globals"]`).
 - `.skip`, `.only`, `.todo`, options and empty callbacks count: the harness checks that a declaration exists, not that it runs. For Vitest also `.concurrent`, `.sequential`, `.fails`, `.shuffle`, chained or not.
@@ -78,7 +78,7 @@ In ordinary files only JSDoc comments that contain a binding tag (`@implements`,
 - A block may contain only `import type` and exported `interface` / `type`. Classes, functions, variables, enums, namespaces, re-exports, value imports, `import("…")` in types and non-exported declarations are errors.
 - Only types of other designs in scope may be imported, through the path of any of their `*.cage.mdx` documents (relative, or a `paths` alias). Importing implementations, packages, `.mdx` or any `/// <reference>` is `E_DESIGN_IMPORT`; importing a `*.cage.mdx` document that is not in scope is `E_DESIGN_OUT_OF_SCOPE`.
 - Every declaration has, in the JSDoc directly before it, exactly one marker, `@contract` or `@data`, and a non-empty `@description`. "Directly" means only whitespace and line breaks between the comment and the declaration. A comment that ends the line of the previous declaration belongs to it, not to the next one.
-- `@contract` goes only on an interface that has either one or more ordinary methods or exactly one call signature. Generics, `extends`, optional methods, properties, index signatures and overloads are not supported. `@data` has none of these limits.
+- `@contract` goes only on an interface that has either one or more ordinary methods or exactly one call signature. Generics, `extends`, optional methods, properties, index signatures and overloads are not supported. `@data` has none of these limits; note that a `@data` shape the code passes where it expects `Record<string, unknown>` has to be a `type` alias, since an `interface` has no implicit index signature.
 - `@uses A B` goes on a contract; the names have to be contracts in scope, not the contract itself.
 - `@invariant id text` goes on a contract or one of its methods. `id`: lower-case Latin letters, digits, hyphens. Ids are unique within a contract; different contracts may share them. An invariant on a call signature belongs to the contract as a whole.
 - Contract names are unique across the whole scope. `@data` names only within a module.
@@ -163,7 +163,7 @@ So the review is a second gate: change a test, the code or the design, and `chec
 
 ### The JSON report of `check`
 
-`schemaVersion`, `command`, `phase`, `ok`, `scope` (tsconfig, design files, the TypeScript used, the effective `strictNullChecks` / `strictFunctionTypes` / `noImplicitAny`), `counts`, `invariants` with `linkedTestCount` and `review`, `index` (contracts with their methods, locks and implementations, data types, `@uses` and type-import edges between modules — for a tool or an agent that needs the index rather than the documents), `diagnostics`. `counts.testDeclarations` are the tests inside suites tagged `@tests`; `counts.linkedInvariants` the invariants with at least one link.
+`schemaVersion`, `command`, `phase`, `ok`, `scope` (tsconfig, design files, the TypeScript used, the effective `strictNullChecks` / `strictFunctionTypes` / `noImplicitAny`), `counts`, `invariants` with `linkedTestCount` and `review`, `index` (contracts with their methods, locks and implementations, data types, `@uses` and type-import edges between modules — for a tool or an agent that needs the index rather than the documents), `diagnostics`. `counts.testDeclarations` are the tests inside suites tagged `@tests`; `counts.linkedInvariants` the invariants with at least one link; `counts.uncheckedInvariants` the invariants not checked for a test because a rejected tag names their contract (the summary line says so too).
 
 What was not checked is `null` or `"not-checked"`, never `0`: "not checked" differs from "not found". The design phase never looks at implementations and tests; a full check does not reach them when a design has an error; and when an error stopped the check before the designs were indexed, the counts of contracts, data types and invariants are `null` too. There is no `passed`, `failed` or coverage percentage. Equal `@uses` and imports from one design count as one dependency. The report is deterministic: no time, no random ids.
 

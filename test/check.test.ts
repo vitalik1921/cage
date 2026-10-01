@@ -40,7 +40,7 @@ test("check --phase design reports the plan fixture: 3 contracts, 1 data type, 8
       compilerOptions: { strictNullChecks: true, strictFunctionTypes: true, noImplicitAny: true },
       lockBase: null,
     },
-    counts: { contracts: 3, data: 1, invariants: 8, implementations: null, testDeclarations: null, linkedInvariants: null, reviewedInvariants: null, weakInvariants: null },
+    counts: { contracts: 3, data: 1, invariants: 8, implementations: null, testDeclarations: null, linkedInvariants: null, uncheckedInvariants: null, reviewedInvariants: null, weakInvariants: null },
     invariants: [
       { contract: "Send", id: "quota", member: "run", linkedTestCount: null, review: null },
       { contract: "Send", id: "limit", member: "run", linkedTestCount: null, review: null },
@@ -146,7 +146,7 @@ test("configuration and environment problems are exit 2, an empty scope exit 1",
     return { code, ok: report.ok, diagnostics: report.diagnostics.map((diagnostic) => diagnostic.code), counts: report.counts, invariants: report.invariants };
   };
   // Nothing was indexed: the counts are unknown, which is not zero.
-  const unknown = { counts: { contracts: null, data: null, invariants: null, implementations: null, testDeclarations: null, linkedInvariants: null, reviewedInvariants: null, weakInvariants: null }, invariants: null };
+  const unknown = { counts: { contracts: null, data: null, invariants: null, implementations: null, testDeclarations: null, linkedInvariants: null, uncheckedInvariants: null, reviewedInvariants: null, weakInvariants: null }, invariants: null };
 
   assert.deepEqual(codes(["--config", "nope.json"]), { code: 2, ok: false, diagnostics: ["E_CONFIG"], ...unknown });
   writeFile(root, ".cage/config.json", '{ "version": 1, "tsconfig": "missing.json" }');
@@ -191,7 +191,7 @@ test("TypeScript 5 accepts what it does not deprecate, and the plan fixture", (t
   const { code, report } = check(root);
   assert.equal(code, 0);
   assert.deepEqual(report.scope.typescript, { version: "5.9.3", source: "project" });
-  assert.deepEqual(report.counts, { contracts: 3, data: 1, invariants: 8, implementations: null, testDeclarations: null, linkedInvariants: null, reviewedInvariants: null, weakInvariants: null });
+  assert.deepEqual(report.counts, { contracts: 3, data: 1, invariants: 8, implementations: null, testDeclarations: null, linkedInvariants: null, uncheckedInvariants: null, reviewedInvariants: null, weakInvariants: null });
 
   const text = editFile(root, QUOTA, (s) => s.replace("take(accountId: AccountId)", "take(accountId: AccountIdd)"));
   assert.deepEqual(
@@ -284,7 +284,7 @@ test("check reports the whole plan fixture: 3 implementations, 8 linked invarian
   assert.equal(code, 0);
   assert.equal(report.phase, "implementation");
   assert.equal(report.ok, true);
-  assert.deepEqual(report.counts, { contracts: 3, data: 1, invariants: 8, implementations: 3, testDeclarations: 8, linkedInvariants: 8, reviewedInvariants: 0, weakInvariants: 0 });
+  assert.deepEqual(report.counts, { contracts: 3, data: 1, invariants: 8, implementations: 3, testDeclarations: 8, linkedInvariants: 8, uncheckedInvariants: 0, reviewedInvariants: 0, weakInvariants: 0 });
   assert.deepEqual(linked(report), {
     "Send: quota": 1,
     "Send: limit": 1,
@@ -332,7 +332,7 @@ test("an invariant without a test and a contract without an implementation are e
     ],
   );
   assert.equal(linked(report)["Quota: race"], 0);
-  assert.deepEqual(report.counts, { contracts: 3, data: 1, invariants: 8, implementations: 2, testDeclarations: 8, linkedInvariants: 7, reviewedInvariants: 0, weakInvariants: 0 });
+  assert.deepEqual(report.counts, { contracts: 3, data: 1, invariants: 8, implementations: 2, testDeclarations: 8, linkedInvariants: 7, uncheckedInvariants: 0, reviewedInvariants: 0, weakInvariants: 0 });
   // The class that lost its tag is now also code that no design covers.
   const sender = inFixture("src/modules/mail/callback-sender.ts", "CallbackSender");
   assert.ok(cli(root, "check").stdout.includes(`${sender.file}:${sender.line}:${sender.column}: warning W_NOT_DESIGNED: Exported class "CallbackSender"`));
@@ -346,7 +346,7 @@ test("with an error in a design nothing beyond the designs is checked, and the r
   const { code, report } = fullCheck(root);
   assert.equal(code, 1);
   assert.deepEqual(report.diagnostics.filter(isError).map((diagnostic) => diagnostic.code), ["E_TYPESCRIPT"]);
-  assert.deepEqual(report.counts, { contracts: 3, data: 1, invariants: 8, implementations: null, testDeclarations: null, linkedInvariants: null, reviewedInvariants: null, weakInvariants: null });
+  assert.deepEqual(report.counts, { contracts: 3, data: 1, invariants: 8, implementations: null, testDeclarations: null, linkedInvariants: null, uncheckedInvariants: null, reviewedInvariants: null, weakInvariants: null });
   assert.deepEqual([...new Set(Object.values(linked(report)))], [null]);
   assert.match(cli(root, "check").stdout, /8 invariants, implementations and tests not checked; 1 error, 1 warning\./);
 });
@@ -383,7 +383,7 @@ test("under TypeScript 5 `strict` is off unless the project turns it on", (t) =>
   const strict = fullCheck(root);
   assert.equal(strict.code, 0);
   assert.deepEqual(strict.report.scope.typescript, { version: "5.9.3", source: "project" });
-  assert.deepEqual(strict.report.counts, { contracts: 3, data: 1, invariants: 8, implementations: 3, testDeclarations: 8, linkedInvariants: 8, reviewedInvariants: 0, weakInvariants: 0 });
+  assert.deepEqual(strict.report.counts, { contracts: 3, data: 1, invariants: 8, implementations: 3, testDeclarations: 8, linkedInvariants: 8, uncheckedInvariants: 0, reviewedInvariants: 0, weakInvariants: 0 });
   assert.deepEqual(strict.report.diagnostics.map((diagnostic) => diagnostic.code).filter((code) => code !== "W_REVIEW_MISSING"), ["W_NO_INVARIANTS"]);
 
   editFile(root, "tsconfig.json", (s) => s.replace('"strict": true,', ""));

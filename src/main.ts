@@ -150,6 +150,7 @@ function run(argv: readonly string[], io: CliIo): number {
     tsconfig: config.tsconfig,
     // With an unusable configuration there is no scope: only its errors are reported.
     designs: diagnostics.length > 0 ? [] : discoverDesigns(root, config),
+    designPatterns: config.designs,
     problems: diagnostics,
   };
   const print = (report: { diagnostics: Diagnostic[] }, text: string) => {

@@ -292,7 +292,7 @@ test("@tests and @covers must name what exists; an unknown contract is reported 
       { code: "E_REFERENCE_UNKNOWN", message: "`@tests Quot`: there is no contract with this name.", ...position(root, "@tests Quot") },
       { code: "E_REFERENCE_UNKNOWN", message: '`@covers emtpy`: contract "Quota" has no invariant with this id.', ...position(root, "@covers empty emtpy") },
       // `once` is an invariant of Sender, not of the contract this suite is about.
-      { code: "E_REFERENCE_UNKNOWN", message: '`@covers once`: contract "Quota" has no invariant with this id.', ...position(root, "@covers empty emtpy") },
+      { code: "E_REFERENCE_UNKNOWN", message: '`@covers once`: contract "Quota" has no invariant with this id. "Sender" has one: a test of that contract gets its own `@tests Sender` line above its `@covers`.', ...position(root, "@covers empty emtpy") },
     ],
   );
   assert.deepEqual(links(root), ["typo in the invariant > c [Quota: empty]"]);
@@ -404,11 +404,15 @@ test("a rejected @tests on a test is one error, whatever its @covers names", (t)
       'it("fine", () => {});',
     ),
   );
-  assert.deepEqual(checkLinking(root).errors.map(located), [
+  const result = checkLinking(root);
+  assert.deepEqual(result.errors.map(located), [
     { code: "E_TAG_FORMAT", file: TEST_FILE, ...position(root, "@tests Quota Sender") },
     { code: "E_TAG_FORMAT", file: TEST_FILE, ...position(root, "@tests Sender, the second one") },
     { code: "E_REFERENCE_UNKNOWN", file: TEST_FILE, ...position(root, "@tests Nobody") },
   ]);
+  assert.match(result.errors[0].message, /needs exactly one contract name\. A test of a second contract gets its own `@tests Name` line/);
+  // Quota's three invariants are not "missing a test" while a rejected tag names Quota; Sender's one is linked by "fine".
+  assert.equal(result.linking.uncheckedInvariants, 3);
 });
 
 test("tags in the wrong place of a test file are errors", (t) => {

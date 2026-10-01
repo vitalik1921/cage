@@ -35,6 +35,8 @@ export interface CheckReport {
     implementations: number | null;
     testDeclarations: number | null;
     linkedInvariants: number | null;
+    /** Invariants not checked for a test because a rejected tag names their contract. */
+    uncheckedInvariants: number | null;
     /** Invariants whose contract has a fresh recorded review that finds them adequate. Null when reviews are not checked. */
     reviewedInvariants: number | null;
     /** Invariants a fresh review finds weak, unrelated or lacking context. */
@@ -133,6 +135,7 @@ export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lo
       implementations: linking?.implementations.length ?? null,
       testDeclarations: linking?.tests.length ?? null,
       linkedInvariants: linking && invariants ? invariants.filter((invariant) => invariant.linkedTestCount !== 0).length : null,
+      uncheckedInvariants: linking?.uncheckedInvariants ?? null,
       // A linked test is a tag; whether it proves anything is what the review says. Null when reviews are not checked.
       reviewedInvariants: reviewStatus && invariants ? invariants.filter((invariant) => invariant.review === "adequate").length : null,
       weakInvariants: reviewStatus && invariants ? invariants.filter((invariant) => invariant.review !== null && invariant.review !== "adequate").length : null,

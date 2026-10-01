@@ -34,7 +34,12 @@ export interface ImplementationPhaseResult extends DesignPhaseResult {
    * which is not "none found": the design phase had errors, or the compiler
    * setup turned out unusable once the project's files were part of it.
    */
-  linking: { implementations: Implementation[]; tests: TestDeclaration[] } | null;
+  linking: {
+    implementations: Implementation[];
+    tests: TestDeclaration[];
+    /** Invariants not checked for a test because a rejected tag names their contract: fixing the tag may reveal them. */
+    uncheckedInvariants: number;
+  } | null;
 }
 
 /** A source file the phase reads closely, as it is on the disk. */
@@ -190,11 +195,15 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
       contract: contract.name,
     });
   }
+  let uncheckedInvariants = 0;
   for (const invariant of index.invariants) {
     if (testsLinkedTo(tests, invariant.contract, invariant.id).length > 0) continue;
-    // Likewise for a link that was written but rejected.
+    // Likewise for a link that was written but rejected; the summary says how many invariants wait on such a tag.
     const about = (link: RejectedLink) => link.contract === null || link.contract === invariant.contract;
-    if (rejected.some((link) => about(link) && (link.invariants === "all" || link.invariants.includes(invariant.id)))) continue;
+    if (rejected.some((link) => about(link) && (link.invariants === "all" || link.invariants.includes(invariant.id)))) {
+      uncheckedInvariants += 1;
+      continue;
+    }
     diagnostics.push({
       code: "E_TEST_MISSING",
       severity: "error",
@@ -206,7 +215,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
   }
 
   diagnostics.sort(compareDiagnostics);
-  return { ...design, designSound: true, linking: { implementations, tests } };
+  return { ...design, designSound: true, linking: { implementations, tests, uncheckedInvariants } };
 }
 
 const unknownContract = (tag: string, name: string, location: SourceLocation): Diagnostic => ({
@@ -335,10 +344,13 @@ function readTests(
         if (invariants.some((invariant) => invariant.contract === test.context.contract && invariant.id === id)) {
           covers.push(id);
         } else {
+          // The id may be another contract's: then the test wants that contract, which it gets with a `@tests` of its own.
+          const elsewhere = invariants.find((invariant) => invariant.id === id && contracts.has(invariant.contract));
+          const hint = elsewhere ? ` "${elsewhere.contract}" has one: a test of that contract gets its own \`@tests ${elsewhere.contract}\` line above its \`@covers\`.` : "";
           diagnostics.push({
             code: "E_REFERENCE_UNKNOWN",
             severity: "error",
-            message: `\`@covers ${id}\`: contract "${test.context.contract}" has no invariant with this id.`,
+            message: `\`@covers ${id}\`: contract "${test.context.contract}" has no invariant with this id.${hint}`,
             ...location,
             contract: test.context.contract,
           });
