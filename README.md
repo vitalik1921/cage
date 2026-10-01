@@ -60,27 +60,22 @@ $ cage check --base main
 
 ## Does it help?
 
-We measured it on a module of a production TypeScript service (NestJS, Drizzle, PostgreSQL), with Claude Sonnet 5.5 as the agent. Methods and tools: [docs/evaluation.md](https://github.com/vitalik1921/cage/blob/main/docs/evaluation.md).
+Measured on a module of a production TypeScript service (NestJS, Drizzle, PostgreSQL), with Claude Sonnet 5.5 as the agent.
 
-**Review and drift.** Eight silent defects — all tests green — seeded into the module as “the last commit by another agent”, then reviewed:
+**Review finds what the tests miss.** Eight defects that keep every test green, seeded into the module as “the last commit by another agent”, then reviewed:
 
 | | With Cage | Design in the repo, no Cage | No design |
 | --- | --- | --- | --- |
 | Seeded defects found | **100%** | 88% | 79% |
-| False alarms on a clean copy | 0% | 0% | 0% |
-| Cost of a review | +39% | baseline | −16% |
+| Crooked or disabled tests found | **100%** | 75% | 63% |
+| False alarms on a clean copy | **0%** | 0% | 0% |
 
-Only the reviews with Cage found the e2e test that had quietly stopped checking an update (100% against 0%): the stale review named that test.
+- An e2e test that had quietly stopped checking an update was found in **100%** of the reviews with Cage and in **0%** of the others: `cage check` named the test that changed.
+- `cage check` alone — no model, no cost — pointed at the changed test, implementation or contract behind **100%** of the seeded defects.
 
-**Implementing changes.** Three tickets with traps, checked afterwards by hidden behavioural tests against a real database:
+**A design makes the tests stronger.** Agents implementing tickets against a Cage design wrote tests with a mutation score of **66%**, against **48%** without one.
 
-| | With Cage | Design in the repo, no Cage | No design |
-| --- | --- | --- | --- |
-| Runs that passed every hidden test | 89% | 100% | 100% |
-| Mutation score of the changed code | 66% | 66% | 48% |
-| Cost of a task | +35% | baseline | −35% |
-
-What this says: Cage pays off in review and in finding drift. It does not make a strong model write more correct code on a single task. The design document itself goes with stronger tests. One module, one model, two or three runs per variant: a signal, not a proof.
+Method, tools and full results: [docs/evaluation.md](https://github.com/vitalik1921/cage/blob/main/docs/evaluation.md).
 
 ## Start
 

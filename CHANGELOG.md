@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+
+- README: the measured results where Cage helps — review and drift, and test strength with a design; the full results stay in `docs/evaluation.md`.
+
 ## 0.2.1
 
 - README: what Cage checks before an agent says "done", real output of the three catches, and the measured results; `docs/evaluation.md` describes how they were measured.
