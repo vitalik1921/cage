@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import { test, type TestContext } from "node:test";
-import { checkLinking, contract, copyFixture, designFile, designProject, inFile, located, mdx } from "./helpers.ts";
+import { checkLinking, contract, copyFixture, designFile, designProject, editFile, inFile, located, mdx } from "./helpers.ts";
 
 const STORE = contract("Store", "get(key: string): Promise<string | null>;\n  put(key: string, value: string): Promise<void>;", "@invariant miss Для невідомого ключа повертає null.");
 const CLEAN = ["/**", " * @contract", " * @description Нормалізує пробіли.", " * @invariant spaces Стискає пробіли.", " */", "export interface CleanTitle {", "  (input: string): string;", "}"].join("\n");
@@ -174,26 +174,53 @@ const position = (root: string, needle: string, offset = 0) => {
   return { line, column };
 };
 
-test("@implements names exactly one known contract", (t) => {
+test("@implements names known contracts, one or several, in one tag or one per line", (t) => {
   const root = project(t, {
     "src/m/clean-title.ts": CLEAN_FUNCTION,
     "src/m/memory-store.ts": STORE_CLASS,
     "src/m/unknown.ts": "/** @implements Stor */\nexport class Typo {}\n",
-    "src/m/two.ts": "/** @implements Store CleanTitle */\nexport class Two {}\n",
-    "src/m/twice.ts": "/**\n * @implements Store\n * @implements CleanTitle\n */\nexport class Twice {}\n",
     "src/m/empty.ts": "/** @implements */\nexport class Empty {}\n",
     "src/m/typed.ts": "/** @implements {Store} */\nexport class Typed {}\n",
   });
   const found = checkLinking(root);
   assert.deepEqual(found.errors.map(located), [
     { code: "E_TAG_FORMAT", ...inFile(root, "src/m/empty.ts", "@implements") },
-    { code: "E_TAG_FORMAT", ...inFile(root, "src/m/twice.ts", "@implements CleanTitle") },
-    { code: "E_TAG_FORMAT", ...inFile(root, "src/m/two.ts", "@implements") },
     { code: "E_TAG_FORMAT", ...inFile(root, "src/m/typed.ts", "@implements") },
     { code: "E_REFERENCE_UNKNOWN", ...inFile(root, "src/m/unknown.ts", "@implements") },
   ]);
   assert.equal(found.errors.at(-1)?.message, "`@implements Stor`: there is no contract with this name.");
   assert.deepEqual(found.linking.implementations.map((implementation) => implementation.name), ["cleanTitle", "MemoryStore"]);
+
+  // One declaration may implement several contracts; each is checked on its own.
+  const both = [
+    "/**",
+    " * @implements Store CleanTitle",
+    " */",
+    "export class Both {",
+    "  async get(key: string): Promise<string | null> {",
+    "    return key;",
+    "  }",
+    "  async put(_key: string, _value: string): Promise<void> {}",
+    "}",
+    "/**",
+    " * @implements Store",
+    " * @implements CleanTitle",
+    " */",
+    "export const twice = {",
+    "  async get(key: string): Promise<string | null> {",
+    "    return key;",
+    "  },",
+    "  async put(_key: string, _value: string): Promise<void> {},",
+    "};",
+    "",
+  ].join("\n");
+  const several = project(t, { "src/m/both.ts": both });
+  const linked = checkLinking(several);
+  assert.deepEqual(
+    linked.linking.implementations.map(({ contract, name, compatible }) => [contract, name, compatible]),
+    [["Store", "Both", true], ["CleanTitle", "Both", false], ["Store", "twice", true], ["CleanTitle", "twice", false]],
+  );
+  assert.deepEqual(linked.errors.map(({ code, contract }) => ({ code, contract })), [{ code: "E_TYPE_MISMATCH", contract: "CleanTitle" }, { code: "E_TYPE_MISMATCH", contract: "CleanTitle" }]);
 });
 
 test("@implements needs an exported, named class, function or const", (t) => {
@@ -202,7 +229,7 @@ test("@implements needs an exported, named class, function or const", (t) => {
     "default-value": "const store = {};\n/** @implements Store */\nexport default store;\n",
     local: "/** @implements Store */\nclass LocalStore {}\nexport { LocalStore };\n",
     abstract: "/** @implements Store */\nexport abstract class AbstractStore {}\n",
-    generic: "/** @implements Store */\nexport class GenericStore<T> {\n  value?: T;\n}\n",
+    generic: "/** @implements Store */\nexport class GenericStore<T, U = string> {\n  value?: T;\n  other?: U;\n}\n",
     overloaded: "export function clean(input: string): string;\n/** @implements CleanTitle */\nexport function clean(input: string, extra?: number): string {\n  return input + String(extra);\n}\n",
     destructured: "/** @implements Store */\nexport const { store } = { store: {} };\n",
     several: "/** @implements Store */\nexport const one = {}, two = {};\n",
@@ -220,6 +247,31 @@ test("@implements needs an exported, named class, function or const", (t) => {
       .sort()
       .map((name) => ({ code: "E_UNSUPPORTED_DECLARATION", ...inFile(root, `src/m/${name}.ts`, "@implements") })),
   );
+});
+
+test("a generic class with defaults for every type parameter is checked at those defaults", (t) => {
+  const root = project(t, {
+    "src/m/clean-title.ts": CLEAN_FUNCTION,
+    "src/m/generic-store.ts": [
+      "/** @implements Store */",
+      "export class GenericStore<V extends string = string> {",
+      "  private readonly values = new Map<string, V>();",
+      "  async get(key: string): Promise<V | null> {",
+      "    return this.values.get(key) ?? null;",
+      "  }",
+      "  async put(key: string, value: V): Promise<void> {",
+      "    this.values.set(key, value);",
+      "  }",
+      "}",
+      "",
+    ].join("\n"),
+  });
+  const { linking, errors } = checkLinking(root);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(linking.implementations.map(({ contract, name, compatible }) => [contract, name, compatible]), [["CleanTitle", "cleanTitle", true], ["Store", "GenericStore", true]]);
+  // At another default the class no longer fits.
+  editFile(root, "src/m/generic-store.ts", (s) => s.replace("V extends string = string", "V extends number = number"));
+  assert.deepEqual(checkLinking(root).errors.map(({ code, contract }) => ({ code, contract })), [{ code: "E_TYPE_MISMATCH", contract: "Store" }]);
 });
 
 test("a decorated class takes the tag above its decorators", (t) => {

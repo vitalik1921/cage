@@ -2,7 +2,7 @@ import type ts from "typescript";
 import type { SourceLocation } from "./design-model.ts";
 import type { Diagnostic } from "./diagnostic.ts";
 import { collectDocComments, createReporter, docCommentBefore, readAllowedTags, reportUnboundTags } from "./doc-comments.ts";
-import { parseName, parseNames } from "./metadata.ts";
+import { parseNames, type DocTag } from "./metadata.ts";
 import type { TypeScript } from "./typescript.ts";
 
 /** An exported declaration tagged `@implements`, before its contract is looked up. */
@@ -78,7 +78,8 @@ export function readImplementations(ts: TypeScript, sourceFile: ts.SourceFile, f
     if (ts.isClassDeclaration(statement)) {
       if (!exported || !statement.name) return SUPPORTED;
       if (abstract) return "an abstract class cannot be checked against a contract";
-      if (statement.typeParameters) return "a generic class cannot be checked against a contract";
+      // A generic class is checked at the defaults of its type parameters; without them there is no one type to check.
+      if (statement.typeParameters?.some((parameter) => !parameter.default)) return "a generic class can be checked against a contract only when every type parameter has a default";
       return { name: statement.name, kind: "class" };
     }
     if (ts.isFunctionDeclaration(statement)) {
@@ -104,22 +105,36 @@ export function readImplementations(ts: TypeScript, sourceFile: ts.SourceFile, f
     for (const { name, kind } of exportedBy(statement)) exported.push({ name: name.text, kind, location: locate(name.getStart(sourceFile)), claimed });
     if (!comment || !claimed) continue;
     bound.add(comment.pos);
-    const [tag, second] = readAllowedTags(comment.tags, ["implements", "description"], "on an implementation", report).get("implements") ?? [];
-    if (!tag) continue;
-    if (second) report("E_TAG_FORMAT", "`@implements` is given more than once; a declaration implements one contract.", second.start);
-    const contract = parseName(tag.text);
-    if (contract === undefined) report("E_TAG_FORMAT", "`@implements` needs exactly one contract name.", tag.start);
-
+    const tags = readAllowedTags(comment.tags, ["implements", "description"], "on an implementation", report).get("implements") ?? [];
+    if (tags.length === 0) continue;
+    // A declaration may implement several contracts: `@implements A B`, or one tag per contract.
+    const contracts = new Map<string, DocTag>();
+    for (const tag of tags) {
+      const names = parseNames(tag.text);
+      if (!names) {
+        report("E_TAG_FORMAT", "`@implements` needs one or more contract names.", tag.start);
+        continue;
+      }
+      for (const name of names) if (!contracts.has(name)) contracts.set(name, tag);
+    }
     const target = describe(statement);
-    if (typeof target === "string") report("E_UNSUPPORTED_DECLARATION", `${target}.`, tag.start);
-    if (typeof target !== "string" && contract !== undefined && !second) {
+    if (typeof target === "string") {
+      report("E_UNSUPPORTED_DECLARATION", `${target}.`, tags[0].start);
+      continue;
+    }
+    for (const [contract, tag] of contracts) {
       found.push({ contract, name: target.name.text, kind: target.kind, location: locate(target.name.getStart(sourceFile)), tagLocation: locate(tag.start) });
     }
   }
 
   if (!hasTags) return { found, exported, rejected: [], diagnostics };
   const comments = collectDocComments(ts, sourceFile);
-  reportUnboundTags(comments, bound, "here: `@implements` goes in the doc comment right before an exported class, function or const, above its decorators if it has any", report);
+  reportUnboundTags(
+    comments,
+    bound,
+    "here: `@implements` goes in the doc comment right before an exported class, function or const, above its decorators if it has any; `@tests` and `@covers` belong in a test file, one that the `tests` patterns of the configuration match",
+    report,
+  );
   // Every `@implements` that did not become an implementation was rejected above, wherever and however it was written.
   const accepted = new Set(found.map((implementation) => implementation.contract));
   const written = comments.flatMap((comment) => comment.tags.filter((candidate) => candidate.name === "implements").flatMap((candidate) => parseNames(candidate.text) ?? []));

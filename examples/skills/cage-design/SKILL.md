@@ -16,9 +16,11 @@ A contract is a promise someone relies on: a service, a repository, an aggregate
 - framework wiring: NestJS modules, DI providers, route tables
 - controllers and resolvers that only delegate to a service that has a contract
 
-Size: a module has 1–5 contracts, a contract 1–7 methods and 1–7 invariants. More means the module or the contract should be split. When the code has 40 exports and you can name 4 promises, that is the design; the other 36 are in `.cageignore` with a one-line reason.
+Size: a module has 1–5 contracts, a contract 1–7 methods and 1–7 invariants. More means the contract should be split — one class may implement several contracts (`@implements Lifecycle Reads`), so splitting a contract never requires splitting the code. When the code has 40 exports and you can name 4 promises, that is the design; the other 36 are in `.cageignore` with a one-line reason.
 
-From existing code: read the module's public surface and its tests first. The tests say what the code promises today; the design must not promise more than the tests can show, and must not describe implementation details (caches, SQL, retries) as contracts.
+What the harness can check: an exported class (a generic one only when every type parameter has a default — it is checked at those defaults), function or const. An abstract class, an overloaded function, a class with a required type parameter cannot carry `@implements`: describe the concrete thing built from it, or list the file and say why in "Out of scope". A file may be listed in `.cageignore` and still hold tagged declarations: tags in a listed file are read; the list only silences what is not tagged.
+
+From existing code: read the module's public surface and its tests first. The tests say what the code promises today; the design must not promise more than the tests can show, and must not describe implementation details (caches, SQL, retries) as contracts. If the proof lives in tests the configuration does not list (e2e specs, another directory), add their pattern to `tests` in `.cage/config.json` rather than linking invariants to tests that only pin internals; a file the `tests` patterns do not match is read as code.
 
 ## 2. Write the document
 
@@ -76,8 +78,8 @@ Rules of a `ts design` block:
 - Every declaration has, directly above it, exactly one marker (`@contract` or `@data`) and a non-empty `@description`.
 - `@contract` goes on an interface of methods (or one call signature). No generics, `extends`, optional methods, properties, overloads on a contract. `@data` has no such limits.
 - `@invariant <id> <text>` on a method, or on the contract for a rule about the whole interface. `id` is kebab-case and unique in the contract; the text is one observable promise: what a caller sees, under what condition. Not "works correctly"; "returns null for an unknown id and never throws".
-- Types of another design: `import type { X } from "../other/other.cage.mdx"` (or a path alias to it). Never from the code, the ORM or a package: describe an independent shape on the boundary instead. An infrastructure parameter that every method takes (a database handle, a request context) is one `@data` type such as `export type DatabaseHandle = unknown`.
-- `@uses A B` on a contract names the contracts it calls. `@final` freezes a declaration, `@extendable` allows additions only; use them for public APIs, then run `cage lock`.
+- Types of another design: `import type { X } from "../other/other.cage.mdx"` (or a path alias to it). Never from the code, the ORM or a package: describe an independent shape on the boundary instead. An infrastructure parameter that every method takes (a database handle, a request context) is one `@data` type such as `export type DatabaseHandle = unknown`. That works for a contract of methods, because method parameters compare loosely; a contract that is a single call signature (a plain function) compares its parameters strictly, so `unknown` there rejects any implementation that needs a narrower type — prefer a contract of methods for anything that takes infrastructure.
+- `@uses A B` (or `@uses A, B`) on a contract names the contracts it calls. `@final` freezes a declaration, `@extendable` allows additions only; use them for public APIs, then run `cage lock`.
 - One tag per JSDoc line.
 
 ## 3. Check and tag
