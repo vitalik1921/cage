@@ -1,270 +1,113 @@
-# cage — contract harness
+# cage
 
-> **In short (English).** `cage` is a local TypeScript CLI for design-first development with agents. A module's design is one or more `*.cage.mdx` documents next to the code: prose plus `ts design` blocks that declare contracts (interfaces with `@invariant`s) and data types. `cage check` extracts the blocks, type-checks them, verifies that every contract has a tagged implementation the compiler accepts in its place and that every invariant has a tagged test declaration, enforces `@final` / `@extendable` locks, reports code the design does not cover, and requires a recorded substantive review of every contract (`cage review` → verdict → `cage review --record`). `cage gate` is the same check as a Stop hook: an agent cannot finish while it fails. Nothing is executed and nothing is sent anywhere. Install with `npm i -D cage-ts`; see `examples/claude-code/` for the hook. The rest of this document is in Ukrainian.
+A gate for agent-written code. You describe a module's design in a Markdown file next to the code — contracts as TypeScript interfaces with invariants in plain words — and `cage check` verifies that the code implements them, that every invariant has a test, and that a substantive review of each contract is on record. As a Stop hook, it does not let an agent finish while any of that fails.
 
-Локальний TypeScript CLI: читає авторські документи `*.cage.mdx`, виділяє контракти з блоків `ts design`, перевіряє їхню узгодженість із реалізаціями та тестовими деклараціями, вимагає записаного змістового рев’ю і стоїть воротами перед агентом. Специфікація MVP: [docs/contract-workflow-mvp.md](docs/contract-workflow-mvp.md). Відхилення від неї та прийняті рішення: [docs/plan-proposals.md](docs/plan-proposals.md).
+Nothing is executed and nothing is sent anywhere. Node ≥ 24.11, TypeScript 5 or 6.
 
-**Статус:** усі етапи MVP, крім останніх дрібниць «Виводу», готові; інструмент перевірено на реальному модулі ([docs/real-module-trial.md](docs/real-module-trial.md)). Харнес перевіряє дизайни, відповідність позначених реалізацій контрактам, наявність тестових декларацій для кожного інваріанта, замки, покриття дизайном і свіжість записаного рев’ю.
-
-## Початок: `cage init`
-
-`npm i -D cage-ts && npx cage init` робить три речі, кожну один раз: пише `.cage/config.json` (раннер тестів визначається з `package.json`: Vitest, якщо він у залежностях, інакше `node:test`; рівні `review` і `coverage` — `warn`), додає Stop-hook у `.claude/settings.json` (наявні hook-и лишаються) і дописує розділ із правилами для агента в `CLAUDE.md`. `--agent codex` робить те саме для Codex: `[[hooks.Stop]]` у `.codex/config.toml` і розділ в `AGENTS.md`; `--agent none` — лише конфігурація. Файли агента йдуть у корінь Git-репозиторію, а `--root` може вказувати на проєкт усередині монорепо: hook тоді викликає `cage gate --root <проєкт>`. Повторний запуск нічого не змінює.
-
-## Де лежить дизайн
-
-Дизайн модуля — це один або кілька документів `*.cage.mdx` в одній папці, поруч із кодом, як `*.spec.ts`. Усі документи папки — один дизайн: їхні блоки `ts design` склеюються в один модуль у порядку імен файлів, тож між документами не потрібні імпорти, а проза будь-якого з них — бізнес-контекст усіх. Поруч із дизайнами може лежати `.cageignore` — файли, яким дизайн не потрібен. У корені проєкту папка `.cage/` тримає `config.json`, `lock.json` і `review.json`; усе це комітиться.
-
-```
-src/modules/accounts/
-  accounts.cage.mdx        ← дизайн
-  memberships.cage.mdx     ← ще один документ того самого дизайну
-  .cageignore              ← файли, яким дизайн не потрібен
-  accounts.service.ts
-```
-
-На диск харнес нічого не генерує: дизайн подається компілятору з пам’яті. Один дизайн імпортує типи іншого за шляхом його документа — `import type { AccountId } from "../quota/quota.cage.mdx"` (або через `paths`-alias). Будь-який документ того дизайну означає той самий дизайн. Код проєкту типів із дизайну не імпортує: реалізації перевіряються структурно.
-
-**Результат `check` не означає, що програма працює правильно.** Він означає, що перелічені перевірки не знайшли структурних порушень. Харнес не запускає тести: прив’язана тестова декларація каже, що тест із таким тегом існує, а не що він пройшов чи перевіряє потрібне.
-
-## Розробка
-
-Пакет `cage-ts` на npm (`cage` зайнятий), команда `cage`, репозиторій [github.com/vitalik1921/cage](https://github.com/vitalik1921/cage). Публікація: `npm version <minor|patch>`, `git push --follow-tags`; workflow `Publish` перевіряє (`npm run verify`, `npm run smoke` — встановлення тарбола в порожній проєкт) і кладе пакет на npm із provenance.
-
-Потрібен Node.js ≥ 24.11. Перевірено на 24.21.0 і 26.10.0.
+## Start
 
 ```sh
-npm install
-npm run typecheck   # tsc для src і test
-npm test            # node:test, запускає .ts напряму без збірки
-npm run build       # dist/
-npm run verify      # усе разом і запуск зібраного CLI
+npm i -D cage-ts
+npx cage init            # .cage/config.json + Stop hook for Claude Code (--agent codex, --agent none)
 ```
 
-## Використання
+Describe a module in a `*.cage.mdx` file next to its code:
 
-```sh
-cage init                   # перший .cage/config.json і Stop-gate для Claude Code (--agent codex, --agent none)
-cage check                  # дизайни, реалізації, прив’язки тестів, замки, покриття, рев’ю
-cage check --phase design   # лише дизайни
-cage lock                   # записати в .cage/lock.json декларації з @final / @extendable
-cage check --base origin/main   # додатково: усе, що замкнено на origin/main, лишилося замкненим (для CI)
-cage review                 # матеріали контрактів без свіжого рев’ю для рев’юера (людини чи моделі), Markdown; --format json
-cage review Accounts        # лише названих контрактів; --all — усіх
-cage review --record verdicts.json   # записати висновок рев’юера в .cage/review.json; далі check його вимагає
-cage gate                   # Stop-hook для агента: check; помилки й REVIEW_* блокують зупинку (вихід 2), звіт іде агенту
+````mdx
+# Quota
+
+Each account gets a number of sends. The quota is checked before every send.
+
+```ts design
+/**
+ * @data
+ * @description Account identifier.
+ */
+export type AccountId = string;
+
+/**
+ * @contract
+ * @description Keeps the remaining sends of each account.
+ */
+export interface Quota {
+  /**
+   * @description Takes one send from the account's quota.
+   * @invariant empty An empty quota refuses.
+   * @invariant consume A successful take uses exactly one send.
+   */
+  take(accountId: AccountId): Promise<boolean>;
+}
+```
+````
+
+Tag the implementation and the tests:
+
+```ts
+/** @implements Quota */
+export class MemoryQuota { … }
 ```
 
-Робочий цикл: змінити `*.cage.mdx` → `cage check --phase design` → змінити реалізації й тести → `cage check` → рев’ю → звичайні `tsc` і тести проєкту.
+```ts
+/** @tests Quota */
+describe("MemoryQuota", () => {
+  /** @covers empty */
+  it("refuses when nothing is left", …);
+  /** @covers consume */
+  it("takes one send", …);
+});
+```
 
-| Прапорець | Значення |
+Run `npx cage check`. It reports, with file and line, every contract without an implementation, every implementation the compiler does not accept in the contract's place, every invariant without a test, and every exported thing in the module the design does not cover.
+
+## Commands
+
+| Command | What it does |
 | --- | --- |
-| `--root <path>` | Корінь проєкту; типово поточний каталог |
-| `--config <path>` | Конфігурація, шлях від кореня проєкту; типово `.cage/config.json`, якщо є |
-| `--format text\|json` | Формат звіту; типово `text` |
-| `--help`, `--version` | Довідка та версія |
+| `cage init` | First configuration and the Stop hook. Run once. |
+| `cage check` | Everything: designs, implementations, test links, locks, coverage, reviews. Exit 1 on a violation. |
+| `cage check --phase design` | Designs only — while you write them. |
+| `cage review` | The material of every contract that needs a review, with the instruction and the verdict format. |
+| `cage review --record <file>` | Records a verdict. `check` then requires one for every contract, fresh. |
+| `cage lock` | Records the contracts marked `@final` / `@extendable`; `check` refuses changes to them. |
+| `cage gate` | `check` as a Stop hook: errors and review findings block the agent. `init` wires it up. |
 
-Звіт іде в stdout, помилки аргументів — у stderr. Коди виходу: `0` — успіх (попередження не змінюють код); `1` — порушення правил: помилки в дизайнах, реалізація не відповідає контракту, немає реалізації чи прив’язаного тесту; `2` — некоректні аргументи, конфігурація чи середовище (tsconfig, файлова система).
+`--root <dir>` for a project inside a monorepo; `--format json` for machines. In CI, `cage check --base origin/main` also refuses a lock that was lifted on the branch.
 
-### Що перевіряє `check`
+## The loop with an agent
 
-Спершу design-фаза, п’ять шарів:
+1. The agent changes a design, an implementation or a test. The Stop hook runs `cage gate`.
+2. Whatever fails comes back to the agent as feedback: a missing test, a mismatch, a stale review.
+3. For a review: the agent runs `cage review`, reads the material, judges each invariant, writes the verdict and records it with `cage review --record`. The verdict is tied to a fingerprint of the material: change anything and it is stale again.
+4. `cage check` is clean; the agent may stop.
 
-1. **Документи.** MDX лише розбирається (`unified` + `remark-parse` + `remark-mdx`), не виконується. Беруться блоки `ts design` верхнього рівня без відступу; звичайні блоки `ts` лишаються прикладами.
-2. **Блоки.** Кожен блок має бути завершеним TypeScript сам по собі: незакрита `{` чи `/*` не може поглинути наступний блок.
-3. **Компілятор.** Непридатний tsconfig, невалідні опції чи відсутні `types` — помилка середовища; далі нічого не перевіряється.
-4. **Декларації й теги.** Правила нижче.
-5. **Типи.** Блоки всіх документів модуля склеюються в один модуль. Модулі всіх дизайнів подаються компілятору з пам’яті як віртуальні файли `<модуль>/.cage/design.ts`, яких на диску немає; імпорт між дизайнами за шляхом документа переписується на віртуальний файл, а повідомлення показують написане в документі. Помилки компілятора мапляться на рядок і колонку документа.
+The rules the agent needs are in the `CLAUDE.md` / `AGENTS.md` section that `init` adds. The harness never calls a model itself.
 
-Шар запускається, лише коли попередні не лишили помилок, наслідками яких були б його результати. Діагностики про дизайн ведуть на рядок і колонку оригінального MDX.
+## Configuration
 
-`cage check` без `--phase design` продовжує, якщо в дизайнах немає помилок:
-
-6. **Реалізації.** Кожен контракт має хоча б одну декларацію з `@implements` (`E_IMPLEMENTATION_MISSING`), і компілятор приймає її на місці контракту (`E_TYPE_MISMATCH` із поясненням компілятора).
-7. **Тести.** Кожен інваріант має хоча б одну тестову декларацію з `@covers` у suite з `@tests` його контракту (`E_TEST_MISSING`).
-8. **Рев’ю.** Кожен контракт має записаний висновок змістового рев’ю для матеріалу як він є зараз: `REVIEW_MISSING` / `REVIEW_STALE` / `REVIEW_WEAK`, попередження або помилка залежно від `"review"` у конфігурації (див. «`review`»).
-
-### Правила для реалізацій
-
-- `@implements A` стоїть у JSDoc безпосередньо перед exported іменованим `class`, `function` або `const` (одна проста назва) у звичайному `.ts`-файлі. Якщо клас має декоратори, тег стоїть над ними. Файли тестів, `.design` і `.d.ts` реалізаціями не є.
-- Рівно одне ім’я існуючого контракту; один тег на декларацію.
-- Порівнюється тип екземпляра класу або тип значення функції чи константи. Зайві публічні методи, приватні члени й параметри конструктора контракту не стосуються.
-- Default export, неекспортована декларація, `let`, деструктуризація, abstract або generic клас, перевантажена функція та декларація без коду (`declare`) не підтримуються: `E_UNSUPPORTED_DECLARATION`.
-- Нативний `implements` не потрібен і зв’язку не створює; зв’язок створює лише тег.
-- Помилки типів у файлі, де `@implements` стоїть на декларації, повідомляються як `E_TYPESCRIPT`: на типи такого файла не можна покладатися. Інші файли проєкту харнес не перевіряє. Файл із синтаксичними помилками не читається взагалі.
-- Межа гарантії — звичайна assignability TypeScript. `any`, type assertions і біваріантність параметрів методів проходять, як і в самому компіляторі. `@ts-nocheck` чи `@ts-ignore` у файлі реалізації приховують його власні помилки типів, але не невідповідність контракту: порівняння робиться поза цим файлом. `W_WEAK_TYPECHECK` попереджає, якщо `strictNullChecks`, `strictFunctionTypes` або `noImplicitAny` вимкнені.
-
-### Правила для тестів
-
-Підтримуються `node:test` (типово) і Vitest: `"testAdapter": "vitest"` у конфігурації. Правила однакові.
-
-- `@tests A` стоїть у JSDoc безпосередньо перед викликом `describe` / `suite`; вкладені suite успадковують контракт, вкладений `@tests` замінює його для свого suite.
-- `@covers a b` стоїть перед викликом `it` / `test` усередині такого suite й називає інваріанти його контракту. Один тест може покривати кілька інваріантів, один інваріант — мати кілька тестів.
-- `@tests A` можна поставити і на самому тесті, окремим рядком перед `@covers`: для тесту без `describe` або в suite, де лежать тести кількох контрактів. Такий тег діє лише на цей тест.
-- Функції розпізнаються за імпортом із модуля раннера, а не за назвою: працюють alias і namespace import, для `node:test` ще й default import; локальна функція `it` тестом не є. Глобальні `describe` / `it` Vitest розпізнаються, коли проєкт підключає їхні типи (`"types": ["vitest/globals"]`).
-- `.skip`, `.only`, `.todo`, options і порожні callback-и рахуються: харнес перевіряє наявність декларації, не запуск. Для Vitest також `.concurrent`, `.sequential`, `.fails`, `.shuffle`, зокрема ланцюжком.
-- `it.each(...)`, `it.skipIf(...)` та інші форми, що будують декларації під час виконання, деклараціями не є.
-- Декларації читаються на верхньому рівні файла, у блоках та циклах і в inline callback-ах suite. Усередині callback-а тесту й будь-якої іншої функції декларацій немає: subtests (`t.test`), helper-и, що генерують suite, і `await describe(...)` не підтримуються, а тег на них — `E_TAG_LOCATION`.
-- Анотований suite чи тест має title-літерал; suite — inline callback. Інакше `E_UNSUPPORTED_DECLARATION`.
-- `@covers` без контракту, тобто без `@tests` на тесті чи на suite навколо, — `E_TEST_CONTEXT`.
-- Невідомий контракт у `@tests` повідомляється один раз; `@covers` усередині нього вже не перевіряються.
-- Тести без тегів харнес не чіпає.
-
-У звичайних файлах перевіряються лише JSDoc-коментарі, що містять тег зв’язування (`@implements`, `@tests`, `@covers` або тег дизайну). `@description` сам по собі — звичайний JSDoc. Решту коментарів проєкту харнес не лінтує.
-
-### Правила для блоків `ts design`
-
-- У блоці дозволені лише `import type` та exported `interface` / `type`. Класи, функції, змінні, enum, namespace, re-export, value-імпорти, `import("…")` у типах і неекспортовані декларації — помилка.
-- Імпортувати можна лише типи інших дизайнів зі scope, через шлях будь-якого з їхніх документів `*.cage.mdx` (відносний або `paths`-alias). Імпорт реалізацій, пакетів, `.mdx` і будь-який `/// <reference>` — `E_DESIGN_IMPORT`; імпорт документа `*.cage.mdx`, якого в scope немає, — `E_DESIGN_OUT_OF_SCOPE`.
-- Кожна декларація має в JSDoc безпосередньо перед собою рівно один маркер, `@contract` або `@data`, і непорожній `@description`. «Безпосередньо» означає, що між коментарем і декларацією лише пробіли чи переноси рядків. Коментар, який завершує рядок попередньої декларації, стосується її, а не наступної.
-- `@contract` — лише на інтерфейсі, який має або один чи більше звичайних методів, або рівно один call signature. Generics, `extends`, optional-методи, властивості, index signatures, overloads не підтримуються. На `@data` ці обмеження не поширюються.
-- `@uses A B` — на контракті; імена мають бути контрактами зі scope, не самим собою.
-- `@invariant id текст` — на контракті або його методі. `id`: малі латинські літери, цифри, дефіс. ID унікальні в межах контракту; в різних контрактах можуть збігатися. Інваріант на call signature належить контракту загалом.
-- Імена контрактів унікальні в усьому scope. Імена `@data` — лише в межах модуля.
-- Тег починає рядок JSDoc; наступні рядки продовжують його текст до наступного тегу. `@` посеред речення тегом не є. Розділовий знак одразу після імені (`@invariant: id …`) лишає рядок тегом, і цей тег буде хибного формату. Теги не читаються з рядків, `//` і `/* */` коментарів, прози MDX та звичайних блоків `ts`.
-- Імена в `@uses` — ідентифікатори TypeScript, зокрема не латинкою.
-- Тег харнесу не на своєму місці — `E_TAG_LOCATION`: у неприв’язаному JSDoc, на полі типу даних, `@implements` / `@tests` / `@covers` у дизайні. JSDoc наприкінці одного блока не описує декларацію наступного.
-- Невідомий тег у JSDoc дизайну — `E_UNKNOWN_TAG`; відкладені `@name` і `@open` — `E_UNSUPPORTED_TAG`. Дозволені стандартні `@param`, `@returns`, `@return`, `@example`, `@deprecated`, `@remarks`, `@see`, `@throws`, `@typeParam`, `@template`.
-- `@ts-nocheck`, `@ts-ignore`, `@ts-expect-error` заборонені в будь-якому коментарі блока, у будь-якому регістрі й написанні: перевірка навмисно ширша за те, що розпізнає компілятор.
-- Модулі не можуть залежати один від одного по колу (`@uses` та імпорти типів разом): `E_DESIGN_CYCLE` зі шляхом. Залежності всередині модуля циклом не вважаються.
-- Scope без жодного контракту — `E_NO_CONTRACTS`. Модуль лише з `@data` допустимий.
-- Попередження: `W_NO_INVARIANTS` для контракту без інваріантів, `W_BUSINESS_CONTEXT_MISSING` для документа без абзаців, списків чи таблиць поза блоками коду.
-
-### Що дизайн не покриває: `W_NOT_DESIGNED` і `.cageignore`
-
-`cage check` знаходить код модуля, якого дизайн не описує: кожен exported `class`, `function` чи `const` у модулі з дизайном, на якому немає `@implements`. Для людини чи LLM це перелік того, для чого ще треба написати контракт. Рівень задає `"coverage"` у конфігурації: `"warn"` (типово) — попередження `W_NOT_DESIGNED`, `check` і `cage gate` пропускають; `"require"` — помилка `E_NOT_DESIGNED`, код виходу 1 і gate блокує; `"off"` — не перевіряється. Так проєкт обирає, чи дірка в покритті дизайном зупиняє агента, чи лише показується.
-
-Файл належить найближчому модулю над ним. Код поза модулями з дизайном, тести, типи (`interface`, `type`), `enum`, default-експорти й `declare` не перевіряються.
-
-Те, для чого дизайн не потрібен, перелічується у файлі `.cageignore` поруч із дизайнами модуля; він комітиться. Для LLM запис у ньому означає: для цього генерувати дизайн не треба. Для харнесу: не попереджати.
-
-```gitignore
-# Таблиці Drizzle, схеми zod і зв'язування NestJS власної поведінки не мають.
-entities/
-dto/
-*.module.ts
-/generated
-```
-
-Формат як у `.gitignore`, шляхи від кореня модуля: ім'я (`*.module.ts`, `entities/`) збігається на будь-якій глибині, шлях зі слешем (`dto/request/upsert.ts`, `/generated`) рахується від кореня модуля, `#` починає коментар. Заперечення (`!`) не підтримується. Теги у файлі зі списку все одно читаються.
-
-### Замки: `@final` і `@extendable`
-
-Тег на контракті чи типі даних каже, наскільки декларацію можна міняти. Це вказівка і для людини, і для LLM-агента, який редагує дизайн.
-
-| Тег | Значення |
-| --- | --- |
-| `@final` | Декларація не змінюється: жоден підпис, жоден інваріант, жодного нового чи прибраного члена |
-| `@extendable` | Те, що є, не змінюється; додавати члени й інваріанти можна. Лише на інтерфейсі |
-| без тегу | Відкрита для змін і розширення |
-
-Щоб помітити зміну, харнес порівнює дизайн із записом у `.cage/lock.json` (його комітять):
-
-- `cage lock` записує декларації, яких у файлі ще немає, і нові члени та інваріанти `@extendable`-декларацій. Уже записане він не змінює ніколи.
-- `cage check` порівнює, в обох фазах. Позначена, але не записана декларація — `E_LOCK_MISSING`. Порушення — `E_LOCK_VIOLATION` з переліком змін: що змінено, прибрано чи додано і яким воно було.
-- Нові іменовані члени та інваріанти `@extendable`-декларації проходять, але до наступного `cage lock` дають попередження `W_LOCK_UNRECORDED`: вони ще не захищені. Параметри типу, базовий тип (`extends`) і call signature розширенням не є: вони змінюють те, що вже є.
-- Замки порівнюються лише з дизайном без помилок: відхилений тег не виглядає як знятий замок.
-- Зняти тег або видалити декларацію, щоб обійти замок, не вийде: запис лишається, і `check` це повідомляє. Свідомо зняти чи змінити замок можна лише видаливши його запис із файла вручну; така правка видна в diff.
-
-Файл-замок може відредагувати будь-хто, зокрема агент. Тому в CI `cage check --base origin/main` порівнює поточний файл-замок із тим, що записаний на вказаній ревізії: кожен замок звідти має лишитися в поточному файлі, без змін і не слабшим (`@extendable` → `@final` можна, навпаки — ні; `@extendable` може мати більше членів та інваріантів). Інакше `E_LOCK_BASE`. Зняти замок, який уже є на основній гілці, ця перевірка не пропустить ніколи: таку зміну має влити людина свідомо, попри червону перевірку. Ревізія має бути доступна локально (у CI гілку, можливо, треба спершу `git fetch`); невідома ревізія — `E_ENVIRONMENT`. Ревізія без файла-замка нічого не вимагає. Проєкт може лежати в підкаталозі репозиторію.
-
-Порівнюються підписи, а не текст: форматування, коментарі, вид лапок у рядкових літералах, порядок блоків і проза на замок не впливають. Вміст рядкового літерала є частиною типу. Назва властивості в лапках і без них вважаються різним записом.
-
-Замок контракту охоплює і його інваріанти: id та текст кожного. Перенесення рядків у тексті не має значення, зміна слів — має. Описи (`@description`) і `@uses` замок не охоплює.
-
-Замок стосується саме тієї декларації, на якій стоїть. Якщо замкнена декларація посилається на контракт чи тип даних без замка, зміна того типу змінить і її, а замок цього не помітить. Про кожен такий тип харнес попереджає: `W_LOCK_OPEN_TYPE`, у місці першого посилання. Попередження зникає, коли тип позначено `@final` або `@extendable`.
-
-### `review`: матеріали для змістового рев’ю
-
-`cage check` бачить, що тест *позначений* інваріантом, але не бачить, чи він його *перевіряє*. Це може оцінити лише той, хто прочитає інваріант, тест і код разом. `cage review` збирає для цього все потрібне й нічого нікуди не відправляє: виклик моделі — поза харнесом.
-
-Спершу виконується повний `check`. Для кожного вибраного контракту пакет містить: опис, методи, інваріанти з прив’язаними тестами, реалізації, залежності (`@uses` і type-import-замикання), діагностики про контракт або його файли, і перелік **непідвантажених** файлів: те, що реалізації й тести імпортують із проєкту, але чого в пакеті немає (helper-и, схема). Файли — `*.cage.mdx` модуля і залежностей, реалізації, файли прив’язаних тестів — включаються повністю й по одному разу на документ. У Markdown fence довший за найдовший ряд backtick-ів у вмісті. У кінці — інструкція рев’юеру та формат висновку.
-
-Кожен пакет має **відбиток** (`fingerprint`): дайджест усіх його файлів. Він змінюється від будь-якої правки матеріалу, зокрема прози залежного дизайну, і не змінюється від правок поза ним. Проти нього записується висновок рев’юера.
-
-Без імен `cage review` експортує лише контракти, яким рев’ю потрібне: без записаного висновку або з висновком для іншого матеріалу. `--all` — усі. Код виходу: `0` — експорт зроблено, навіть якщо `check` знайшов помилки (тоді `complete: false`, і помилки є в пакеті); `1` — невідомий контракт або дизайни не вдалося проіндексувати; `2` — конфігурація чи середовище.
-
-**Висновок** рев’юер повертає у форматі, який пакет описує в кінці (`resultFormat`): для кожного контракту його відбиток і finding-и — `invariant` (id або `null` для контракту в цілому), `assessment` (`adequate`, `weak`, `unrelated`, `insufficient-context`), `reason`, `evidence`, `suggestedChange`. `cage review --record verdicts.json` (шлях від поточного каталогу) перевіряє його й записує в `.cage/review.json` (комітиться): контракт, відбиток, дайджест кожного файла матеріалу, finding-и. Відмовляє, і тоді не записує нічого: якщо відбиток не збігається з матеріалом як він є зараз (`E_REVIEW_VERDICT`: матеріал змінився після рев’ю), якщо названо невідомий контракт чи інваріант, якщо якийсь інваріант лишився без оцінки, контракт без інваріантів без жодного finding-а, або два висновки для одного контракту. Висновок, записаний раніше для того самого контракту, замінюється; записи контрактів, яких у дизайнах уже немає, прибираються (`check` до того повідомляє про них як `REVIEW_STALE`). Дайджести рахуються з `\n`-кінцями рядків: checkout із CRLF того самого не змінює.
-
-Далі **`cage check` вимагає рев’ю**. Для кожного контракту: без запису — `REVIEW_MISSING`; запис є, але матеріал відтоді змінився — `REVIEW_STALE` з переліком змінених файлів; є finding не `adequate` — `REVIEW_WEAK` у місці інваріанта, з причиною й пропозицією. Рівень задає `"review"` у конфігурації: `"warn"` (типово) — попередження `W_REVIEW_*`, `"require"` — помилки `E_REVIEW_*` і код виходу 1, `"off"` — нічого. Лише повний `check`: `--phase design` матеріалу рев’ю не має.
-
-Так рев’ю стає другими воротами: змінив тест, код чи дизайн — `check` червоний, доки не буде свіжого висновку.
-
-**Хто рев’юїть.** Харнес модель не викликає: він без мережі й не прив’язаний до провайдера. Рев’юером є агент, який і так працює над кодом у власному середовищі (Claude Code, Codex чи інше), бо кожне таке середовище має свій stop-gate — hook, що запускається сам. Цикл:
-
-1. Hook перед завершенням роботи агента запускає `cage gate`: це `check`, у якому помилки й будь-які `REVIEW_*`-знахідки (незалежно від рівня `"review"`) блокують зупинку — вихід 2, звіт і підказка йдуть агенту як feedback. Після трьох блокувань за сесію gate відпускає агента зі звітом, щоб перевірка, яку неможливо виправити, не тримала сесію вічно; hook-протокол (`session_id`, `stop_hook_active`) читається зі stdin.
-2. Агент бачить `REVIEW_MISSING` / `REVIEW_STALE`, запускає `cage review`, читає пакет, пише висновок у файл у форматі з кінця пакета і виконує `cage review --record <файл>`.
-3. `cage check` зелений — агент може зупинитись.
-
-Приклад для Claude Code лежить у `examples/claude-code/`: запис `Stop`-hook-а для `settings.json` (один рядок: `cage gate --root …`; харнес — devDependency проєкту) і шматок `CLAUDE.md` з правилами для агента (зокрема: не занижувати оцінку і не прибирати інваріанти заради зеленого `check`). Для іншого середовища потрібен той самий hook своїми засобами. Висновок робить той самий агент, що писав код; слід лишається в diff `.cage/review.json`, а в CI `cage check` із `"review": "require"` не пропустить контракт без свіжого висновку. CI-агент може прогнати той самий цикл ще раз.
-
-### JSON-звіт `check`
-
-`schemaVersion`, `command`, `phase`, `ok`, `scope` (tsconfig, файли дизайнів, використаний TypeScript, ефективні `strictNullChecks` / `strictFunctionTypes` / `noImplicitAny`), `counts`, `invariants` з `linkedTestCount`, `index` (контракти з методами, замками й реалізаціями, типи даних, ребра `@uses` і type-import між модулями — для інструмента чи агента, якому потрібен індекс, а не документи), `diagnostics`. `counts.testDeclarations` — тести всередині suite з `@tests`; `counts.linkedInvariants` — інваріанти, що мають хоча б одну прив’язку.
-
-Те, чого не перевіряли, має значення `null` або `"not-checked"`, а не `0`: «не перевіряли» відрізняється від «не знайшли». Design-фаза ніколи не дивиться на реалізації й тести; повна перевірка не доходить до них, якщо в дизайні є помилка; а якщо помилка зупинила перевірку до індексації дизайнів, то `null` мають і лічильники контрактів, типів даних та інваріантів. У звіті немає `passed`, `failed` чи відсотка покриття. Однакові `@uses` та імпорти з одного дизайну рахуються як одна залежність. Звіт детермінований: без часу й випадкових ID.
-
-### Конфігурація
-
-`.cage/config.json` необов’язковий. Типові значення:
+`.cage/config.json`, written by `init`; every field has a default.
 
 ```json
 {
   "version": 1,
-  "tsconfig": "tsconfig.json",
   "designs": ["src/**/*.cage.mdx"],
   "implementations": ["src/**/*.ts"],
   "tests": ["src/**/*.test.ts", "tests/**/*.test.ts"],
-  "exclude": ["**/node_modules/**", "**/dist/**", "**/build/**", "**/coverage/**"],
   "testAdapter": "node:test",
   "review": "warn",
   "coverage": "warn"
 }
 ```
 
-- `version` обов’язковий; невідомі поля та неправильні типи — помилка `E_CONFIG`.
-- Пропущені поля беруть типові значення; заданий масив замінює типовий повністю.
-- Шляхи й шаблони рахуються від кореня проєкту.
-- `**` і `*` не збігаються з dot-каталогами: `.cage` у шаблоні треба назвати явно.
-- Дизайном є лише файл `*.cage.mdx`; інші файли, що збіглися з шаблоном, ігноруються.
-- Symlink під час пошуку не обходяться.
-- `implementations` і `tests` визначають, у яких файлах `cage check` шукає `@implements` та `@tests` / `@covers`. Беруться лише файли `.ts` (без `.d.ts`), хоч би що ще збіглося з шаблоном; файл тестів реалізацією не вважається, як і будь-що в каталозі `.design`.
-- `testAdapter` — `node:test` (типово) або `vitest`.
-- `review` — як `cage check` ставиться до контракту без свіжого записаного рев’ю: `"warn"` (типово), `"require"` або `"off"`.
-- `coverage` — як `cage check` ставиться до exported коду модуля без `@implements`: `"warn"` (типово), `"require"` або `"off"`.
+- `testAdapter`: `node:test` or `vitest`.
+- `review`: a contract without a fresh recorded review is a warning (`warn`), an error (`require`) or nothing (`off`). The Stop hook blocks on it either way.
+- `coverage`: exported code of a designed module without `@implements` is a warning, an error, or not looked at. A `.cageignore` next to the designs lists files that need no design.
 
-## Технічні рішення
+Commit `.cage/` (config, locks, reviews) and `.cageignore` with the designs.
 
-- **TypeScript проєкту.** Харнес завантажує пакет `typescript` із `node_modules` кореня цільового проєкту або каталогу вище, якщо це версія 5.x або 6.x. Копія, яку Node знайшов би через `NODE_PATH` чи глобальні каталоги, проєктною не вважається. Так tsconfig означає для харнесу те саме, що для `tsc` проєкту: типові `strict` і `types` у TS 5 і TS 6 різні. Якщо пакета немає, він не завантажується або це TypeScript 7 (нативний порт без Compiler API), використовується вбудований 6.0.3. Версію, джерело й причину заміни видно у звіті `check`. Перевірено на 5.9.3 і 6.0.3.
-- **Код харнесу не імпортує `typescript` статично**, лише типи: екземпляр компілятора передається параметром `ts`.
-- **Опції проєкту.** Береться tsconfig проєкту з `extends`. Змінюється: `noEmit: true`; `rootDir` ігнорується, бо стосується лише emit; `noCheck` ігнорується, бо вимкнув би перевірку типів; під TypeScript 6 опції, які він оголосив застарілими, але виконує (`baseUrl`, `moduleResolution: node10`), приймаються без помилки.
-- **Помилки конфігурації TypeScript** мають код `E_ENVIRONMENT` і вихід 2.
-- **Порядок шарів.** Помилки декларацій і тегів не зупиняють перевірку типів; її зупиняють лише недозволені імпорти, бо компілятор повторив би їх як нерозв’язані модулі або прочитав би сторонній файл із диска. Імпортом вважається кожен оператор, що називає інший модуль: `export … from`, `import x = require(…)`. `/// <reference>` на початку блока перевіряється ще до компілятора.
-- **Одна помилка — одна діагностика.** Теги всередині відхиленої декларації не повідомляються як недоречні; `W_NO_INVARIANTS` не видається, якщо інваріанти написані, але відхилені.
-- **`E_NO_CONTRACTS`** повідомляється, лише коли інших помилок у деклараціях немає: інакше він був би їхнім наслідком.
-- **Коди для правил, де план коду не називає.** Декларація без маркера, неекспортована декларація, заборонені `@ts-*` коментарі — `E_UNSUPPORTED_DECLARATION`. `@contract` / `@data` з текстом після тегу, обидва маркери одразу — `E_TAG_FORMAT`.
-- **Злиття інтерфейсів.** TypeScript мовчки зливає два інтерфейси з одним ім’ям. У дизайні це помилка: два контракти — `E_CONTRACT_DUPLICATE`, інакше `E_UNSUPPORTED_DECLARATION`.
-- **Цикли.** Кожна група взаємозалежних модулів повідомляється один раз, найкоротшим циклом через її перший модуль.
-- **Перевірка відповідності.** Для кожної реалізації в пам’яті створюється файл поруч із нею: type-only імпорти реалізації та контракту і вираз `value satisfies design.Contract`. Помилка компілятора на цьому виразі стає `E_TYPE_MISMATCH` у місці реалізації, з поясненням компілятора та посиланням на контракт у MDX. Специфікатори імпорту підбираються під module resolution проєкту; якщо жоден не резолвиться, харнес зупиняється з помилкою, а не пропускає перевірку. На диск нічого не пишеться.
-- **Program повної перевірки** містить файли з tsconfig проєкту, віртуальні модулі дизайнів з пам’яті, файли з тегами та файли перевірки. Файли проєкту потрібні заради глобальних декларацій. Розібрані файли, зокрема бібліотека TypeScript, беруться з design-фази, а не розбираються вдруге.
-- **Одна помилка — одна діагностика й тут.** Відхилений `@implements` не дає ще й `E_IMPLEMENTATION_MISSING` для свого контракту; відхилений `@tests` чи `@covers` не дає `E_TEST_MISSING` для того, що він називав. Якщо файл не вдалося розібрати, те саме стосується контрактів, які в ньому згадані після `@implements` або `@tests`. Виняток: `@tests` з іменем неіснуючого контракту лишає `E_TEST_MISSING`, бо невідомо, який контракт малося на увазі.
-- **Файл, який не читається** (права доступу), дає `E_ENVIRONMENT` у звіті й вихід 2, а не аварійне завершення.
-- **Тексти компілятора** у звіті не містять абсолютних шляхів: шлях проєкту з них прибирається.
-- **Які файли читаються.** З кандидатів за шаблонами `implementations` і `tests` беруться лише ті, де в тексті є тег зв’язування.
-- **Розпізнавання тестів** іде через символи компілятора, тому затінення й alias-и враховано без власного аналізу областей видимості.
-- **Помилки в дизайні зупиняють повну перевірку** на design-фазі: порівнювати реалізації з контрактом, який сам має помилки, немає сенсу.
-- **Підписи для замків** друкує принтер компілятора, тому запис не залежить від того, як відформатовано блок.
-- **Парсер тегів** власний і текстовий: TypeScript дає лише позицію JSDoc-коментаря перед декларацією. Тому `@implements` не залежить від того, як його трактує компілятор.
-- **Мапінг.** Кожен скопійований рядок блока — окремий сегмент `offset у віртуальному модулі → offset у документі`. Кінець тексту мапиться на кінець останнього авторського рядка.
-- **BOM** на початку `*.cage.mdx` відкидається при читанні; колонки рахуються без нього.
-- **Позиція помилки MDX** береться з `place`; для тегу, не закритого до кінця документа, парсер дає її лише в тексті повідомлення.
-- **Шляхи до бібліотеки TypeScript** у звітах мають вигляд `typescript/lib/lib.*.d.ts`.
-- **Пошук файлів** — власний обхід каталогів із `path.matchesGlob`, лише там, де шаблон може збігтися.
-- **Запис** — у тимчасовий файл поруч і `rename`. Порівняння з диском ігнорує різницю CRLF/LF і BOM.
-- **Тести** копіюють fixture в `test/.tmp/` усередині репозиторію, щоб копія знаходила `@types/node`. Fixture `test/fixtures/vertical` містить три MDX, `package.json` і `tsconfig.json` із §13 дослівно. TypeScript 5.9.3 встановлено під іменем `typescript-5` лише для тестів; тому скрипти збірки викликають `node_modules/typescript/bin/tsc` явно.
+## More
 
-## Чого ще немає
+- Tags, rules and diagnostics in detail: [docs/reference.uk.md](docs/reference.uk.md) (Ukrainian).
+- Decisions and deviations from the original plan: [docs/plan-proposals.md](docs/plan-proposals.md).
+- Development: `npm test`, `npm run verify`, `npm run smoke`.
 
-- Коротші пояснення компілятора в `E_TYPE_MISMATCH`: іноді це кільканадцять рядків, з яких важливий один.
-- Рядок, що починається з `@слово` всередині прикладу коду в JSDoc (`@example`), читається як тег.
-- Jest не розпізнається: адаптери є лише для `node:test` і Vitest.
-- На Windows харнес не запускався.
+MIT.
