@@ -133,7 +133,8 @@ export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lo
       data: index?.data.length ?? null,
       invariants: index?.invariants.length ?? null,
       implementations: linking?.implementations.length ?? null,
-      testDeclarations: linking?.tests.length ?? null,
+      // One `it` tagged for two contracts is one declaration.
+      testDeclarations: linking ? new Set(linking.tests.map((test) => `${test.location.file}:${test.location.line}:${test.location.column}`)).size : null,
       linkedInvariants: linking && invariants ? invariants.filter((invariant) => invariant.linkedTestCount !== 0).length : null,
       uncheckedInvariants: linking?.uncheckedInvariants ?? null,
       // A linked test is a tag; whether it proves anything is what the review says. Null when reviews are not checked.

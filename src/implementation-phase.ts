@@ -335,28 +335,46 @@ function readTests(
     const read = readTestDeclarations(ts, checker, sourceFile, file, adapter);
     diagnostics.push(...read.diagnostics);
     rejected.push(...read.rejected);
-    // An unknown contract is reported once, at its `@tests`; what its tests cover is then not looked at.
-    for (const context of read.contexts) if (!contracts.has(context.contract)) diagnostics.push(unknownContract("tests", context.contract, context.location));
+    // An unknown contract is reported once, at its `@tests`; what the tests under it cover is then not looked at.
+    for (const context of read.contexts) for (const name of context.contracts) if (!contracts.has(name)) diagnostics.push(unknownContract("tests", name, context.location));
     for (const test of read.tests) {
-      if (!contracts.has(test.context.contract)) continue;
-      const covers: string[] = [];
+      const named = test.context.contracts;
+      if (named.some((name) => !contracts.has(name))) continue;
+      // Each id goes to the one contract among the named that has it; a test is then a declaration of every contract it covers something of.
+      const covers = new Map<string, string[]>(named.map((name) => [name, []]));
+      const quoted = (names: readonly string[]) => names.map((name) => `"${name}"`).join(" and ");
       for (const { id, location } of test.covers) {
-        if (invariants.some((invariant) => invariant.contract === test.context.contract && invariant.id === id)) {
-          covers.push(id);
+        const owners = named.filter((name) => invariants.some((invariant) => invariant.contract === name && invariant.id === id));
+        if (owners.length === 1) {
+          covers.get(owners[0])!.push(id);
+        } else if (owners.length > 1) {
+          // Reported here; "has no test" for the invariant in either contract would be the consequence.
+          for (const owner of owners) rejected.push({ contract: owner, invariants: [id] });
+          diagnostics.push({
+            code: "E_REFERENCE_AMBIGUOUS",
+            severity: "error",
+            message: `\`@covers ${id}\`: ${quoted(owners)} both have an invariant with this id; give this test its own \`@tests\` line naming the one it demonstrates.`,
+            ...location,
+            contract: owners[0],
+          });
         } else {
-          // The id may be another contract's: then the test wants that contract, which it gets with a `@tests` of its own.
+          // The id may be another contract's: then the test wants that contract named too.
           const elsewhere = invariants.find((invariant) => invariant.id === id && contracts.has(invariant.contract));
-          const hint = elsewhere ? ` "${elsewhere.contract}" has one: a test of that contract gets its own \`@tests ${elsewhere.contract}\` line above its \`@covers\`.` : "";
+          const hint = elsewhere ? ` "${elsewhere.contract}" has one: name it in the tag too (\`@tests ${[...named, elsewhere.contract].join(" ")}\`), or give the test its own \`@tests ${elsewhere.contract}\` line.` : "";
           diagnostics.push({
             code: "E_REFERENCE_UNKNOWN",
             severity: "error",
-            message: `\`@covers ${id}\`: contract "${test.context.contract}" has no invariant with this id.${hint}`,
+            message: `\`@covers ${id}\`: ${named.length === 1 ? "contract" : "contracts"} ${quoted(named)} ${named.length === 1 ? "has" : "have"} no invariant with this id.${hint}`,
             ...location,
-            contract: test.context.contract,
+            contract: named[0],
           });
         }
       }
-      tests.push({ title: test.title, suitePath: test.suitePath, adapter, contract: test.context.contract, covers, location: test.location });
+      // A test that covers nothing of a named contract is still its declaration when it is the only one named: it is counted, and reviewed, there.
+      for (const [name, ids] of covers) {
+        if (ids.length === 0 && named.length > 1) continue;
+        tests.push({ title: test.title, suitePath: test.suitePath, adapter, contract: name, covers: ids, location: test.location });
+      }
     }
   }
   return { tests, rejected };

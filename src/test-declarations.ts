@@ -2,12 +2,13 @@ import type ts from "typescript";
 import type { SourceLocation } from "./design-model.ts";
 import type { Diagnostic } from "./diagnostic.ts";
 import { collectDocComments, createReporter, docCommentBefore, readAllowedTags, reportUnboundTags } from "./doc-comments.ts";
-import { isBindingTag, parseInvariantIds, parseName, parseNames, type DocTag } from "./metadata.ts";
+import { isBindingTag, parseInvariantIds, parseNames, type DocTag } from "./metadata.ts";
 import type { TypeScript } from "./typescript.ts";
 
 /** The contract a suite or a test is about, as written in its `@tests` tag. */
 export interface TestContext {
-  contract: string;
+  /** One or more: a test through a port may demonstrate what the port and the service behind it promise. */
+  contracts: string[];
   location: SourceLocation;
 }
 
@@ -154,19 +155,19 @@ export function readTestDeclarations(
   };
 
   /**
-   * The contract that a `@tests` tag puts in effect for a suite or a test,
-   * or the inherited one when there is no such tag. A rejected tag makes the
+   * The contracts that a `@tests` tag puts in effect for a suite or a test,
+   * or the inherited ones when there is no such tag. A rejected tag makes the
    * scope invalid: whatever it names may well be tested there.
    */
   const readContext = (tags: ReadonlyMap<string, DocTag[]>, all: readonly DocTag[], what: string, inherited: Scope): Scope => {
     const [tag, second] = tags.get("tests") ?? [];
-    if (second) report("E_TAG_FORMAT", `\`@tests\` is given more than once; ${what} is about one contract.`, second.start);
-    const contract = tag && parseName(tag.text);
-    if (tag && contract === undefined) report("E_TAG_FORMAT", "`@tests` needs exactly one contract name. A test of a second contract gets its own `@tests Name` line above its `@covers`.", tag.start);
+    if (second) report("E_TAG_FORMAT", `\`@tests\` is given more than once; name the contracts ${what} is about in one tag: \`@tests A B\`.`, second.start);
+    const contracts = tag && parseNames(tag.text);
+    if (tag && contracts === undefined) report("E_TAG_FORMAT", "`@tests` needs one or more contract names: `@tests Quota`, or `@tests Webhook Quota` for a test that demonstrates both.", tag.start);
     const written = all.filter((candidate) => candidate.name === "tests");
     if (written.length === 0) return inherited;
-    if (tag && contract !== undefined && !second) {
-      const scope = { contract, location: locate(tag.start) };
+    if (tag && contracts !== undefined && !second) {
+      const scope = { contracts: [...new Set(contracts)], location: locate(tag.start) };
       contexts.push(scope);
       return scope;
     }

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
-import { checkLinking, contract, copyFixture, designFile, designProject, inFile, located, mdx } from "./helpers.ts";
+import { checkLinking, cli, contract, copyFixture, designFile, designProject, inFile, located, mdx } from "./helpers.ts";
 
 const QUOTA = contract("Quota", "take(): boolean;", "@invariant empty Порожня квота відмовляє.", "@invariant consume Списує одиницю.", "@invariant race Не перевищує залишок.");
 const SENDER = contract("Sender", "send(): void;", "@invariant once Надсилає один раз.");
@@ -292,7 +292,7 @@ test("@tests and @covers must name what exists; an unknown contract is reported 
       { code: "E_REFERENCE_UNKNOWN", message: "`@tests Quot`: there is no contract with this name.", ...position(root, "@tests Quot") },
       { code: "E_REFERENCE_UNKNOWN", message: '`@covers emtpy`: contract "Quota" has no invariant with this id.', ...position(root, "@covers empty emtpy") },
       // `once` is an invariant of Sender, not of the contract this suite is about.
-      { code: "E_REFERENCE_UNKNOWN", message: '`@covers once`: contract "Quota" has no invariant with this id. "Sender" has one: a test of that contract gets its own `@tests Sender` line above its `@covers`.', ...position(root, "@covers empty emtpy") },
+      { code: "E_REFERENCE_UNKNOWN", message: '`@covers once`: contract "Quota" has no invariant with this id. "Sender" has one: name it in the tag too (`@tests Quota Sender`), or give the test its own `@tests Sender` line.', ...position(root, "@covers empty emtpy") },
     ],
   );
   assert.deepEqual(links(root), ["typo in the invariant > c [Quota: empty]"]);
@@ -376,16 +376,67 @@ test("two tags on one line are one format error that names the tag to move, with
   assert.equal(errors[0].message, "`@covers` starts a new line of the comment: one tag per line.");
 });
 
+test("a test may name several contracts: each @covers id goes to the named contract that has it", (t) => {
+  const root = project(t, {
+    "src/m/complete.test.ts": COMPLETE,
+    [TEST_FILE]: lines(
+      'import { describe, it } from "node:test";',
+      "/** @tests Quota Sender */",
+      'describe("through the port", () => {',
+      "  /** @covers empty once */",
+      '  it("both", () => {});',
+      "  /** @covers consume */",
+      '  it("only the quota", () => {});',
+      "  /** @covers nobody */",
+      '  it("neither", () => {});',
+      "  /** @tests Sender",
+      "   * @covers empty */",
+      '  it("narrowed to one", () => {});',
+      "});",
+    ),
+  });
+  const result = checkLinking(root);
+  assert.deepEqual(result.errors.map(({ code, message, line, column }) => ({ code, message, line, column })), [
+    { code: "E_REFERENCE_UNKNOWN", message: '`@covers nobody`: contracts "Quota" and "Sender" have no invariant with this id.', ...position(root, "@covers nobody") },
+    { code: "E_REFERENCE_UNKNOWN", message: '`@covers empty`: contract "Sender" has no invariant with this id. "Quota" has one: name it in the tag too (`@tests Sender Quota`), or give the test its own `@tests Quota` line.', ...position(root, "@covers empty */") },
+  ]);
+  // "both" is a declaration of each contract it covers something of; "only the quota" of Quota alone; "neither" of none; one `it` is one in the count.
+  assert.deepEqual(links(root), [
+    "through the port > both [Quota: empty]",
+    "through the port > both [Sender: once]",
+    "through the port > only the quota [Quota: consume]",
+    "through the port > narrowed to one [Sender: ]",
+  ]);
+  assert.ok(cli(root, "check", "--format", "json").stdout.includes('"testDeclarations": 5'));
+});
+
+test("an id two named contracts share is ambiguous; the test names one", (t) => {
+  const same = "/** @invariant same The same promise. */\n  run(): void;";
+  const root = designProject(
+    t,
+    { a: mdx(contract("Alpha", same)), b: mdx(contract("Beta", same)) },
+    {
+      "src/a/alpha.ts": "/** @implements Alpha */\nexport class AlphaService {\n  run(): void {}\n}\n",
+      "src/b/beta.ts": "/** @implements Beta */\nexport class BetaService {\n  run(): void {}\n}\n",
+      [TEST_FILE]: lines('import { it } from "node:test";', "/** @tests Alpha Beta", " * @covers same */", 'it("which", () => {});'),
+    },
+  );
+  const { errors } = checkLinking(root);
+  assert.deepEqual(errors.map(({ code, message }) => ({ code, message })), [
+    { code: "E_REFERENCE_AMBIGUOUS", message: '`@covers same`: "Alpha" and "Beta" both have an invariant with this id; give this test its own `@tests` line naming the one it demonstrates.' },
+  ]);
+});
+
 test("a rejected @tests on a test is one error, whatever its @covers names", (t) => {
   const root = project(
     t,
     lines(
       'import { it } from "node:test";',
       "/**",
-      " * @tests Quota Sender",
+      " * @tests",
       " * @covers empty",
       " */",
-      'it("two contracts", () => {});',
+      'it("no name", () => {});',
       "/**",
       " * @tests Quota",
       " * @tests Sender, the second one",
@@ -406,11 +457,12 @@ test("a rejected @tests on a test is one error, whatever its @covers names", (t)
   );
   const result = checkLinking(root);
   assert.deepEqual(result.errors.map(located), [
-    { code: "E_TAG_FORMAT", file: TEST_FILE, ...position(root, "@tests Quota Sender") },
+    // The bare tag is the first `@tests` in the file.
+    { code: "E_TAG_FORMAT", file: TEST_FILE, ...position(root, "@tests") },
     { code: "E_TAG_FORMAT", file: TEST_FILE, ...position(root, "@tests Sender, the second one") },
     { code: "E_REFERENCE_UNKNOWN", file: TEST_FILE, ...position(root, "@tests Nobody") },
   ]);
-  assert.match(result.errors[0].message, /needs exactly one contract name\. A test of a second contract gets its own `@tests Name` line/);
+  assert.match(result.errors[0].message, /needs one or more contract names/);
   // Quota's three invariants are not "missing a test" while a rejected tag names Quota; Sender's one is linked by "fine".
   assert.equal(result.linking.uncheckedInvariants, 3);
 });
@@ -512,11 +564,6 @@ test("malformed @tests and @covers are format errors, without follow-up errors",
     "src/m/complete.test.ts": COMPLETE,
     [TEST_FILE]: lines(
       'import { describe, it } from "node:test";',
-      "/** @tests Quota Sender */",
-      'describe("two contracts", () => {',
-      "  /** @covers empty */",
-      '  it("not reported again", () => {});',
-      "});",
       "/**",
       " * @tests Quota",
       " * @tests Sender",
@@ -541,7 +588,6 @@ test("malformed @tests and @covers are format errors, without follow-up errors",
     ),
   });
   assert.deepEqual(checkLinking(root).errors.map(located), [
-    { code: "E_TAG_FORMAT", file: TEST_FILE, ...position(root, "@tests Quota Sender") },
     { code: "E_TAG_FORMAT", file: TEST_FILE, ...position(root, "@tests Sender") },
     { code: "E_TAG_FORMAT", file: TEST_FILE, ...position(root, "@tests */") },
     { code: "E_TAG_FORMAT", file: TEST_FILE, ...position(root, "@covers */") },
