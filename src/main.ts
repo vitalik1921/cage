@@ -6,6 +6,7 @@ import { loadConfig } from "./config.ts";
 import { isError, type Diagnostic } from "./diagnostic.ts";
 import { discoverDesigns, discoverSources } from "./discovery.ts";
 import { parseHookInput, runGate } from "./gate.ts";
+import { formatInitReport, runInit, type Agent } from "./init.ts";
 import { runLock } from "./lock-command.ts";
 import { formatRecordReport, recordVerdicts } from "./review-record.ts";
 import { formatReviewMarkdown, runReview } from "./review.ts";
@@ -22,6 +23,7 @@ export interface CliIo {
 const USAGE = `Usage: cage <command> [options]
 
 Commands:
+  init                  Write .cage/config.json and set the Stop gate up: --agent claude (default), codex, or none
   check                 Check the designs, the implementations, the test links, the locks and the reviews
   check --phase design  Check only the designs: documents, contracts, tags, references and types
   check --base <rev>    Also require every lock recorded at that Git revision (for CI: --base origin/main)
@@ -37,6 +39,8 @@ Options:
   --config <path>   Configuration file, relative to the project root (default: .cage/config.json if present)
   --format <format> Report format: text (default) or json; for review markdown (default) or json
   --all             review: every contract, not only those in need of a review
+  --agent <name>    init: claude, codex or none; may be repeated
+  --test-adapter <name>  init: node:test or vitest (default: vitest when package.json depends on it)
   -h, --help        Show this help
   --version         Show the version
 
@@ -77,6 +81,8 @@ function run(argv: readonly string[], io: CliIo): number {
         base: { type: "string" },
         all: { type: "boolean" },
         record: { type: "string" },
+        agent: { type: "string", multiple: true },
+        "test-adapter": { type: "string" },
         help: { type: "boolean", short: "h" },
         version: { type: "boolean" },
       },
@@ -97,8 +103,16 @@ function run(argv: readonly string[], io: CliIo): number {
 
   const [command, ...extra] = positionals;
   if (command === undefined) throw new UsageError("Missing command.");
-  const COMMANDS = ["check", "lock", "review", "gate"];
+  const COMMANDS = ["init", "check", "lock", "review", "gate"];
   if (!COMMANDS.includes(command)) throw new UsageError(`Unknown command "${command}".`);
+  if (command !== "init" && (values.agent !== undefined || values["test-adapter"] !== undefined)) throw new UsageError("--agent and --test-adapter are options of the init command.");
+  const agents = new Set<Agent>();
+  for (const agent of values.agent ?? ["claude"]) {
+    if (agent === "claude" || agent === "codex") agents.add(agent);
+    else if (agent !== "none") throw new UsageError(`Unknown agent "${agent}"; expected claude, codex or none.`);
+  }
+  const testAdapter = values["test-adapter"];
+  if (testAdapter !== undefined && testAdapter !== "node:test" && testAdapter !== "vitest") throw new UsageError(`Unknown test adapter "${testAdapter}"; expected node:test or vitest.`);
   if (command !== "review" && extra.length > 0) throw new UsageError(`Unexpected argument "${extra[0]}".`);
   if (command !== "review" && values.all) throw new UsageError("--all is an option of the review command.");
   if (command === "review" && values.all && extra.length > 0) throw new UsageError("--all reviews every contract; do not name contracts with it.");
@@ -121,6 +135,13 @@ function run(argv: readonly string[], io: CliIo): number {
 
   const root = path.resolve(io.cwd, values.root ?? ".");
   if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) throw new UsageError(`The project root "${root}" is not a directory.`);
+
+  if (command === "init") {
+    if (values.config !== undefined) throw new UsageError("init writes the default configuration file; --config does not apply.");
+    const report = runInit({ root, agents: [...agents], testAdapter });
+    io.stdout(format === "json" ? `${JSON.stringify(report, null, 2)}\n` : formatInitReport(report));
+    return exitCode(report.diagnostics);
+  }
 
   const { config, diagnostics } = loadConfig(root, values.config);
   const scope = {
