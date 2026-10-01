@@ -24,7 +24,7 @@ src/modules/accounts/
 
 ## Розробка
 
-Пакет `cage-ts` на npm (`cage` зайнятий), команда `cage`. Публікація: `npm version <minor|patch>`, `git push --follow-tags`; workflow `Publish` перевіряє (`npm run verify`, `npm run smoke` — встановлення тарбола в порожній проєкт) і кладе пакет на npm із provenance.
+Пакет `cage-ts` на npm (`cage` зайнятий), команда `cage`, репозиторій [github.com/vitalik1921/cage](https://github.com/vitalik1921/cage). Публікація: `npm version <minor|patch>`, `git push --follow-tags`; workflow `Publish` перевіряє (`npm run verify`, `npm run smoke` — встановлення тарбола в порожній проєкт) і кладе пакет на npm із provenance.
 
 Потрібен Node.js ≥ 24.11. Перевірено на 24.21.0 і 26.10.0.
 

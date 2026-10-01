@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "description": "Contract harness for TypeScript: designs in *.cage.mdx, checked against implementations and tests, with a recorded review as a gate for agents.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vitalik1921/cage.git"
+  },
+  "homepage": "https://github.com/vitalik1921/cage#readme",
+  "bugs": {
+    "url": "https://github.com/vitalik1921/cage/issues"
+  },
   "keywords": [
     "typescript",
     "contracts",
