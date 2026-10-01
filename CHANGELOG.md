@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - A Claude Code plugin (`plugin/`, marketplace `vitalik1921/cage`): the rules at session start, the `cage-design` and `cage-review` skills, and a Stop hook that runs `cage gate` for every project of the repository with a `.cage/config.json`. It uses the project's own install, else `npx cage-ts@<its version>`. `init` takes the rules and skills from the same directory.
 - The gate counts blocks per session and project, so that the projects of a monorepo do not share one count.
