@@ -10,7 +10,7 @@ description: Review the contracts of a cage project — judge whether the tests 
 ## Steps
 
 1. `cage review` prints the material of every contract that needs a review (no verdict yet, or the material changed since). `cage review Name` for one contract; `--format json` for the same with a JSON Schema of the verdict.
-2. Read the whole packet before judging: the design (business rules and invariants), the implementations, the test files, the diagnostics, and the list of files that are **not loaded** — open those in the repository; if you cannot, the assessment for what depends on them is `insufficient-context`, not a guess.
+2. Read the whole packet before judging: the design (business rules and invariants), the implementations, the test files, the helpers loaded with them, the diagnostics, the files **used outside the module** (they rely on the contract's promises: a change to an invariant reaches them, and they may assume the old one — say so in a contract-level finding), and the list of files that are **not loaded** — open those in the repository; if you cannot, the assessment for what depends on them is `insufficient-context`, not a guess.
 3. For every invariant, with the tests tagged `@covers` for it in front of you, answer the same questions the packet's instruction lists:
    - Does the test exercise the behaviour the invariant is about, or the right external scenario?
    - Would it fail if exactly this promise were broken, and only then?

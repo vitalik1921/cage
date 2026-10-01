@@ -1,7 +1,7 @@
 import type ts from "typescript";
 import type { SourceLocation } from "./design-model.ts";
 import type { Diagnostic } from "./diagnostic.ts";
-import { isBindingTag, isDocComment, parseDocTags, tagKind, type DocTag } from "./metadata.ts";
+import { BINDING_TAGS, isBindingTag, isDocComment, parseDocTags, tagKind, type DocTag } from "./metadata.ts";
 import type { TypeScript } from "./typescript.ts";
 
 /** A `/** ... *\/` comment and the tags in it. */
@@ -64,6 +64,18 @@ export function docCommentBefore(ts: TypeScript, sourceFile: ts.SourceFile, node
  * place and returns the allowed ones by name. Standard JSDoc tags are left
  * alone; `@ts-*` comments are the business of whoever reads the file.
  */
+/**
+ * A binding tag written inside the text of another binding tag, as in
+ * `@tests Quota @covers empty`: the second one was meant as a tag. Prose
+ * of a design may mention a tag mid-sentence; only the three tags of the
+ * code's side take names, not sentences, so only they are judged.
+ */
+function inlineTag(name: string, text: string): string | undefined {
+  if (!BINDING_TAGS.has(name)) return undefined;
+  const found = /(?:^|\s)@([a-z-]+)(?=\s|$)/.exec(text);
+  return found && BINDING_TAGS.has(found[1]) ? found[1] : undefined;
+}
+
 export function readAllowedTags(
   tags: readonly DocTag[],
   allowed: readonly string[],
@@ -78,6 +90,7 @@ export function readAllowedTags(
     else if (kind === "unsupported") report("E_UNSUPPORTED_TAG", `\`@${tag.name}\` is not supported.`, tag.start);
     else if (!allowed.includes(tag.name)) report("E_TAG_LOCATION", `\`@${tag.name}\` is not allowed ${where}.`, tag.start);
     else if (tag.suffix !== "") report("E_TAG_FORMAT", `\`@${tag.name}${tag.suffix}\`: a space must follow the tag name.`, tag.start);
+    else if (inlineTag(tag.name, tag.text)) report("E_TAG_FORMAT", `\`@${inlineTag(tag.name, tag.text)}\` starts a new line of the comment: one tag per line.`, tag.start);
     else byName.set(tag.name, [...(byName.get(tag.name) ?? []), tag]);
   }
   return byName;

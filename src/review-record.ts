@@ -5,7 +5,7 @@ import { checkImplementationPhase, type ImplementationPhaseOptions, type Impleme
 import { toProjectPath } from "./location.ts";
 import { isText, parseRecordText, readRecordFile, writeRecordFile } from "./record-file.ts";
 import { formatDiagnostic, plural } from "./report.ts";
-import { collectMaterial, createFileReader, fingerprintOf } from "./review-material.ts";
+import { collectMaterial, createFileReader, externalUses, fingerprintOf } from "./review-material.ts";
 
 /** Relative to the project root. */
 export const REVIEW_FILE = ".cage/review.json";
@@ -107,17 +107,33 @@ function describePart(key: string): string {
   return key;
 }
 
+/** What is recorded about a contract, as `check` sees it: a fresh verdict with its findings, or none. */
+export interface ReviewStatus {
+  /** A recorded verdict for the material as it is now. Null when there is none, or it is for other material. */
+  findings: Finding[] | null;
+}
+
+export interface ReviewCheck {
+  diagnostics: Diagnostic[];
+  /** By contract name. */
+  status: Map<string, ReviewStatus>;
+}
+
 /**
  * What `check` says about the recorded reviews: a contract without one,
  * one whose material changed since, and every finding that is not
  * `adequate`. The level decides whether these are warnings or errors.
+ * `sourceFiles` are the project's implementation files, searched for who
+ * outside the module imports an implementation of a contract whose
+ * declaration changed: they depend on the old promise.
  */
-export function checkReviews(root: string, result: ImplementationPhaseResult, level: "warn" | "require"): Diagnostic[] {
+export function checkReviews(root: string, result: ImplementationPhaseResult, level: "warn" | "require", sourceFiles: readonly string[] = []): ReviewCheck {
   const diagnostics: Diagnostic[] = [];
+  const status = new Map<string, ReviewStatus>();
   const { index } = result;
-  if (!index) return diagnostics;
+  if (!index) return { diagnostics, status };
   const reviews = readReviewFile(root);
-  if (reviews.diagnostics.length > 0) return reviews.diagnostics;
+  if (reviews.diagnostics.length > 0) return { diagnostics: reviews.diagnostics, status };
   const severity = level === "require" ? "error" : "warning";
   const code = (name: string) => `${level === "require" ? "E" : "W"}_REVIEW_${name}`;
   const { read } = createFileReader(root, diagnostics);
@@ -125,6 +141,7 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
   for (const contract of index.contracts) {
     const subject = `contract "${contract.name}"`;
     const entry = reviews.entries.find((candidate) => candidate.module === contract.module && candidate.contract === contract.name);
+    status.set(contract.name, { findings: null });
     if (!entry) {
       diagnostics.push({
         code: code("MISSING"),
@@ -135,22 +152,27 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
       });
       continue;
     }
-    const { fingerprint, digests } = fingerprintOf(collectMaterial(result, contract.name, read).parts);
+    const material = collectMaterial(result, contract.name, read);
+    const { fingerprint, digests } = fingerprintOf(material.parts);
     if (fingerprint !== entry.fingerprint) {
       const changed = Object.keys(digests).filter((key) => entry.material[key] !== digests[key]);
       const removed = Object.keys(entry.material).filter((key) => !Object.hasOwn(digests, key));
       const what = [...changed.map((key) => (Object.hasOwn(entry.material, key) ? `${describePart(key)} changed` : `${describePart(key)} is new`)), ...removed.map((key) => `${describePart(key)} is gone`)];
       // The files may all match while the recorded fingerprint does not: the entry was edited or made by other rules.
       const since = what.length > 0 ? `since then: ${what.join(", ")}` : "its recorded fingerprint does not match its files";
+      // A changed declaration is a changed promise: whoever imports its implementation from outside the module relies on the old one.
+      const users = changed.includes("contract") && result.compiler ? externalUses(root, result.compiler.ts, result.compiler.overlay, material.implementations, contract.module, sourceFiles) : [];
+      const outside = users.length > 0 ? ` The contract changed and is used outside its module by ${users.map((use) => `${use.file}:${use.line}`).join(", ")}: they rely on the old promise.` : "";
       diagnostics.push({
         code: code("STALE"),
         severity,
-        message: `The recorded review of ${subject} is for other material; ${since}. Review it again.`,
+        message: `The recorded review of ${subject} is for other material; ${since}. Review it again.${outside}`,
         ...contract.location,
         contract: contract.name,
       });
       continue;
     }
+    status.set(contract.name, { findings: entry.findings });
     for (const finding of entry.findings) {
       if (finding.assessment === "adequate") continue;
       const invariant = finding.invariant === null ? undefined : index.invariants.find((candidate) => candidate.contract === contract.name && candidate.id === finding.invariant);
@@ -176,7 +198,7 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
       file: REVIEW_FILE,
     });
   }
-  return diagnostics;
+  return { diagnostics, status };
 }
 
 export interface RecordReport {

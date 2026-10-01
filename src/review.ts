@@ -4,7 +4,7 @@ import type { DesignModule } from "./design-phase.ts";
 import { compareDiagnostics, compareText, hasErrors, type Diagnostic } from "./diagnostic.ts";
 import { checkImplementationPhase, type ImplementationPhaseOptions, type ImplementationPhaseResult } from "./implementation-phase.ts";
 import { toProjectPath } from "./location.ts";
-import { collectMaterial, createFileReader, fingerprintOf, type FileReader, type Material, type PacketFile } from "./review-material.ts";
+import { collectMaterial, createFileReader, externalUses, fingerprintOf, type ExternalUse, type FileReader, type Material, type PacketFile } from "./review-material.ts";
 import { readReviewFile, VERDICTS_SCHEMA } from "./review-record.ts";
 import type { Overlay, TypeScript } from "./typescript.ts";
 
@@ -35,6 +35,8 @@ export interface ContractPacket {
   };
   implementations: { name: string; kind: "class" | "function" | "const"; compatible: boolean; location: SourceLocation }[];
   tests: { file: string; declarations: { title: string; suitePath: string[]; covers: string[]; line: number; column: number }[] }[];
+  /** Files outside the module that import an implementation of the contract: they rely on its promises. Imports only, not calls. */
+  usedBy: ExternalUse[];
   /** Project files the test files import, loaded into `files` as helpers: a stub or a fixture decides what a test observes. */
   helpers: string[];
   /** Project files that the packet's files import but that are not in the packet, with who imports what: the reviewer opens them in the repository. */
@@ -169,12 +171,12 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
   }
   selected.sort((a, b) => compareText(a.module, b.module) || compareText(a.name, b.name));
 
-  const packets = selected.map((contract) => packetOf(root, result, materialOf(contract.name), options.sources.tests, read));
+  const packets = selected.map((contract) => packetOf(root, result, materialOf(contract.name), options.sources.tests, options.sources.implementations, read));
   const used = new Set(packets.flatMap((packet) => [...packet.designs, ...packet.dependencies.designs, ...packet.implementations.map((i) => i.location.file), ...packet.tests.map((t) => t.file), ...packet.helpers]));
   return report(ok, packets, [...files.values()].filter((file) => used.has(file.path)).sort((a, b) => compareText(a.path, b.path)));
 }
 
-function packetOf(root: string, result: ImplementationPhaseResult, material: Material, testFiles_: readonly string[], read: FileReader): ContractPacket {
+function packetOf(root: string, result: ImplementationPhaseResult, material: Material, testFiles_: readonly string[], sourceFiles: readonly string[], read: FileReader): ContractPacket {
   const { compiler, diagnostics } = result;
   const { contract, own, dependencyDesigns, uses, usedBy, implementations, declarations, testFiles, files } = material;
   const name = contract.name;
@@ -215,6 +217,7 @@ function packetOf(root: string, result: ImplementationPhaseResult, material: Mat
         .filter((test) => test.location.file === file)
         .map(({ title, suitePath, covers, location }) => ({ title, suitePath, covers, line: location.line, column: location.column })),
     })),
+    usedBy: compiler ? externalUses(root, compiler.ts, compiler.overlay, implementations, contract.module, sourceFiles) : [],
     helpers: files.filter((file) => file.role === "helper").map((file) => file.path).sort(compareText),
     unloaded,
     untaggedTests,
@@ -327,6 +330,9 @@ export function formatReviewMarkdown(report: ReviewReport): string {
     lines.push("", "### Dependencies", "");
     const named = (edges: { contract: string; module: string }[]) => (edges.length === 0 ? "none" : edges.map((edge) => `${edge.contract} (${edge.module})`).join(", "));
     lines.push(`- uses: ${named(packet.dependencies.uses)}`, `- used by: ${named(packet.dependencies.usedBy)}`, `- designs included: ${packet.dependencies.designs.length === 0 ? "none" : packet.dependencies.designs.join(", ")}`);
+    lines.push("", "### Used outside the module", "");
+    if (packet.usedBy.length === 0) lines.push("- nothing in the project imports an implementation of this contract from outside its module");
+    for (const use of packet.usedBy) lines.push(`- ${use.file}:${use.line} imports ${use.names.join(", ")} — relies on the promises above; a change here reaches it`);
     lines.push("", "### Helpers loaded with the tests", "");
     if (packet.helpers.length === 0) lines.push("- none: the tests import nothing else from the project");
     for (const file of packet.helpers) lines.push(`- ${file}`);

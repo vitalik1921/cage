@@ -5,7 +5,7 @@ import { compareDiagnostics, hasErrors, type Diagnostic } from "./diagnostic.ts"
 import { checkImplementationPhase, testsLinkedTo, type ImplementationPhaseOptions, type ImplementationPhaseResult } from "./implementation-phase.ts";
 import { toProjectPath } from "./location.ts";
 import { compareLocks, compareWithBase, readBaseLocks, readLockFile } from "./locks.ts";
-import { checkReviews } from "./review-record.ts";
+import { checkReviews, type ReviewStatus } from "./review-record.ts";
 import { readStrictOptions, type StrictOptions, type TypeScriptInfo } from "./typescript.ts";
 
 export type Phase = "design" | "implementation";
@@ -35,8 +35,16 @@ export interface CheckReport {
     implementations: number | null;
     testDeclarations: number | null;
     linkedInvariants: number | null;
+    /** Invariants whose contract has a fresh recorded review that finds them adequate. Null when reviews are not checked. */
+    reviewedInvariants: number | null;
+    /** Invariants a fresh review finds weak, unrelated or lacking context. */
+    weakInvariants: number | null;
   };
-  invariants: { contract: string; id: string; member: string | null; linkedTestCount: number | null }[] | null;
+  /**
+   * `review`: what a fresh recorded review says about the invariant — `adequate`, `weak`, `unrelated`, `insufficient-context` —
+   * or null when there is no fresh review of its contract (or reviews are not checked).
+   */
+  invariants: { contract: string; id: string; member: string | null; linkedTestCount: number | null; review: string | null }[] | null;
   /**
    * What the designs declare, for a tool or an agent that needs the index
    * rather than the documents: contracts with their members, locks and
@@ -90,12 +98,22 @@ export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lo
     diagnostics.sort(compareDiagnostics);
   }
   // Reviews are about material that only the full check establishes: implementations and tests.
+  let reviewStatus: Map<string, ReviewStatus> | null = null;
   if (configured && review !== "off" && phase === "implementation" && result.linking) {
-    diagnostics.push(...checkReviews(root, result, review));
+    const reviews = checkReviews(root, result, review, options.sources.implementations);
+    diagnostics.push(...reviews.diagnostics);
     diagnostics.sort(compareDiagnostics);
+    reviewStatus = reviews.status;
   }
   const linkedTestCount = (contract: string, id: string) => (linking ? testsLinkedTo(linking.tests, contract, id).length : null);
-  const invariants = index?.invariants.map(({ contract, id, member }) => ({ contract, id, member, linkedTestCount: linkedTestCount(contract, id) })) ?? null;
+  const reviewOf = (contract: string, id: string): string | null => {
+    const findings = reviewStatus?.get(contract)?.findings ?? null;
+    if (!findings) return null;
+    // The worst finding about the invariant counts; a finding about the contract as a whole does not stand in for one.
+    const about = findings.filter((finding) => finding.invariant === id).map((finding) => finding.assessment);
+    return about.find((assessment) => assessment !== "adequate") ?? about[0] ?? null;
+  };
+  const invariants = index?.invariants.map(({ contract, id, member }) => ({ contract, id, member, linkedTestCount: linkedTestCount(contract, id), review: reviewOf(contract, id) })) ?? null;
   return {
     schemaVersion: 1,
     command: "check",
@@ -115,6 +133,9 @@ export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lo
       implementations: linking?.implementations.length ?? null,
       testDeclarations: linking?.tests.length ?? null,
       linkedInvariants: linking && invariants ? invariants.filter((invariant) => invariant.linkedTestCount !== 0).length : null,
+      // A linked test is a tag; whether it proves anything is what the review says. Null when reviews are not checked.
+      reviewedInvariants: reviewStatus && invariants ? invariants.filter((invariant) => invariant.review === "adequate").length : null,
+      weakInvariants: reviewStatus && invariants ? invariants.filter((invariant) => invariant.review !== null && invariant.review !== "adequate").length : null,
     },
     invariants,
     index: index

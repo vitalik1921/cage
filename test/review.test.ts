@@ -66,6 +66,13 @@ test("a packet holds the contract, its design, the designs it depends on, its im
   assert.deepEqual(packet.implementations, [{ name: "SendService", kind: "class", compatible: true, location: inFixture(SEND_SERVICE, "SendService") }]);
   assert.deepEqual(packet.tests.map((file) => ({ file, count: file.declarations.length })).map(({ file, count }) => ({ file: file.file, count })), [{ file: SEND_TEST, count: 4 }]);
   assert.deepEqual(packet.tests[0].declarations[0].suitePath, ["SendService"]);
+  // Nothing outside campaigns imports SendService; a file that does is listed, with its line.
+  assert.deepEqual(packet.usedBy, []);
+  writeFile(root, "src/modules/mail/digest.ts", 'import { SendService } from "../campaigns/send-service.ts";\n\nexport const digest = (service: SendService) => service;\n');
+  assert.deepEqual(review(root, "Send").report.contracts[0].usedBy, [{ file: "src/modules/mail/digest.ts", line: 1, names: ["SendService"] }]);
+  assert.ok(cli(root, "review", "Send").stdout.includes("- src/modules/mail/digest.ts:1 imports SendService"));
+  fs.rmSync(path.join(root, "src/modules/mail/digest.ts"));
+
   // What the test file imports from the project is loaded with it, as a helper; what the implementation imports is only listed.
   assert.deepEqual(packet.helpers, [CALLBACK_SENDER]);
   assert.deepEqual(packet.unloaded, []);
@@ -303,6 +310,13 @@ test("a change to the material makes the review stale, naming the file, and the 
   editFile(root, SEND_TEST, (s) => s.replace('it("не передає повідомлення без квоти (edited)"', 'it("не передає повідомлення без квоти"'));
   assert.match(reviewDiagnostics(root).find(({ contract }) => contract === "Send")?.message ?? "", /for other material; its recorded fingerprint does not match its files\. Review it again\./);
   writeFile(root, REVIEW_FILE, reviewFile);
+
+  // A changed declaration names who outside the module relies on it.
+  writeFile(root, "src/modules/mail/digest.ts", 'import { SendService } from "../campaigns/send-service.ts";\n\nexport const digest = (service: SendService) => service;\n');
+  editFile(root, CAMPAIGNS, (s) => s.replace("@invariant limit За false", "@invariant limit За false (уточнено)"));
+  assert.match(reviewDiagnostics(root).find(({ contract }) => contract === "Send")?.message ?? "", /the contract declaration changed\. Review it again\. The contract changed and is used outside its module by src\/modules\/mail\/digest\.ts:1: they rely on the old promise\./);
+  editFile(root, CAMPAIGNS, (s) => s.replace("@invariant limit За false (уточнено)", "@invariant limit За false"));
+  fs.rmSync(path.join(root, "src/modules/mail/digest.ts"));
 
   // The implementation is material; a file of another contract, or a comment next to the tests, is not.
   editFile(root, SEND_SERVICE, (s) => s.replace('return "sent";', 'return "sent" as const;'));

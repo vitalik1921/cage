@@ -117,7 +117,7 @@ test("each adapter reads only its own runner", (t) => {
   assert.ok(checkLinking(nodeProject, "vitest").errors.some((error) => error.code === "E_TAG_LOCATION"));
 });
 
-test("Vitest forms that build declarations at run time are not declarations", (t) => {
+test("it.each declares one test with its template title; forms that decide at run time do not", (t) => {
   const root = project(
     t,
     lines(
@@ -140,9 +140,9 @@ test("Vitest forms that build declarations at run time are not declarations", (t
     ),
   );
   assert.deepEqual(check(root).errors.map(located), [
-    { code: "E_TAG_LOCATION", file: TEST_FILE, ...position(root, "@covers empty */") },
     { code: "E_TAG_LOCATION", file: TEST_FILE, ...position(root, "@covers consume */") },
     { code: "E_TAG_LOCATION", file: TEST_FILE, ...position(root, "@covers race */") },
   ]);
   assert.match(check(root).errors[0].message, /right before an it\/test call of vitest/);
+  assert.ok(check(root).linking.tests.some((test) => test.title === "a table of cases" && test.covers.includes("empty")));
 });

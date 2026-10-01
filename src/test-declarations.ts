@@ -111,7 +111,7 @@ export function readTestDeclarations(
     return undefined;
   };
 
-  /** Whether a callee declares a suite or a test: `it`, `it.skip`, `describe.concurrent.only`, `ns.describe`, `ns.it.todo`, and so on. */
+  /** Whether a callee declares a suite or a test: `it`, `it.skip`, `describe.concurrent.only`, `ns.describe`, `ns.it.todo`, and so on; `it.each(...)` is unwrapped by the caller. */
   const kindOf = (callee: ts.Expression): "suite" | "test" | undefined => {
     let target = callee;
     while (ts.isPropertyAccessExpression(target) && rules.modifiers.has(target.name.text)) target = target.expression;
@@ -170,7 +170,8 @@ export function readTestDeclarations(
       contexts.push(scope);
       return scope;
     }
-    for (const name of written.flatMap((candidate) => parseNames(candidate.text) ?? [])) rejected.push({ contract: name, invariants: "all" });
+    // What was written before an inline tag still says which contract was meant.
+    for (const name of written.flatMap((candidate) => parseNames(candidate.text.replace(/\s@[a-z-]+[\s\S]*$/, "")) ?? [])) rejected.push({ contract: name, invariants: "all" });
     return "invalid";
   };
 
@@ -201,7 +202,10 @@ export function readTestDeclarations(
     // Functions and classes are not declaration scopes: what a helper or a test callback registers is only known at run time.
     if (ts.isFunctionLike(node) || ts.isClassLike(node)) return;
     if (ts.isExpressionStatement(node) && ts.isCallExpression(node.expression)) {
-      const kind = kindOf(node.expression.expression);
+      // `it.each(cases)("title", fn)` declares one test with its template title; the callee is the inner `it.each` call.
+      const callee = node.expression.expression;
+      const table = ts.isCallExpression(callee) && ts.isPropertyAccessExpression(callee.expression) && callee.expression.name.text === "each" ? callee.expression.expression : undefined;
+      const kind = kindOf(table ?? callee);
       if (kind === "suite") return readSuite(node, node.expression, context, path);
       if (kind === "test") return readTest(node, node.expression, context, path);
     }

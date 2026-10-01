@@ -6,8 +6,8 @@ import type { Contract, Edge, Implementation, SourceLocation, TestDeclaration } 
 import type { DesignModule } from "./design-phase.ts";
 import { compareText, type Diagnostic } from "./diagnostic.ts";
 import type { ImplementationPhaseResult } from "./implementation-phase.ts";
-import { stripBom } from "./location.ts";
-import type { TypeScript } from "./typescript.ts";
+import { stripBom, toProjectPath } from "./location.ts";
+import type { Overlay, TypeScript } from "./typescript.ts";
 
 /** A file the reviewer reads, once, whatever number of contracts it serves. Its text has `\n` line endings whatever the disk has. */
 export interface PacketFile {
@@ -136,6 +136,56 @@ function statementAt(ts: TypeScript, text: string, location: SourceLocation, nes
   };
   visit(sourceFile);
   return found?.getFullText().trim();
+}
+
+/** A file outside the module that imports an implementation of the contract: who depends on the contract from the code's side. */
+export interface ExternalUse {
+  file: string;
+  line: number;
+  /** The implementations it imports, by name. */
+  names: string[];
+}
+
+/**
+ * The project files outside the module that import an implementation of the
+ * contract. Only imports: not calls, not what they do with it. Files are
+ * read only when their text mentions an implementation's name.
+ */
+export function externalUses(
+  root: string,
+  ts: TypeScript,
+  overlay: Pick<Overlay, "resolveFrom">,
+  implementations: readonly Implementation[],
+  moduleId: string,
+  candidates: readonly string[],
+): ExternalUse[] {
+  if (implementations.length === 0) return [];
+  const names = new Set(implementations.map((implementation) => implementation.name));
+  const implementationFiles = new Set(implementations.map((implementation) => implementation.location.file));
+  const mentions = new RegExp(`\\b(${[...names].map((name) => name.replace(/[$]/g, "\\$&")).join("|")})\\b`);
+  const found: ExternalUse[] = [];
+  for (const file of candidates) {
+    if (moduleId === "." || file.startsWith(`${moduleId}/`) || implementationFiles.has(file)) continue;
+    let text: string;
+    try {
+      text = stripBom(fs.readFileSync(path.join(root, file), "utf8"));
+    } catch {
+      continue;
+    }
+    if (!mentions.test(text)) continue;
+    const fileName = path.join(root, file);
+    const sourceFile = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, false);
+    for (const statement of sourceFile.statements) {
+      if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+      const bindings = statement.importClause?.namedBindings;
+      const imported = bindings && ts.isNamedImports(bindings) ? bindings.elements.map((element) => (element.propertyName ?? element.name).text).filter((name) => names.has(name)) : [];
+      if (imported.length === 0) continue;
+      const resolved = overlay.resolveFrom(statement.moduleSpecifier.text, fileName);
+      if (!resolved || !implementationFiles.has(toProjectPath(root, resolved))) continue;
+      found.push({ file, line: sourceFile.getLineAndCharacterOfPosition(statement.getStart(sourceFile)).line + 1, names: imported.sort(compareText) });
+    }
+  }
+  return found.sort((a, b) => compareText(a.file, b.file) || a.line - b.line);
 }
 
 export const digestOf = (text: string) => `sha256:${crypto.createHash("sha256").update(text).digest("hex")}`;

@@ -89,7 +89,7 @@ Rules of a `ts design` block:
 ## 3. Check and tag
 
 1. `cage check --phase design` until the designs have no errors.
-2. Tag the code: `/** @implements Things */` above the exported class, function or const that fulfils a contract (`@implements Reads Writes` when one class fulfils several); `/** @tests Things */` above the `describe` of its tests (or on a test itself); `/** @covers rule-id other-id */` above each test, naming the invariants it demonstrates. Every invariant needs at least one test that would fail if the promise were broken; write the missing tests. Only a plain `it(...)` / `test(...)` with a literal title is a declaration: `it.each`, `it.skipIf` and tests built in a loop are invisible to the harness — unroll the cases that carry invariants into plain tests over a small local helper.
+2. Tag the code: `/** @implements Things */` above the exported class, function or const that fulfils a contract (`@implements Reads Writes` when one class fulfils several); `/** @tests Things */` above the `describe` of its tests (or on a test itself); `/** @covers rule-id other-id */` above each test, naming the invariants it demonstrates. Every invariant needs at least one test that would fail if the promise were broken; write the missing tests. A declaration is a plain `it(...)` / `test(...)` with a literal title, or an `it.each(cases)("title", fn)` table counted once under its template title; `it.skipIf` and tests built in a loop are invisible to the harness.
 3. `cage check`. Fix what it reports:
    - `E_TYPE_MISMATCH`: the code does not fit the contract — change the code if the contract is right, the contract if the code is right; do not widen types to `any` or `unknown` to pass.
    - `E_TEST_MISSING`: an invariant without a test.

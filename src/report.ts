@@ -38,10 +38,12 @@ export function formatCheckReport(report: CheckReport): string {
       if (counts.implementations === null || counts.testDeclarations === null || counts.linkedInvariants === null) {
         facts.push("implementations and tests not checked");
       } else {
+        // A link is a tag. What it proves is what the review says, so the two are never one number.
+        const reviewed = counts.reviewedInvariants === null || counts.weakInvariants === null ? "" : ` (${counts.reviewedInvariants} confirmed by review, ${counts.weakInvariants} found weak, ${counts.invariants - counts.reviewedInvariants - counts.weakInvariants} unreviewed)`;
         facts.push(
           plural(counts.implementations, "implementation"),
           plural(counts.testDeclarations, "test declaration"),
-          `${counts.linkedInvariants} of ${plural(counts.invariants, "invariant")} linked to a test declaration`,
+          `${counts.linkedInvariants} of ${plural(counts.invariants, "invariant")} linked to a test declaration${reviewed}`,
         );
       }
     }

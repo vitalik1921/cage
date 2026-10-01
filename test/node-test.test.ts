@@ -359,6 +359,23 @@ test("a test may name its own contract with @tests: outside any suite, or in a s
   ]);
 });
 
+test("two tags on one line are one format error that names the tag to move, without follow-up errors", (t) => {
+  const root = project(
+    t,
+    lines(
+      'import { it } from "node:test";',
+      "/** @tests Quota @covers empty consume race */",
+      'it("one line", () => {});',
+      "/** @tests Sender",
+      " * @covers once */",
+      'it("fine", () => {});',
+    ),
+  );
+  const { errors } = checkLinking(root);
+  assert.deepEqual(errors.map(located), [{ code: "E_TAG_FORMAT", file: TEST_FILE, ...position(root, "@tests Quota @covers") }]);
+  assert.equal(errors[0].message, "`@covers` starts a new line of the comment: one tag per line.");
+});
+
 test("a rejected @tests on a test is one error, whatever its @covers names", (t) => {
   const root = project(
     t,
