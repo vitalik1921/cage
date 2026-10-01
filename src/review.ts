@@ -33,8 +33,10 @@ export interface ContractPacket {
   };
   implementations: { name: string; kind: "class" | "function" | "const"; compatible: boolean; location: SourceLocation }[];
   tests: { file: string; declarations: { title: string; suitePath: string[]; covers: string[]; line: number; column: number }[] }[];
-  /** Project files that the packet's files import but that are not in the packet: the reviewer opens them in the repository. */
-  unloaded: string[];
+  /** Project files that the packet's files import but that are not in the packet, with who imports what: the reviewer opens them in the repository. */
+  unloaded: { file: string; importedBy: { file: string; names: string[] }[] }[];
+  /** Test files of the module that the `tests` patterns match but that declare nothing for any contract: proof may be waiting there for a tag. */
+  untaggedTests: string[];
   /** What the check found about this contract or in its files. */
   diagnostics: Diagnostic[];
 }
@@ -63,20 +65,27 @@ export const INSTRUCTION = [
   "and that is your task. For each invariant, read the tests that cover it, the implementation and the design, and judge:",
   "",
   "- Does the test exercise the behaviour the invariant is about, or the right external scenario?",
-  "- Would the test fail if exactly this promise were broken?",
-  "- Do the assertions observe the right result, order or effect?",
-  "- Do mocks or stubs stand in for the very guarantee the test claims to check?",
-  "- Are the relevant errors, boundaries, concurrency and retries considered?",
-  "- Is an interface-level rule checked in the interaction of methods that it concerns?",
+  "- Would it fail if exactly this promise were broken, and only then?",
+  "- Do the assertions observe the right result, order or effect — not just that nothing was thrown?",
+  "- Do mocks or stubs stand in for the very guarantee the test claims to check? A test that asserts the exact statement, clause or call that carries the promise",
+  "  is adequate for that clause; a clause left unasserted while a stub returns a canned result regardless is weak; what only a real database or service",
+  "  can show (one row, an id kept) is weak unless a test against the real thing is linked — say which test to tag.",
+  "- Are the relevant errors, boundaries, concurrency and retries covered?",
+  "- For a rule about the whole interface: is the interaction of methods checked?",
   "- Where there are several implementations, does each have the scenarios it needs?",
+  "- Does the implementation do more than the invariant says (an extra condition the tests never touch)?",
   "- Does the business description add material requirements, or contradict the invariants?",
   "",
-  "Assess each invariant as `adequate`, `weak`, `unrelated` or `insufficient-context`, with a reason and the evidence (file and line) it rests on.",
+  "Assess each invariant as `adequate`, `weak`, `unrelated` or `insufficient-context`, with a reason and the evidence (file and line) it rests on;",
+  "evidence is null only for insufficient-context. An observation about the design that is not a test weakness goes in a contract-level finding",
+  "(invariant null, assessment adequate) so that the design's owner sees it.",
   "This is an assessment, not a proof and not a test run. A contract without invariants gets one contract-level finding (invariant null).",
   "When you are the agent that wrote the code or the tests under review, judge them as a stranger would: the verdict is recorded and read by others.",
   "Do not remove or soften invariants and do not rewrite business requirements to make a check pass; a missing or weak test is a recommendation",
   "for the implementers, to be run in the project's own test environment. Files listed as not loaded were imported by the material but are not",
-  "included: open them in the repository, or say that the context was insufficient.",
+  "included: open them in the repository, or say that the context was insufficient. Test files listed as without declarations are matched by the",
+  "project's tests patterns but carry no tag: proof may be there, one tag away. `Lock` on a contract is its change policy (@final / @extendable), not",
+  "a review matter.",
 ].join("\n");
 
 /** What a verdict looks like; `cage review --record` reads exactly this. */
@@ -156,17 +165,20 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
   }
   selected.sort((a, b) => compareText(a.module, b.module) || compareText(a.name, b.name));
 
-  const packets = selected.map((contract) => packetOf(root, result, materialOf(contract.name)));
+  const packets = selected.map((contract) => packetOf(root, result, materialOf(contract.name), options.sources.tests));
   const used = new Set(packets.flatMap((packet) => [...packet.designs, ...packet.dependencies.designs, ...packet.implementations.map((i) => i.location.file), ...packet.tests.map((t) => t.file)]));
   return report(ok, packets, [...files.values()].filter((file) => used.has(file.path)).sort((a, b) => compareText(a.path, b.path)));
 }
 
-function packetOf(root: string, result: ImplementationPhaseResult, material: Material): ContractPacket {
+function packetOf(root: string, result: ImplementationPhaseResult, material: Material, testFiles_: readonly string[]): ContractPacket {
   const { compiler, diagnostics } = result;
   const { contract, own, dependencyDesigns, uses, usedBy, implementations, declarations, testFiles, files } = material;
   const name = contract.name;
   const loaded = new Set(files.map((file) => file.path));
   const unloaded = compiler ? importsOutside(root, compiler.ts, compiler.overlay, files, loaded) : [];
+  const declaring = new Set((result.linking?.tests ?? []).map((test) => test.location.file));
+  const inModule = (file: string) => contract.module === "." || file.startsWith(`${contract.module}/`);
+  const untaggedTests = testFiles_.filter((file) => inModule(file) && !declaring.has(file)).sort(compareText);
 
   const testsOf = (id: string) =>
     declarations
@@ -190,6 +202,7 @@ function packetOf(root: string, result: ImplementationPhaseResult, material: Mat
         .map(({ title, suitePath, covers, location }) => ({ title, suitePath, covers, line: location.line, column: location.column })),
     })),
     unloaded,
+    untaggedTests,
     diagnostics: diagnostics.filter((diagnostic) => diagnostic.contract === name || (diagnostic.file !== undefined && loaded.has(diagnostic.file))).sort(compareDiagnostics),
   };
 }
@@ -204,8 +217,8 @@ function importsOutside(
   overlay: Pick<Overlay, "resolveFrom">,
   packetFiles: readonly PacketFile[],
   loaded: ReadonlySet<string>,
-): string[] {
-  const outside = new Set<string>();
+): ContractPacket["unloaded"] {
+  const outside = new Map<string, Map<string, Set<string>>>();
   for (const file of packetFiles) {
     if (file.role === "design") continue;
     const fileName = path.join(root, file.path);
@@ -217,10 +230,28 @@ function importsOutside(
       if (!resolved) continue;
       const projectPath = toProjectPath(root, resolved);
       if (projectPath.startsWith("../") || path.isAbsolute(projectPath) || projectPath.split("/").includes("node_modules") || loaded.has(projectPath)) continue;
-      outside.add(projectPath);
+      const names = new Set<string>();
+      if (ts.isImportDeclaration(statement)) {
+        const clause = statement.importClause;
+        if (clause?.name) names.add(clause.name.text);
+        const bindings = clause?.namedBindings;
+        if (bindings && ts.isNamespaceImport(bindings)) names.add(`* as ${bindings.name.text}`);
+        else for (const element of bindings?.elements ?? []) names.add((element.propertyName ?? element.name).text);
+      } else {
+        const exported = statement.exportClause;
+        if (exported && ts.isNamedExports(exported)) for (const element of exported.elements) names.add((element.propertyName ?? element.name).text);
+        else names.add("*");
+      }
+      const importers = outside.get(projectPath) ?? new Map<string, Set<string>>();
+      const known = importers.get(file.path) ?? new Set<string>();
+      for (const name of names) known.add(name);
+      importers.set(file.path, known);
+      outside.set(projectPath, importers);
     }
   }
-  return [...outside].sort(compareText);
+  return [...outside]
+    .sort(([a], [b]) => compareText(a, b))
+    .map(([file, importers]) => ({ file, importedBy: [...importers].sort(([a], [b]) => compareText(a, b)).map(([importer, names]) => ({ file: importer, names: [...names].sort(compareText) })) }));
 }
 
 /** The review as one Markdown document: the instruction, each contract, every file once, and the verdict format. */
@@ -264,9 +295,14 @@ export function formatReviewMarkdown(report: ReviewReport): string {
     lines.push("", "### Dependencies", "");
     const named = (edges: { contract: string; module: string }[]) => (edges.length === 0 ? "none" : edges.map((edge) => `${edge.contract} (${edge.module})`).join(", "));
     lines.push(`- uses: ${named(packet.dependencies.uses)}`, `- used by: ${named(packet.dependencies.usedBy)}`, `- designs included: ${packet.dependencies.designs.length === 0 ? "none" : packet.dependencies.designs.join(", ")}`);
+    lines.push("", "### Tests without declarations", "");
+    if (packet.untaggedTests.length === 0) lines.push("- none: every test file of the module declares something");
+    for (const file of packet.untaggedTests) lines.push(`- ${file} (matched by the tests patterns, no \`@tests\` / \`@covers\`: proof there is not linked)`);
     lines.push("", "### Not loaded", "");
     if (packet.unloaded.length === 0) lines.push("- nothing: every project file the material imports is included");
-    for (const file of packet.unloaded) lines.push(`- ${file}`);
+    for (const { file, importedBy } of packet.unloaded) {
+      lines.push(`- ${file}: ${importedBy.map((importer) => `${importer.names.join(", ")} for ${importer.file}`).join("; ")}`);
+    }
     lines.push("", "### Diagnostics", "");
     if (packet.diagnostics.length === 0) lines.push("- none");
     for (const diagnostic of packet.diagnostics) lines.push(`- ${at(diagnostic) || "(project)"}: ${diagnostic.severity} ${diagnostic.code}: ${diagnostic.message.replaceAll("\n", " ")}`);
@@ -276,7 +312,10 @@ export function formatReviewMarkdown(report: ReviewReport): string {
   lines.push("## Files", "");
   for (const file of report.files) {
     const language = file.path.endsWith(".mdx") ? "mdx" : "ts";
-    lines.push(`### ${file.path} (${file.role})`, "", `${fence}${language}`, file.text.replace(/\n$/, ""), fence, "");
+    // Every line is numbered, so that evidence can name a line without counting.
+    const numbered = file.text.replace(/\n$/, "").split("\n");
+    const width = String(numbered.length).length;
+    lines.push(`### ${file.path} (${file.role})`, "", `${fence}${language}`, ...numbered.map((line, index) => `${String(index + 1).padStart(width)} | ${line}`), fence, "");
   }
   lines.push("## Result format", "", "Answer with one JSON object of this shape; `fingerprint` is copied from the contract's packet:", "", `${fence}json`, JSON.stringify(report.resultFormat, null, 2), fence, "");
   return `${lines.join("\n")}\n`;

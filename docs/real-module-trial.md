@@ -140,6 +140,22 @@ src/modules/topics/topics.service.ts:23:14: warning W_NOT_DESIGNED: Exported cla
 
 47 попереджень у `core/versioning` лишено: це справжній рушій версіонування, якого дизайн ще не описує.
 
+## П’ята частина: чистий прогін зі скілами (01.10.2026)
+
+Робочу копію проєкту очистили; все поставлено заново так, як це робив би новий користувач: `cage-ts` із тарбола, `cage init --root apps/content-library-api` з кореня монорепо (конфіг із визначеним Vitest, hook поруч із наявним `stop-gate.sh`, розділ у `CLAUDE.md`, два скіли в `.claude/skills/`). Далі три агенти, кожен лише з текстом скілу `cage-design`, зробили reverse-engineering трьох модулів; четвертий зі скілом `cage-review` відрев’юїв два контракти.
+
+| Модуль | Було `NOT_DESIGNED` | Контракти | Інваріанти | Що в `.cageignore` |
+| --- | --- | --- | --- | --- |
+| `core/versioning` | 47 | `VersioningEngine`, `VersionReads`, `IsBlank` | 21 | схеми, wiring, helper-и, generic-класи без default-ів |
+| `modules/accounts` | 6 | `Accounts`, `AccountMemberships`, `ClerkAccountEvents` (порт до Clerk, не делегат) | 16 | entities, dto, module, e2e |
+| `modules/topics` | 18 | `TopicReads`, `TopicWrites`, `TopicLifecycle`, `TopicBulkWrites` (один сервіс на 14 методів через `@implements A B C D`), `TopicChangelogText` | 26 | controller, asserts, entities, dto, module |
+
+Підсумок `cage check`: 3 дизайни, 11 контрактів, 31 тип даних, 63 інваріанти, 11 реалізацій, 183 тестові декларації, 63 з 63 інваріантів прив’язано, 0 помилок, 0 `NOT_DESIGNED`. `tsc` чистий (Vitest на цій машині не запускається).
+
+Рев’ю `Accounts` і `TopicChangelogText`: 2 adequate, 6 weak — і всі шість по суті: тест `findById` не перевіряє `where`, тож не відрізнив би його від `findByClerkId`; тест `softDelete` пропустив би UPDATE без умови; `thumbnail("")` і `owner(undefined, …)` не покриті. Висновок записано, `check` показує `W_REVIEW_WEAK` на рядках інваріантів.
+
+Що це змінило в харнесі й скілах: `@implements A B` (кілька контрактів на одну реалізацію), generic-класи з default-ами, типовий шаблон тестів з `*.e2e-spec.ts`, у пакеті рев’ю — файли тестів модуля без тегів, номери рядків і «хто що імпортує» з непідвантажених файлів; у скілах — порт vs делегат, `it.each` невидимий, правило про stub-тести, правила без контракту, literal-типи у виведених типах. Докладно: `plan-proposals.md` 21–22.
+
 ## Висновки
 
 - Ціна підключення модуля невелика: один документ і по рядку на реалізацію й тест. Основна праця — написати сам контракт.

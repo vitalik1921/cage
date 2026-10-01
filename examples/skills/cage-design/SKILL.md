@@ -9,18 +9,20 @@ A design is one or more `*.cage.mdx` documents in the module's directory. Prose 
 
 ## 1. Decide what deserves a contract
 
-A contract is a promise someone relies on: a service, a repository, an aggregate, a port to the outside world, an engine. Everything else goes to `.cageignore` (a `.gitignore`-style file next to the designs; `#` starts a comment, say why):
+A contract is a promise someone relies on: a service, a repository, an aggregate, an engine, a port to the outside world — a controller that maps an external payload, decides what is acknowledged or skipped, or encodes retry semantics is a port and gets a contract. Everything else goes to `.cageignore` (a `.gitignore`-style file next to the designs; `#` starts a comment, say why):
 
 - helpers and pure utility functions (a line in `.cageignore`, not a contract each)
 - DTOs, zod/JSON schemas, ORM tables and entities (`@data` types describe their *shape* when a contract needs them; the schema files themselves are ignored)
 - framework wiring: NestJS modules, DI providers, route tables
-- controllers and resolvers that only delegate to a service that has a contract
+- controllers and resolvers that only delegate to a service that has a contract; a controller that also composes or orders data on its own is a promise without a checkable home (decorated parameters, inferred shapes): ignore the file, name the promise in "Open questions"
 
 Size: a module has 1–5 contracts, a contract 1–7 methods and 1–7 invariants. More means the contract should be split — one class may implement several contracts (`@implements Lifecycle Reads`), so splitting a contract never requires splitting the code. When the code has 40 exports and you can name 4 promises, that is the design; the other 36 are in `.cageignore` with a one-line reason.
 
-What the harness can check: an exported class (a generic one only when every type parameter has a default — it is checked at those defaults), function or const. An abstract class, an overloaded function, a class with a required type parameter cannot carry `@implements`: describe the concrete thing built from it, or list the file and say why in "Out of scope". A file may be listed in `.cageignore` and still hold tagged declarations: tags in a listed file are read; the list only silences what is not tagged.
+What the harness can check: an exported class (its instance type; a generic one only when every type parameter has a default — it is checked at those defaults), function or const. An abstract class, a class of static methods only (its instance type is empty), an overloaded function, a class with a required type parameter cannot carry `@implements`: describe the concrete thing built from it, or list the file and say why in "Out of scope". A file may be listed in `.cageignore` and still hold tagged declarations: tags in a listed file are read; the list only silences what is not tagged.
 
-From existing code: read the module's public surface and its tests first. The tests say what the code promises today; the design must not promise more than the tests can show, and must not describe implementation details (caches, SQL, retries) as contracts. If the proof lives in tests the configuration does not list (e2e specs, another directory), add their pattern to `tests` in `.cage/config.json` rather than linking invariants to tests that only pin internals; a file the `tests` patterns do not match is read as code.
+`.cageignore` is read like a `.gitignore`: one pattern per line, `#` comments, `name/` a folder at any depth, `*.module.ts` a file name at any depth, `dto/request/x.ts` or `/generated` a path from the module root; no negation (`!`).
+
+From existing code: read the module's public surface and its tests first. The tests say what the code promises today; the design must not promise more than the tests can show, and must not describe implementation details (caches, SQL, retries) as contracts. If the proof lives in tests the configuration does not list (e2e specs, another directory), add their pattern to `tests` in `.cage/config.json` rather than linking invariants to tests that only pin internals; a file the `tests` patterns do not match is read as code. When you may not change the configuration, link what the listed tests do show and write in "Open questions" which invariants are only proven elsewhere, so that the reviewer judges them as such. When the code is looser than the rule (a nullable field the database never leaves null), the design states the truth only if the code is changed with it; otherwise mirror the code and note the gap in "Open questions" — never widen a type in the design to make the check pass.
 
 ## 2. Write the document
 
@@ -36,8 +38,9 @@ Two or three sentences: what the module is for and who depends on it.
 - **Term** — one sentence. Contract and type names below use these words.
 
 ## Business rules
-1. Rule in plain words, as a person would state it. Each rule becomes an invariant below.
+1. Rule in plain words, as a person would state it. The invariants below cite these rules; a rule may become several invariants, on several contracts.
 2. ...
+Rules no contract carries (a security context, an operational guarantee): stated here, with why no test can show them.
 What the module does not do (non-goals).
 
 ## Data
@@ -81,16 +84,19 @@ Rules of a `ts design` block:
 - Types of another design: `import type { X } from "../other/other.cage.mdx"` (or a path alias to it). Never from the code, the ORM or a package: describe an independent shape on the boundary instead. An infrastructure parameter that every method takes (a database handle, a request context) is one `@data` type such as `export type DatabaseHandle = unknown`. That works for a contract of methods, because method parameters compare loosely; a contract that is a single call signature (a plain function) compares its parameters strictly, so `unknown` there rejects any implementation that needs a narrower type — prefer a contract of methods for anything that takes infrastructure.
 - `@uses A B` (or `@uses A, B`) on a contract names the contracts it calls. `@final` freezes a declaration, `@extendable` allows additions only; use them for public APIs, then run `cage lock`.
 - One tag per JSDoc line.
+- The compiler compares the implementation's *inferred* types: a literal in the code (`received: true`) is `boolean` to it, so a `@data` type says `boolean`, not `true`. An external event type the code accepts (a webhook envelope) fits a contract when the `@data` type is an envelope whose payload is a union of the shapes the design names.
 
 ## 3. Check and tag
 
 1. `cage check --phase design` until the designs have no errors.
-2. Tag the code: `/** @implements Things */` above the exported class, function or const that fulfils a contract; `/** @tests Things */` above the `describe` of its tests (or on a test itself); `/** @covers rule-id other-id */` above each test, naming the invariants it demonstrates. Every invariant needs at least one test that would fail if the promise were broken; write the missing tests.
+2. Tag the code: `/** @implements Things */` above the exported class, function or const that fulfils a contract (`@implements Reads Writes` when one class fulfils several); `/** @tests Things */` above the `describe` of its tests (or on a test itself); `/** @covers rule-id other-id */` above each test, naming the invariants it demonstrates. Every invariant needs at least one test that would fail if the promise were broken; write the missing tests. Only a plain `it(...)` / `test(...)` with a literal title is a declaration: `it.each`, `it.skipIf` and tests built in a loop are invisible to the harness — unroll the cases that carry invariants into plain tests over a small local helper.
 3. `cage check`. Fix what it reports:
    - `E_TYPE_MISMATCH`: the code does not fit the contract — change the code if the contract is right, the contract if the code is right; do not widen types to `any` or `unknown` to pass.
    - `E_TEST_MISSING`: an invariant without a test.
    - `NOT_DESIGNED`: an export without `@implements` — a contract, or a line in `.cageignore` with a reason. Never list a file to silence a finding about a real promise.
 4. Never delete or soften an invariant or a business rule to make the check pass. If a rule is wrong, say so in "Open questions" and ask.
+
+Run the project's formatter on the documents you wrote if it covers `*.mdx`.
 
 ## 4. Report
 

@@ -56,7 +56,7 @@ test("init writes the configuration with the detected runner and the Claude Code
   assert.ok(readFile(root, "CLAUDE.md").includes("`cage-design`"));
   assert.deepEqual(JSON.parse(readFile(root, ".cage/config.json")), {
     version: 1,
-    tests: ["src/**/*.{test,spec}.ts", "tests/**/*.{test,spec}.ts"],
+    tests: ["src/**/*.{test,spec,e2e-spec}.ts", "tests/**/*.{test,spec,e2e-spec}.ts"],
     testAdapter: "vitest",
     review: "warn",
     coverage: "warn",
