@@ -7,6 +7,7 @@
 - `E_NO_DESIGNS` names the `designs` patterns that matched nothing and where a design lives.
 - The summary of `check` says how many invariants are "not checked while a rejected tag names their contract", instead of silently showing fewer errors until the tag is fixed (`counts.uncheckedInvariants` in JSON).
 - `@tests` with two names, and `@covers` with another contract's invariant, say how a test of a second contract is tagged (its own `@tests` line).
+- `cage gate` sweeps block counters older than a day from the temporary directory; sessions that ended while blocked no longer leave a file each.
 - Skill `cage-design`: `@tests` names one contract and `@covers` resolves in it; the per-test `@tests` override; a payload shape against `Record<string, unknown>` is a `type`, not an `interface`; fix tag errors first.
 
 ## 0.1.0

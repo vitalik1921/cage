@@ -9,6 +9,26 @@ import { formatCheckReport } from "./report.ts";
 /** How many times in one session the gate blocks before it lets the agent stop with the report. */
 export const MAX_BLOCKS = 3;
 
+/** A block counter older than this is of a session that ended while blocked; it is swept on the next run. */
+const STALE_COUNTER_MS = 24 * 60 * 60 * 1000;
+
+/** Removes the counters of sessions long gone, so that a blocked session does not leave a file behind for good. */
+function sweepCounters(directory: string, now: number): void {
+  try {
+    for (const name of fs.readdirSync(directory)) {
+      if (!name.startsWith("cage-gate-")) continue;
+      const file = path.join(directory, name);
+      try {
+        if (now - fs.statSync(file).mtimeMs > STALE_COUNTER_MS) fs.rmSync(file, { force: true });
+      } catch {
+        // Gone already, or not ours to remove.
+      }
+    }
+  } catch {
+    // An unreadable temporary directory is no reason to fail the gate.
+  }
+}
+
 /** What an agent's environment tells a Stop hook; both fields are optional. */
 export interface HookInput {
   session_id?: string;
@@ -38,6 +58,7 @@ export function runGate(options: ImplementationPhaseOptions, checkOptions: Check
   const blocking = report.diagnostics.filter((diagnostic) => isError(diagnostic) || diagnostic.code.includes("REVIEW_"));
   const session = (input.session_id ?? "session").replace(/[^A-Za-z0-9_-]/g, "");
   const counter = path.join(os.tmpdir(), `cage-gate-${session}`);
+  sweepCounters(os.tmpdir(), Date.now());
   if (blocking.length === 0) {
     fs.rmSync(counter, { force: true });
     return { exitCode: 0, feedback: "" };

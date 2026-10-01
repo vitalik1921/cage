@@ -88,6 +88,22 @@ test("a project without any design yet passes the gate: right after init there i
   assert.ok(!fs.existsSync(path.join(os.tmpdir(), `cage-gate-${id}`)));
 });
 
+test("a block counter of a session a day old is swept by the next run; a fresh one is kept", (t) => {
+  const root = copyFixture(t, "vertical");
+  const id = session(t);
+  const old = path.join(os.tmpdir(), `cage-gate-test-old-${id}`);
+  const fresh = path.join(os.tmpdir(), `cage-gate-test-fresh-${id}`);
+  t.after(() => fs.rmSync(old, { force: true }));
+  t.after(() => fs.rmSync(fresh, { force: true }));
+  fs.writeFileSync(old, "1");
+  fs.writeFileSync(fresh, "1");
+  const yesterday = (Date.now() - 25 * 60 * 60 * 1000) / 1000;
+  fs.utimesSync(old, yesterday, yesterday);
+  gate(root, { session_id: id });
+  assert.ok(!fs.existsSync(old));
+  assert.ok(fs.existsSync(fresh));
+});
+
 test("the gate reads the hook's input leniently and takes the options of check", (t) => {
   const root = copyFixture(t, "vertical");
   const id = session(t);
