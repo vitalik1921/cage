@@ -10,7 +10,7 @@ import { cli, cliWithStdin, copyFixture, editFile, writeFile } from "./helpers.t
 /** A session of its own, so that the block counter of another test or run is not this one's. */
 function session(t: TestContext): string {
   const id = `test-${crypto.randomBytes(6).toString("hex")}`;
-  t.after(() => fs.rmSync(path.join(os.tmpdir(), `design-gate-${id}`), { force: true }));
+  t.after(() => fs.rmSync(path.join(os.tmpdir(), `cage-gate-${id}`), { force: true }));
   return id;
 }
 
@@ -75,6 +75,17 @@ test("after MAX_BLOCKS blocks in one session the gate lets the agent stop, with 
   assert.equal(attempt(true).code, 0);
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "warn" }));
   assert.equal(attempt(true).code, 2);
+});
+
+test("a project without any design yet passes the gate: right after init there is nothing to hold the agent to", (t) => {
+  const root = copyFixture(t, "vertical");
+  const id = session(t);
+  for (const module of ["campaigns", "mail", "quota"]) fs.rmSync(path.join(root, "src/modules", module, `${module}.cage.mdx`));
+  assert.match(cli(root, "check").stdout, /E_NO_DESIGNS/);
+  const result = gate(root, { session_id: id });
+  assert.equal(result.code, 0);
+  assert.equal(result.stderr, "cage gate: no *.cage.mdx design yet, nothing to check.\n");
+  assert.ok(!fs.existsSync(path.join(os.tmpdir(), `cage-gate-${id}`)));
 });
 
 test("the gate reads the hook's input leniently and takes the options of check", (t) => {

@@ -26,7 +26,8 @@ export interface GateResult {
  * `cage gate`: the full check as a stop-gate for an agent's environment.
  * Errors and review findings block, whatever the configured review level
  * (code the design does not cover blocks only when `"coverage"` is
- * `"require"`: then it is an error);
+ * `"require"`: then it is an error); a project without any design yet
+ * passes, since there is nothing to hold the agent to;
  * the report and the way out go to the agent as feedback. A check that
  * still fails after `MAX_BLOCKS` blocks in one session lets the agent stop,
  * with the report: a check the agent cannot fix must not hold the session
@@ -40,6 +41,11 @@ export function runGate(options: ImplementationPhaseOptions, checkOptions: Check
   if (blocking.length === 0) {
     fs.rmSync(counter, { force: true });
     return { exitCode: 0, feedback: "" };
+  }
+  // A project right after `cage init` has no design yet: there is nothing to hold the agent to.
+  if (blocking.every((diagnostic) => diagnostic.code === "E_NO_DESIGNS")) {
+    fs.rmSync(counter, { force: true });
+    return { exitCode: 0, feedback: "cage gate: no *.cage.mdx design yet, nothing to check.\n" };
   }
 
   const text = formatCheckReport(report);

@@ -251,7 +251,7 @@ export function formatInitReport(report: InitReport): string {
     lines.push(`init: ${errors} error${errors === 1 ? "" : "s"}; what is listed above as created or updated was written before it.`);
     return `${lines.join("\n")}\n`;
   }
-  const where = report.repository === "." ? "" : ` from ${report.repository}`;
+  const where = report.repository === "." ? "" : `, its files at the repository root (${report.repository})`;
   const agents = report.agents.length === 0 ? "no Stop gate set up (--agent claude or codex)" : `Stop gate for ${report.agents.join(" and ")}${where}`;
   lines.push(`init: ${agents}.`);
   lines.push("Next: describe a module in a *.cage.mdx next to its code, tag its implementation with `@implements` and its tests with `@tests` / `@covers`, then run `cage check`.");

@@ -156,7 +156,7 @@ test("a project inside a repository gets the gate at the repository, naming the 
   assert.equal(JSON.parse(readFile(root, ".cage/config.json")).testAdapter, "node:test");
   assert.equal(settings(repo).hooks.Stop[0].hooks[0].command, '"$CLAUDE_PROJECT_DIR/apps/my api/node_modules/.bin/cage" gate --root "$CLAUDE_PROJECT_DIR/apps/my api"');
   assert.ok(readFile(repo, ".codex/config.toml").includes("command = '\"apps/my api/node_modules/.bin/cage\" gate --root \"apps/my api\"'"));
-  assert.match(cli(root, "init").stdout, /init: Stop gate for claude from \.\.\/\.\./);
+  assert.match(cli(root, "init").stdout, /init: Stop gate for claude, its files at the repository root \(\.\.\/\.\.\)\./);
 
   // Another project of the same repository gets its own entry; without an installed cage the hook is a guess, and says so.
   const web = init(path.join(repo, "apps/web"), "--agent", "claude");
