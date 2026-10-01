@@ -1,6 +1,14 @@
-# cage
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vitalik1921/cage/main/docs/logo-dark.png">
+    <img src="https://raw.githubusercontent.com/vitalik1921/cage/main/docs/logo.png" alt="cage" width="260">
+  </picture>
+</p>
 
-[![npm](https://img.shields.io/npm/v/cage-ts)](https://www.npmjs.com/package/cage-ts) [![CI](https://github.com/vitalik1921/cage/actions/workflows/ci.yml/badge.svg)](https://github.com/vitalik1921/cage/actions/workflows/ci.yml)
+<p align="center">
+  <a href="https://www.npmjs.com/package/cage-ts"><img src="https://img.shields.io/npm/v/cage-ts" alt="npm"></a>
+  <a href="https://github.com/vitalik1921/cage/actions/workflows/ci.yml"><img src="https://github.com/vitalik1921/cage/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+</p>
 
 A gate for agent-written code. You describe a module's design in a Markdown file next to the code — contracts as TypeScript interfaces with invariants in plain words — and `cage check` verifies that the code implements them, that every invariant has a test, and that a substantive review of each contract is on record. As a Stop hook, it does not let an agent finish while any of that fails.
 
@@ -114,10 +122,3 @@ Commit `.cage/` (config, locks, reviews) and `.cageignore` with the designs.
 - Development: `npm test`, `npm run verify`, `npm run smoke`.
 
 MIT.
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vitalik1921/cage/main/docs/logo-dark.png">
-    <img src="https://raw.githubusercontent.com/vitalik1921/cage/main/docs/logo.png" alt="cage" width="120">
-  </picture>
-</p>
