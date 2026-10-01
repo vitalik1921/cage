@@ -114,3 +114,10 @@ Commit `.cage/` (config, locks, reviews) and `.cageignore` with the designs.
 - Development: `npm test`, `npm run verify`, `npm run smoke`.
 
 MIT.
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vitalik1921/cage/main/docs/logo-dark.png">
+    <img src="https://raw.githubusercontent.com/vitalik1921/cage/main/docs/logo.png" alt="cage" width="120">
+  </picture>
+</p>
