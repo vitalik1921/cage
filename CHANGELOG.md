@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+
+- README: what Cage checks before an agent says "done", real output of the three catches, and the measured results; `docs/evaluation.md` describes how they were measured.
+
 ## 0.2.0
 
 - A Claude Code plugin (`plugin/`, marketplace `vitalik1921/cage`): the rules at session start, the `cage-design` and `cage-review` skills, and a Stop hook that runs `cage gate` for every project of the repository with a `.cage/config.json`. It uses the project's own install, else `npx cage-ts@<its version>`. `init` takes the rules and skills from the same directory.
