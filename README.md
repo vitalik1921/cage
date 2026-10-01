@@ -77,7 +77,7 @@ Run `npx cage check`. It reports, with file and line, every contract without an 
 
 1. The agent changes a design, an implementation or a test. The Stop hook runs `cage gate`.
 2. Whatever fails comes back to the agent as feedback: a missing test, a mismatch, a stale review.
-3. For a review: the agent runs `cage review`, reads the material, judges each invariant, writes the verdict and records it with `cage review --record`. The verdict is tied to a fingerprint of the material: change anything and it is stale again.
+3. For a review: the agent runs `cage review`, reads the material, judges each invariant, writes the verdict and records it with `cage review --record`. The verdict is tied to a fingerprint of the contract, its implementations and the tests declared for it: change any of those and it is stale again; change something else in those files and it is not.
 4. `cage check` is clean; the agent may stop.
 
 The rules the agent needs are in the `CLAUDE.md` / `AGENTS.md` section that `init` adds, and in two skills it installs (`.claude/skills/` or `.agents/skills/`): `cage-design` — how to write a module's design, from a plan or from existing code, what deserves a contract and what goes to `.cageignore`, the document structure (purpose, glossary, business rules, data, contracts, out of scope, open questions); `cage-review` — how to judge the tests against the invariants and record the verdict. The harness never calls a model itself.

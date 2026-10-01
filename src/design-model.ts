@@ -39,6 +39,8 @@ export interface Contract {
   /** Null when the contract is open to any change. */
   lock: LockLevel | null;
   location: SourceLocation;
+  /** The declaration as written, with its doc comment: what a review of the contract is about. */
+  source: string;
 }
 
 export interface DataType {

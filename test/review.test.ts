@@ -76,28 +76,33 @@ test("a packet holds the contract, its design, the designs it depends on, its im
   assert.deepEqual(packet.diagnostics.map(({ code }) => code), ["W_NO_INVARIANTS"]);
 });
 
-test("the fingerprint changes with any file of the packet and with nothing else", (t) => {
+test("the fingerprint is of the contract, its implementations and the tests declared for it, and of nothing else", (t) => {
   const root = copyFixture(t, "vertical");
   const fingerprint = () => review(root, "Send").report.contracts[0].fingerprint;
   const first = fingerprint();
   assert.equal(fingerprint(), first);
   const sender = review(root, "Sender").report.contracts[0].fingerprint;
 
+  // Not material: a test of another contract, a comment outside the tests of Send, the prose of a design, line endings.
   editFile(root, "src/modules/quota/quota.test.ts", (s) => `${s}// a change to a test of another contract\n`);
+  editFile(root, SEND_TEST, (s) => `${s}// a comment after the tests of Send\n`);
+  editFile(root, QUOTA, (s) => s.replace("# ", "# Модуль: "));
+  editFile(root, CAMPAIGNS, (s) => s.replace("# ", "# Модуль: "));
+  editFile(root, SEND_TEST, (s) => s.replaceAll("\n", "\r\n"));
   assert.equal(fingerprint(), first);
-  editFile(root, SEND_TEST, (s) => `${s}// a change to a test of Send\n`);
+  assert.equal(review(root, "Send").report.files.find((file) => file.path === SEND_TEST)?.text.includes("\r"), false);
+
+  // Material: a test declared for Send, the implementation, the contract's declaration (its doc comment included).
+  editFile(root, SEND_TEST, (s) => s.replace('it("не передає повідомлення без квоти"', 'it("не передає повідомлення без квоти (edited)"'));
   const afterTest = fingerprint();
   assert.notEqual(afterTest, first);
-  // Prose of a dependency's design is material too.
-  editFile(root, QUOTA, (s) => s.replace("# ", "# Модуль: "));
-  const afterDependency = fingerprint();
-  assert.notEqual(afterDependency, afterTest);
+  editFile(root, SEND_SERVICE, (s) => s.replace('return "sent";', 'return "sent" as const;'));
+  const afterImplementation = fingerprint();
+  assert.notEqual(afterImplementation, afterTest);
+  editFile(root, CAMPAIGNS, (s) => s.replace("@invariant limit За false", "@invariant limit За false (уточнено)"));
+  assert.notEqual(fingerprint(), afterImplementation);
   // None of that is material of Sender.
   assert.equal(review(root, "Sender").report.contracts[0].fingerprint, sender);
-  // Line endings are not material: a checkout with CRLF reads the same.
-  editFile(root, SEND_TEST, (s) => s.replaceAll("\n", "\r\n"));
-  assert.equal(fingerprint(), afterDependency);
-  assert.equal(review(root, "Send").report.files.find((file) => file.path === SEND_TEST)?.text.includes("\r"), false);
 });
 
 test("the markdown document lists the contracts and every file once, in fences longer than any run of backticks inside", (t) => {
@@ -235,8 +240,15 @@ test("a recorded verdict makes check content with the contract, and the review f
   assert.equal((JSON.parse(broken.stdout) as RecordReport).diagnostics[0].file, "out/broken.json");
 
   const file = JSON.parse(readFile(root, REVIEW_FILE));
-  assert.deepEqual(Object.keys(file.reviews[0]), ["module", "contract", "fingerprint", "files", "findings"]);
-  assert.deepEqual(Object.keys(file.reviews[0].files), [CAMPAIGNS, SEND_SERVICE, SEND_TEST, MAIL, QUOTA]);
+  assert.deepEqual(Object.keys(file.reviews[0]), ["module", "contract", "fingerprint", "material", "findings"]);
+  assert.deepEqual(Object.keys(file.reviews[0].material), [
+    "contract",
+    `implementation ${SEND_SERVICE}#SendService`,
+    `test ${SEND_TEST}:чекає на підтвердження квоти до передачі повідомлення`,
+    `test ${SEND_TEST}:не передає повідомлення без квоти`,
+    `test ${SEND_TEST}:передає помилку квоти без звернення до транспорту`,
+    `test ${SEND_TEST}:передає помилку транспорту`,
+  ]);
   assert.equal(file.reviews[0].fingerprint, fingerprint);
 
   assert.deepEqual(
@@ -263,12 +275,12 @@ test("a change to the material makes the review stale, naming the file, and the 
   assert.equal(record(root, verdicts).code, 0);
   const reviewFile = readFile(root, REVIEW_FILE);
 
-  editFile(root, SEND_TEST, (s) => `${s}// the test file changed after the review\n`);
+  editFile(root, SEND_TEST, (s) => s.replace('it("не передає повідомлення без квоти"', 'it("не передає повідомлення без квоти (edited)"'));
   const contractPosition = inFixture(CAMPAIGNS, "Send {");
   assert.deepEqual(reviewDiagnostics(root).filter(({ contract }) => contract === "Send"), [
     {
       code: "W_REVIEW_STALE",
-      message: `The recorded review of contract "Send" is for other material; since then: ${SEND_TEST} changed. Review it again.`,
+      message: `The recorded review of contract "Send" is for other material; since then: test "не передає повідомлення без квоти (edited)" (${SEND_TEST}) is new, test "не передає повідомлення без квоти" (${SEND_TEST}) is gone. Review it again.`,
       contract: "Send",
       invariant: undefined,
       ...contractPosition,
@@ -285,17 +297,16 @@ test("a change to the material makes the review stale, naming the file, and the 
   // A recorded fingerprint that does not match its own digests is stale too, and the message says so.
   const tampered = JSON.parse(reviewFile);
   writeFile(root, REVIEW_FILE, JSON.stringify({ ...tampered, reviews: [{ ...tampered.reviews[0], fingerprint: "sha256:0" }] }));
-  editFile(root, SEND_TEST, (s) => s.replace("// the test file changed after the review\n", ""));
+  editFile(root, SEND_TEST, (s) => s.replace('it("не передає повідомлення без квоти (edited)"', 'it("не передає повідомлення без квоти"'));
   assert.match(reviewDiagnostics(root).find(({ contract }) => contract === "Send")?.message ?? "", /for other material; its recorded fingerprint does not match its files\. Review it again\./);
   writeFile(root, REVIEW_FILE, reviewFile);
-  editFile(root, SEND_TEST, (s) => `${s}// the test file changed after the review\n`);
 
-  // A dependency's design is material too; a file of another contract is not.
-  assert.equal(record(root, { ...verdicts, verdicts: [{ ...verdicts.verdicts[0], fingerprint: fingerprintOf(root, "Send") }] }).code, 0);
-  editFile(root, QUOTA, (s) => s.replace("# ", "# Модуль: "));
-  assert.match(reviewDiagnostics(root).find(({ contract }) => contract === "Send")?.message ?? "", new RegExp(`since then: ${QUOTA} changed`));
+  // The implementation is material; a file of another contract, or a comment next to the tests, is not.
+  editFile(root, SEND_SERVICE, (s) => s.replace('return "sent";', 'return "sent" as const;'));
+  assert.match(reviewDiagnostics(root).find(({ contract }) => contract === "Send")?.message ?? "", new RegExp(`since then: implementation SendService \\(${SEND_SERVICE}\\) changed`));
   assert.equal(record(root, { ...verdicts, verdicts: [{ ...verdicts.verdicts[0], fingerprint: fingerprintOf(root, "Send") }] }).code, 0);
   editFile(root, "src/modules/quota/quota.test.ts", (s) => `${s}// not material of Send\n`);
+  editFile(root, SEND_TEST, (s) => `${s}// not material either\n`);
   assert.deepEqual(reviewDiagnostics(root).filter(({ contract }) => contract === "Send"), []);
 });
 

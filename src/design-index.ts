@@ -268,6 +268,7 @@ function readDesign(
       members,
       lock,
       location: design.locate(declaration.name.getStart(sourceFile)),
+      source: declaration.getFullText(sourceFile).trim(),
     };
     index.contracts.push(contract);
     if (hasInvariantTags) withInvariantTags.add(contract);

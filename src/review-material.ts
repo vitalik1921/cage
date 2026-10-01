@@ -1,11 +1,13 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import type { Contract, Edge, Implementation, TestDeclaration } from "./design-model.ts";
+import type ts from "typescript";
+import type { Contract, Edge, Implementation, SourceLocation, TestDeclaration } from "./design-model.ts";
 import type { DesignModule } from "./design-phase.ts";
 import { compareText, type Diagnostic } from "./diagnostic.ts";
 import type { ImplementationPhaseResult } from "./implementation-phase.ts";
 import { stripBom } from "./location.ts";
+import type { TypeScript } from "./typescript.ts";
 
 /** A file the reviewer reads, once, whatever number of contracts it serves. Its text has `\n` line endings whatever the disk has. */
 export interface PacketFile {
@@ -17,6 +19,13 @@ export interface PacketFile {
 }
 
 /** The files a contract's review is made of, and what they were found for. */
+/** One piece of what a review of a contract is about: the contract itself, an implementation, a test. */
+export interface MaterialPart {
+  /** `contract`, `implementation <file>#<name>` or `test <file>:<title>`. */
+  key: string;
+  text: string;
+}
+
 export interface Material {
   contract: Contract;
   own: DesignModule;
@@ -27,6 +36,8 @@ export interface Material {
   declarations: TestDeclaration[];
   testFiles: string[];
   files: PacketFile[];
+  /** What the fingerprint is made of: the contract's declaration, the text of each implementation, the text of each test declared for it. */
+  parts: MaterialPart[];
 }
 
 export type FileReader = (file: string, role: PacketFile["role"], text?: string) => PacketFile | undefined;
@@ -57,7 +68,7 @@ export function createFileReader(root: string, diagnostics: Diagnostic[]): { rea
  * the linked test declarations.
  */
 export function collectMaterial(result: ImplementationPhaseResult, name: string, read: FileReader): Material {
-  const { modules, index, linking } = result;
+  const { modules, index, linking, compiler } = result;
   const contract = index!.contracts.find((candidate) => candidate.name === name)!;
   const moduleOf = (moduleId: string) => modules.find((module) => module.moduleId === moduleId)!;
   const own = moduleOf(contract.module);
@@ -91,16 +102,48 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
   const testFiles = [...new Set(declarations.map((test) => test.location.file))].sort(compareText);
   for (const file of testFiles) include(read(file, "test"));
 
-  return { contract, own, dependencyDesigns: dependencyModules.flatMap((moduleId) => moduleOf(moduleId).documents.map((document) => document.file)), uses, usedBy, implementations, declarations, testFiles, files };
+  // A review is about the contract, its implementations and the tests declared for it: a change elsewhere in those files is not a change of the material.
+  const parts: MaterialPart[] = [{ key: "contract", text: contract.source }];
+  const textOf = (file: string) => files.find((candidate) => candidate.path === file)?.text;
+  for (const implementation of implementations.slice().sort((a, b) => compareText(a.location.file, b.location.file) || compareText(a.name, b.name))) {
+    const text = textOf(implementation.location.file);
+    const statement = compiler && text !== undefined ? statementAt(compiler.ts, text, implementation.location, false) : undefined;
+    parts.push({ key: `implementation ${implementation.location.file}#${implementation.name}`, text: statement ?? text ?? "" });
+  }
+  const titles = new Map<string, number>();
+  for (const declaration of declarations.slice().sort((a, b) => compareText(a.location.file, b.location.file) || a.location.line - b.location.line)) {
+    const text = textOf(declaration.location.file);
+    const statement = compiler && text !== undefined ? statementAt(compiler.ts, text, declaration.location, true) : undefined;
+    const title = `${declaration.location.file}:${declaration.title}`;
+    const seen = titles.get(title) ?? 0;
+    titles.set(title, seen + 1);
+    parts.push({ key: `test ${title}${seen > 0 ? ` (${seen + 1})` : ""}`, text: statement ?? text ?? "" });
+  }
+  return { contract, own, dependencyDesigns: dependencyModules.flatMap((moduleId) => moduleOf(moduleId).documents.map((document) => document.file)), uses, usedBy, implementations, declarations, testFiles, files, parts };
+}
+
+/** The text of the statement at a location: the top-level one holding it, or, for a test, the expression statement that starts there. */
+function statementAt(ts: TypeScript, text: string, location: SourceLocation, nested: boolean): string | undefined {
+  const sourceFile = ts.createSourceFile("file.ts", text, ts.ScriptTarget.Latest, true);
+  const position = sourceFile.getPositionOfLineAndCharacter(location.line - 1, location.column - 1);
+  if (!nested) return sourceFile.statements.find((statement) => statement.getStart() <= position && position < statement.end)?.getFullText().trim();
+  let found: ts.Node | undefined;
+  const visit = (node: ts.Node) => {
+    if (found) return;
+    if (ts.isExpressionStatement(node) && node.getStart() === position) found = node;
+    else ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found?.getFullText().trim();
 }
 
 export const digestOf = (text: string) => `sha256:${crypto.createHash("sha256").update(text).digest("hex")}`;
 
-/** The digest of every file of the material, by path, and of all of them together. */
-export function fingerprintOf(files: readonly PacketFile[]): { fingerprint: string; digests: Record<string, string> } {
-  const sorted = [...files].sort((a, b) => compareText(a.path, b.path));
+/** The digest of every part of the material, by key, and of all of them together. */
+export function fingerprintOf(parts: readonly MaterialPart[]): { fingerprint: string; digests: Record<string, string> } {
+  const digests = parts.map((part) => [part.key, digestOf(part.text)] as const);
   const hash = crypto.createHash("sha256");
-  for (const file of sorted) hash.update(`${file.path}\n${file.digest}\0`);
-  return { fingerprint: `sha256:${hash.digest("hex")}`, digests: Object.fromEntries(sorted.map((file) => [file.path, file.digest])) };
+  for (const [key, digest] of digests) hash.update(`${key}\n${digest}\0`);
+  return { fingerprint: `sha256:${hash.digest("hex")}`, digests: Object.fromEntries(digests) };
 }
 

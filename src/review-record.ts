@@ -64,7 +64,8 @@ export interface ReviewEntry {
   module: string;
   contract: string;
   fingerprint: string;
-  files: Record<string, string>;
+  /** Digest of each part of the material, by key: `contract`, `implementation <file>#<name>`, `test <file>:<title>`. */
+  material: Record<string, string>;
   findings: Finding[];
 }
 
@@ -78,9 +79,9 @@ function isFinding(value: unknown): value is Finding {
 
 function isEntry(value: unknown): value is ReviewEntry {
   if (typeof value !== "object" || value === null) return false;
-  const { module, contract, fingerprint, files, findings } = value as Record<string, unknown>;
-  const isFiles = typeof files === "object" && files !== null && Object.values(files).every(isText);
-  return isText(module) && isText(contract) && isText(fingerprint) && isFiles && Array.isArray(findings) && findings.every(isFinding);
+  const { module, contract, fingerprint, material, findings } = value as Record<string, unknown>;
+  const isMaterial = typeof material === "object" && material !== null && Object.values(material).every(isText);
+  return isText(module) && isText(contract) && isText(fingerprint) && isMaterial && Array.isArray(findings) && findings.every(isFinding);
 }
 
 /** The recorded reviews; none when there is no review file yet. */
@@ -95,6 +96,16 @@ function parseReviewEntries(value: unknown): ReviewEntry[] | string {
 export const formatReviewFile = (entries: readonly ReviewEntry[]) => `${JSON.stringify({ version: 1, reviews: entries }, null, 2)}\n`;
 
 const keyOf = ({ module, contract }: Pick<ReviewEntry, "module" | "contract">) => `${module}\n${contract}`;
+
+/** A part of the material, for a message: `the contract`, `implementation Name (file)`, `test "title" (file)`. */
+function describePart(key: string): string {
+  if (key === "contract") return "the contract declaration";
+  const implementation = /^implementation (.+)#([^#]+)$/.exec(key);
+  if (implementation) return `implementation ${implementation[2]} (${implementation[1]})`;
+  const test = /^test ([^:]+):(.*)$/.exec(key);
+  if (test) return `test "${test[2]}" (${test[1]})`;
+  return key;
+}
 
 /**
  * What `check` says about the recorded reviews: a contract without one,
@@ -124,11 +135,11 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
       });
       continue;
     }
-    const { fingerprint, digests } = fingerprintOf(collectMaterial(result, contract.name, read).files);
+    const { fingerprint, digests } = fingerprintOf(collectMaterial(result, contract.name, read).parts);
     if (fingerprint !== entry.fingerprint) {
-      const changed = Object.keys(digests).filter((file) => entry.files[file] !== digests[file]);
-      const removed = Object.keys(entry.files).filter((file) => !Object.hasOwn(digests, file));
-      const what = [...changed.map((file) => (Object.hasOwn(entry.files, file) ? `${file} changed` : `${file} is new`)), ...removed.map((file) => `${file} is no longer part of it`)];
+      const changed = Object.keys(digests).filter((key) => entry.material[key] !== digests[key]);
+      const removed = Object.keys(entry.material).filter((key) => !Object.hasOwn(digests, key));
+      const what = [...changed.map((key) => (Object.hasOwn(entry.material, key) ? `${describePart(key)} changed` : `${describePart(key)} is new`)), ...removed.map((key) => `${describePart(key)} is gone`)];
       // The files may all match while the recorded fingerprint does not: the entry was edited or made by other rules.
       const since = what.length > 0 ? `since then: ${what.join(", ")}` : "its recorded fingerprint does not match its files";
       diagnostics.push({
@@ -253,7 +264,7 @@ export function recordVerdicts(options: ImplementationPhaseOptions, verdictsFile
       problem(`There is more than one verdict for "${contract.name}"; one contract gets one verdict.`);
       continue;
     }
-    const { fingerprint, digests } = fingerprintOf(collectMaterial(result, contract.name, read).files);
+    const { fingerprint, digests } = fingerprintOf(collectMaterial(result, contract.name, read).parts);
     if (verdict.fingerprint !== fingerprint) {
       problem(`The verdict for "${contract.name}" is for fingerprint ${verdict.fingerprint}, but the material is now ${fingerprint}: it changed since the review. Review it again.`);
       continue;
@@ -266,7 +277,7 @@ export function recordVerdicts(options: ImplementationPhaseOptions, verdictsFile
     if (invariants.length === 0 && verdict.findings.length === 0) problem(`The verdict for "${contract.name}" has no finding; a contract without invariants gets one about the contract as a whole.`);
     if (unknown.length > 0 || unassessed.length > 0 || (invariants.length === 0 && verdict.findings.length === 0)) continue;
 
-    const entry: ReviewEntry = { module: contract.module, contract: contract.name, fingerprint, files: digests, findings: verdict.findings };
+    const entry: ReviewEntry = { module: contract.module, contract: contract.name, fingerprint, material: digests, findings: verdict.findings };
     entries.set(keyOf(entry), entry);
     const assessments = Object.fromEntries(ASSESSMENTS.map((assessment) => [assessment, verdict.findings.filter((finding) => finding.assessment === assessment).length])) as Record<Assessment, number>;
     recorded.push({ module: contract.module, contract: contract.name, fingerprint, assessments });

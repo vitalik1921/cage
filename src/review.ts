@@ -15,8 +15,10 @@ export interface ContractPacket {
   contract: string;
   module: string;
   /**
-   * What the packet is made of: a digest of every file in it. It changes when
-   * any of them changes, and a verdict is recorded against it.
+   * What a review of the contract is about: a digest of the contract's
+   * declaration, of each implementation and of each test declared for it. It
+   * changes when any of those changes, not when something else in their
+   * files does, and a verdict is recorded against it.
    */
   fingerprint: string;
   /** The module's design documents. */
@@ -149,7 +151,7 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
     diagnostics.push(...reviews.diagnostics);
     selected = index.contracts.filter((contract) => {
       const recorded = reviews.entries.find((entry) => entry.module === contract.module && entry.contract === contract.name);
-      return !recorded || recorded.fingerprint !== fingerprintOf(materialOf(contract.name).files).fingerprint;
+      return !recorded || recorded.fingerprint !== fingerprintOf(materialOf(contract.name).parts).fingerprint;
     });
   } else {
     selected = names === "all" ? [...index.contracts] : [];
@@ -187,7 +189,7 @@ function packetOf(root: string, result: ImplementationPhaseResult, material: Mat
   return {
     contract: name,
     module: contract.module,
-    fingerprint: fingerprintOf(files).fingerprint,
+    fingerprint: fingerprintOf(material.parts).fingerprint,
     designs: own.documents.map((document) => document.file),
     description: contract.description,
     lock: contract.lock,
