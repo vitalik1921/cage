@@ -1,10 +1,14 @@
 # cage
 
+[![npm](https://img.shields.io/npm/v/cage-ts)](https://www.npmjs.com/package/cage-ts) [![CI](https://github.com/vitalik1921/cage/actions/workflows/ci.yml/badge.svg)](https://github.com/vitalik1921/cage/actions/workflows/ci.yml)
+
 A gate for agent-written code. You describe a module's design in a Markdown file next to the code — contracts as TypeScript interfaces with invariants in plain words — and `cage check` verifies that the code implements them, that every invariant has a test, and that a substantive review of each contract is on record. As a Stop hook, it does not let an agent finish while any of that fails.
 
 Nothing is executed and nothing is sent anywhere. Node ≥ 24.11, TypeScript 5 or 6.
 
 ## Start
+
+Published on npm as [`cage-ts`](https://www.npmjs.com/package/cage-ts); the command is `cage`.
 
 ```sh
 npm i -D cage-ts
