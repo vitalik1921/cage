@@ -126,7 +126,7 @@ cage gate                   # Stop-hook для агента: check; помилк
 
 ### Що дизайн не покриває: `W_NOT_DESIGNED` і `.cageignore`
 
-`cage check` попереджає про код модуля, якого дизайн не описує: кожен exported `class`, `function` чи `const` у модулі з дизайном, на якому немає `@implements`, дає попередження `W_NOT_DESIGNED` з місцем у файлі. Для людини чи LLM це перелік того, для чого ще треба написати контракт. Попередження не змінюють код виходу.
+`cage check` знаходить код модуля, якого дизайн не описує: кожен exported `class`, `function` чи `const` у модулі з дизайном, на якому немає `@implements`. Для людини чи LLM це перелік того, для чого ще треба написати контракт. Рівень задає `"coverage"` у конфігурації: `"warn"` (типово) — попередження `W_NOT_DESIGNED`, `check` і `cage gate` пропускають; `"require"` — помилка `E_NOT_DESIGNED`, код виходу 1 і gate блокує; `"off"` — не перевіряється. Так проєкт обирає, чи дірка в покритті дизайном зупиняє агента, чи лише показується.
 
 Файл належить найближчому модулю над ним. Код поза модулями з дизайном, тести, типи (`interface`, `type`), `enum`, default-експорти й `declare` не перевіряються.
 
@@ -211,7 +211,8 @@ dto/
   "tests": ["src/**/*.test.ts", "tests/**/*.test.ts"],
   "exclude": ["**/node_modules/**", "**/dist/**", "**/build/**", "**/coverage/**"],
   "testAdapter": "node:test",
-  "review": "warn"
+  "review": "warn",
+  "coverage": "warn"
 }
 ```
 
@@ -224,6 +225,7 @@ dto/
 - `implementations` і `tests` визначають, у яких файлах `cage check` шукає `@implements` та `@tests` / `@covers`. Беруться лише файли `.ts` (без `.d.ts`), хоч би що ще збіглося з шаблоном; файл тестів реалізацією не вважається, як і будь-що в каталозі `.design`.
 - `testAdapter` — `node:test` (типово) або `vitest`.
 - `review` — як `cage check` ставиться до контракту без свіжого записаного рев’ю: `"warn"` (типово), `"require"` або `"off"`.
+- `coverage` — як `cage check` ставиться до exported коду модуля без `@implements`: `"warn"` (типово), `"require"` або `"off"`.
 
 ## Технічні рішення
 

@@ -17,6 +17,8 @@ export interface ImplementationPhaseOptions extends DesignPhaseOptions {
   sources: SourceFiles;
   /** The test runner whose declarations are read. */
   testAdapter: TestAdapter;
+  /** Exported code of a designed module without `@implements`: not looked at, a warning, or an error. Default: a warning. */
+  coverage?: "off" | "warn" | "require";
 }
 
 /** The test declarations that link an invariant: inside a `@tests` suite of its contract, with its id in `@covers`. */
@@ -78,6 +80,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
     message: `Cannot read the ${what}: ${(cause as Error).message}`,
     file,
   });
+  const coverage = options.coverage ?? "warn";
   const { scopes, diagnostics: ignoreProblems } = readModuleScopes(root, modules.map((module) => module.moduleId));
   diagnostics.push(...ignoreProblems);
 
@@ -87,7 +90,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
   const read = (files: readonly string[], expectDesign: boolean): TaggedFile[] =>
     files.flatMap((file) => {
       const fileName = path.join(root, file);
-      const module = expectDesign ? ownerOf(scopes, file) : undefined;
+      const module = expectDesign && coverage !== "off" ? ownerOf(scopes, file) : undefined;
       const owner = module && !module.ignores(file) ? module : undefined;
       try {
         const text = stripBom(fs.readFileSync(fileName, "utf8"));
@@ -101,7 +104,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
   const testFiles = read(options.sources.tests, false);
 
   const contracts = new Map(index.contracts.map((contract) => [contract.name, contract]));
-  const { found, implementationFiles, attempted } = findImplementations(ts, root, read(options.sources.implementations, true), contracts, diagnostics);
+  const { found, implementationFiles, attempted } = findImplementations(ts, root, read(options.sources.implementations, true), contracts, coverage === "require" ? "require" : "warn", diagnostics);
 
   // One in-memory file per implementation asks the compiler whether it fits its contract.
   const checks = found.map((implementation, order) => {
@@ -222,7 +225,14 @@ function namesAfterTag(text: string, tag: string): string[] {
  * Reads `@implements` from the tagged files. A file with syntax errors is
  * reported and not read: its tree is not what the author wrote.
  */
-function findImplementations(ts: TypeScript, root: string, files: readonly TaggedFile[], contracts: ReadonlyMap<string, Contract>, diagnostics: Diagnostic[]) {
+function findImplementations(
+  ts: TypeScript,
+  root: string,
+  files: readonly TaggedFile[],
+  contracts: ReadonlyMap<string, Contract>,
+  coverage: "warn" | "require",
+  diagnostics: Diagnostic[],
+) {
   const found: FoundImplementation[] = [];
   /** Files with an `@implements` on a declaration: the ones the harness makes a claim about. */
   const implementationFiles: TaggedFile[] = [];
@@ -248,8 +258,8 @@ function findImplementations(ts: TypeScript, root: string, files: readonly Tagge
       for (const declaration of read.exported) {
         if (declaration.claimed) continue;
         diagnostics.push({
-          code: "W_NOT_DESIGNED",
-          severity: "warning",
+          code: coverage === "require" ? "E_NOT_DESIGNED" : "W_NOT_DESIGNED",
+          severity: coverage === "require" ? "error" : "warning",
           message:
             `Exported ${declaration.kind} "${declaration.name}" is not covered by the design of ${moduleId}: nothing marks it \`@implements\`. ` +
             `Describe its contract in the design, or list the file in ${path.posix.join(moduleId, IGNORE_FILE)}.`,

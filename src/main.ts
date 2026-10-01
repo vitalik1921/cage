@@ -139,7 +139,7 @@ function run(argv: readonly string[], io: CliIo): number {
     const phase = values.phase === "design" ? "design" : "implementation";
     // The design phase does not look at source files, so it does not search for them either.
     const sources = phase === "design" || diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
-    const report = runCheck({ ...scope, sources, testAdapter: config.testAdapter }, phase, { lockBase: values.base, review: config.review });
+    const report = runCheck({ ...scope, sources, testAdapter: config.testAdapter, coverage: config.coverage }, phase, { lockBase: values.base, review: config.review });
     return print(report, formatCheckReport(report));
   }
   if (command === "lock") {
@@ -148,13 +148,13 @@ function run(argv: readonly string[], io: CliIo): number {
   }
   if (command === "gate") {
     const sources = diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
-    const { exitCode, feedback } = runGate({ ...scope, sources, testAdapter: config.testAdapter }, { lockBase: values.base, review: config.review }, parseHookInput(io.stdin));
+    const { exitCode, feedback } = runGate({ ...scope, sources, testAdapter: config.testAdapter, coverage: config.coverage }, { lockBase: values.base, review: config.review }, parseHookInput(io.stdin));
     if (feedback !== "") io.stderr(feedback);
     return exitCode;
   }
   if (command === "review") {
     const sources = diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
-    const phaseOptions = { ...scope, sources, testAdapter: config.testAdapter };
+    const phaseOptions = { ...scope, sources, testAdapter: config.testAdapter, coverage: config.coverage };
     if (values.record !== undefined) {
       const report = recordVerdicts(phaseOptions, path.resolve(io.cwd, values.record));
       return print(report, formatRecordReport(report));

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import type { Diagnostic } from "../src/diagnostic.ts";
 import { test, type TestContext } from "node:test";
 import { IGNORE_FILE, ownerOf, readModuleScopes } from "../src/coverage.ts";
 import { checkDesigns, checkLinking, cli, contract, designProject, inFile, mdx, writeFile } from "./helpers.ts";
@@ -60,6 +61,21 @@ test("exported code of a module that its design does not cover is a warning", (t
   // Warnings do not fail the check, and the design phase does not look at code at all.
   assert.equal(cli(root, "check").code, 0);
   assert.deepEqual(checkDesigns(root).diagnostics, []);
+
+  // The level is configured: "require" makes every gap an error that fails the check, "off" does not look.
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, coverage: "require" }));
+  const required = cli(root, "check", "--format", "json");
+  assert.equal(required.code, 1);
+  const found = (JSON.parse(required.stdout) as { diagnostics: Diagnostic[] }).diagnostics.filter(({ code }) => code.endsWith("NOT_DESIGNED"));
+  assert.equal(found.length, 6);
+  assert.ok(found.every(({ code, severity }) => code === "E_NOT_DESIGNED" && severity === "error"));
+  assert.equal(found[0].message, 'Exported class "Controller" is not covered by the design of src/m: nothing marks it `@implements`. Describe its contract in the design, or list the file in src/m/.cageignore.');
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, coverage: "off" }));
+  const off = cli(root, "check", "--format", "json");
+  assert.equal(off.code, 0);
+  assert.deepEqual((JSON.parse(off.stdout) as { diagnostics: Diagnostic[] }).diagnostics.filter(({ code }) => code.endsWith("NOT_DESIGNED")), []);
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, coverage: "maybe" }));
+  assert.match(cli(root, "check").stdout, /"coverage" must be "off", "warn" or "require"/);
 });
 
 test("a module's ignore file lists the files and folders that need no design", (t) => {

@@ -24,7 +24,9 @@ export interface GateResult {
 
 /**
  * `cage gate`: the full check as a stop-gate for an agent's environment.
- * Errors and review findings block, whatever the configured review level;
+ * Errors and review findings block, whatever the configured review level
+ * (code the design does not cover blocks only when `"coverage"` is
+ * `"require"`: then it is an error);
  * the report and the way out go to the agent as feedback. A check that
  * still fails after `MAX_BLOCKS` blocks in one session lets the agent stop,
  * with the report: a check the agent cannot fix must not hold the session

@@ -14,6 +14,8 @@ export interface Config {
   testAdapter: "node:test" | "vitest";
   /** How `check` treats a contract without a fresh recorded review: not at all, as a warning, or as an error. */
   review: "off" | "warn" | "require";
+  /** How `check` treats exported code of a designed module that nothing marks `@implements`: not at all, as a warning, or as an error. */
+  coverage: "off" | "warn" | "require";
 }
 
 export const DEFAULT_CONFIG_FILE = ".cage/config.json";
@@ -27,6 +29,7 @@ export const defaultConfig: Config = {
   exclude: ["**/node_modules/**", "**/dist/**", "**/build/**", "**/coverage/**"],
   testAdapter: "node:test",
   review: "warn",
+  coverage: "warn",
 };
 
 export interface LoadedConfig {
@@ -75,6 +78,7 @@ const fields: Record<keyof Config, { expected: string; valid: (value: unknown) =
   exclude: { expected: "an array of non-empty strings", valid: isTextList },
   testAdapter: { expected: '"node:test" or "vitest"', valid: (value) => value === "node:test" || value === "vitest" },
   review: { expected: '"off", "warn" or "require"', valid: (value) => value === "off" || value === "warn" || value === "require" },
+  coverage: { expected: '"off", "warn" or "require"', valid: (value) => value === "off" || value === "warn" || value === "require" },
 };
 
 function validate(value: unknown): string[] {

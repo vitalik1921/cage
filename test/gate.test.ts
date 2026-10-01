@@ -35,6 +35,16 @@ test("the gate blocks on errors and on review findings, whatever the review leve
   assert.equal(clean.code, 0);
   assert.equal(clean.stderr, "");
 
+  // Code the design does not cover blocks only when coverage is required: a warning lets the agent stop, an error does not.
+  writeFile(root, "src/modules/mail/extra.ts", "export class Extra {}\n");
+  assert.equal(gate(root, { session_id: id, stop_hook_active: false }).code, 0);
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "off", coverage: "require" }));
+  const uncovered = gate(root, { session_id: id, stop_hook_active: false });
+  assert.equal(uncovered.code, 2);
+  assert.match(uncovered.stderr, /E_NOT_DESIGNED: Exported class "Extra"/);
+  fs.rmSync(path.join(root, "src/modules/mail/extra.ts"));
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "off" }));
+
   editFile(root, "src/modules/campaigns/send.test.ts", (s) => s.replace("/** @covers sender-error */", "/** no cover */"));
   const error = gate(root, { session_id: id, stop_hook_active: false });
   assert.equal(error.code, 2);
