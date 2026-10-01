@@ -12,7 +12,8 @@ import type { TypeScript } from "./typescript.ts";
 /** A file the reviewer reads, once, whatever number of contracts it serves. Its text has `\n` line endings whatever the disk has. */
 export interface PacketFile {
   path: string;
-  role: "design" | "implementation" | "test";
+  /** "helper": a project file a test file imports, loaded because a reviewer has to see what a stub stands in for. */
+  role: "design" | "implementation" | "test" | "helper";
   text: string;
   /** Of the normalized text, so that the line endings of a checkout do not count as a change. */
   digest: string;

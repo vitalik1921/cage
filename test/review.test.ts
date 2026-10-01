@@ -32,6 +32,7 @@ test("a packet holds the contract, its design, the designs it depends on, its im
       { path: CAMPAIGNS, role: "design" },
       { path: SEND_SERVICE, role: "implementation" },
       { path: SEND_TEST, role: "test" },
+      { path: CALLBACK_SENDER, role: "helper" },
       { path: MAIL, role: "design" },
       { path: QUOTA, role: "design" },
     ],
@@ -65,8 +66,10 @@ test("a packet holds the contract, its design, the designs it depends on, its im
   assert.deepEqual(packet.implementations, [{ name: "SendService", kind: "class", compatible: true, location: inFixture(SEND_SERVICE, "SendService") }]);
   assert.deepEqual(packet.tests.map((file) => ({ file, count: file.declarations.length })).map(({ file, count }) => ({ file: file.file, count })), [{ file: SEND_TEST, count: 4 }]);
   assert.deepEqual(packet.tests[0].declarations[0].suitePath, ["SendService"]);
-  // The test file imports the Sender implementation, which is not material of Send: the reviewer is told.
-  assert.deepEqual(packet.unloaded, [{ file: CALLBACK_SENDER, importedBy: [{ file: SEND_TEST, names: ["CallbackSender"] }] }]);
+  // What the test file imports from the project is loaded with it, as a helper; what the implementation imports is only listed.
+  assert.deepEqual(packet.helpers, [CALLBACK_SENDER]);
+  assert.deepEqual(packet.unloaded, []);
+  assert.deepEqual(report.files.find((file) => file.path === CALLBACK_SENDER)?.role, "helper");
   // No test file of the module is without declarations; one that is gets listed, with no claim about its content.
   assert.deepEqual(packet.untaggedTests, []);
   writeFile(root, "src/modules/campaigns/send.e2e.test.ts", 'import { it } from "node:test";\nit("real sending", () => {});\n');
@@ -114,13 +117,13 @@ test("the markdown document lists the contracts and every file once, in fences l
   assert.equal(stdout.match(/^## Contract /gm)?.length, 2);
   assert.deepEqual(
     stdout.match(/^### src\/.*$/gm),
-    [`### ${CAMPAIGNS} (design)`, `### ${SEND_SERVICE} (implementation)`, `### ${SEND_TEST} (test)`, `### ${MAIL} (design)`, "### src/modules/quota/memory-quota.ts (implementation)", `### ${QUOTA} (design)`, "### src/modules/quota/quota.test.ts (test)"],
+    [`### ${CAMPAIGNS} (design)`, `### ${SEND_SERVICE} (implementation)`, `### ${SEND_TEST} (test)`, `### ${CALLBACK_SENDER} (helper)`, `### ${MAIL} (design)`, "### src/modules/quota/memory-quota.ts (implementation)", `### ${QUOTA} (design)`, "### src/modules/quota/quota.test.ts (test)"],
   );
   assert.ok(stdout.includes("\n`````ts\n"), "fences are five backticks");
   assert.ok(!stdout.includes("\n````ts\n"));
   assert.ok(stdout.includes("- uses: Quota (src/modules/quota), Sender (src/modules/mail)"));
   assert.ok(stdout.includes("## Result format"));
-  assert.ok(stdout.includes(`- ${CALLBACK_SENDER}: CallbackSender for ${SEND_TEST}`), "the file that is not loaded is listed with who imports what");
+  assert.ok(stdout.includes(`### Helpers loaded with the tests\n\n- ${CALLBACK_SENDER}`), "the helper the test imports is loaded and listed");
   // Files are printed with line numbers, so that evidence can name a line.
   assert.match(stdout, /\n\s*1 \| # Відправлення\n/);
   assert.match(stdout, /\n\s*1 \| import assert from "node:assert\/strict";\n/);

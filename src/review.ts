@@ -4,7 +4,7 @@ import type { DesignModule } from "./design-phase.ts";
 import { compareDiagnostics, compareText, hasErrors, type Diagnostic } from "./diagnostic.ts";
 import { checkImplementationPhase, type ImplementationPhaseOptions, type ImplementationPhaseResult } from "./implementation-phase.ts";
 import { toProjectPath } from "./location.ts";
-import { collectMaterial, createFileReader, fingerprintOf, type Material, type PacketFile } from "./review-material.ts";
+import { collectMaterial, createFileReader, fingerprintOf, type FileReader, type Material, type PacketFile } from "./review-material.ts";
 import { readReviewFile, VERDICTS_SCHEMA } from "./review-record.ts";
 import type { Overlay, TypeScript } from "./typescript.ts";
 
@@ -35,6 +35,8 @@ export interface ContractPacket {
   };
   implementations: { name: string; kind: "class" | "function" | "const"; compatible: boolean; location: SourceLocation }[];
   tests: { file: string; declarations: { title: string; suitePath: string[]; covers: string[]; line: number; column: number }[] }[];
+  /** Project files the test files import, loaded into `files` as helpers: a stub or a fixture decides what a test observes. */
+  helpers: string[];
   /** Project files that the packet's files import but that are not in the packet, with who imports what: the reviewer opens them in the repository. */
   unloaded: { file: string; importedBy: { file: string; names: string[] }[] }[];
   /** Test files of the module that the `tests` patterns match but that declare nothing for any contract: proof may be waiting there for a tag. */
@@ -167,15 +169,25 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
   }
   selected.sort((a, b) => compareText(a.module, b.module) || compareText(a.name, b.name));
 
-  const packets = selected.map((contract) => packetOf(root, result, materialOf(contract.name), options.sources.tests));
-  const used = new Set(packets.flatMap((packet) => [...packet.designs, ...packet.dependencies.designs, ...packet.implementations.map((i) => i.location.file), ...packet.tests.map((t) => t.file)]));
+  const packets = selected.map((contract) => packetOf(root, result, materialOf(contract.name), options.sources.tests, read));
+  const used = new Set(packets.flatMap((packet) => [...packet.designs, ...packet.dependencies.designs, ...packet.implementations.map((i) => i.location.file), ...packet.tests.map((t) => t.file), ...packet.helpers]));
   return report(ok, packets, [...files.values()].filter((file) => used.has(file.path)).sort((a, b) => compareText(a.path, b.path)));
 }
 
-function packetOf(root: string, result: ImplementationPhaseResult, material: Material, testFiles_: readonly string[]): ContractPacket {
+function packetOf(root: string, result: ImplementationPhaseResult, material: Material, testFiles_: readonly string[], read: FileReader): ContractPacket {
   const { compiler, diagnostics } = result;
   const { contract, own, dependencyDesigns, uses, usedBy, implementations, declarations, testFiles, files } = material;
   const name = contract.name;
+  // What the tests import from the project is part of what they prove: a stub decides whether a test observes anything.
+  // Loaded one level deep, test files only; what the implementations import stays listed, not loaded.
+  if (compiler) {
+    for (const file of files.filter((candidate) => candidate.role === "test")) {
+      for (const helper of projectImports(root, compiler.ts, compiler.overlay, file).filter((imported) => !files.some((loadedFile) => loadedFile.path === imported))) {
+        const loadedHelper = read(helper, "helper");
+        if (loadedHelper) files.push(loadedHelper);
+      }
+    }
+  }
   const loaded = new Set(files.map((file) => file.path));
   const unloaded = compiler ? importsOutside(root, compiler.ts, compiler.overlay, files, loaded) : [];
   const declaring = new Set((result.linking?.tests ?? []).map((test) => test.location.file));
@@ -203,15 +215,33 @@ function packetOf(root: string, result: ImplementationPhaseResult, material: Mat
         .filter((test) => test.location.file === file)
         .map(({ title, suitePath, covers, location }) => ({ title, suitePath, covers, line: location.line, column: location.column })),
     })),
+    helpers: files.filter((file) => file.role === "helper").map((file) => file.path).sort(compareText),
     unloaded,
     untaggedTests,
     diagnostics: diagnostics.filter((diagnostic) => diagnostic.contract === name || (diagnostic.file !== undefined && loaded.has(diagnostic.file))).sort(compareDiagnostics),
   };
 }
 
+/** The project files a file imports, resolved the way the project does; nothing outside the root or in node_modules. */
+function projectImports(root: string, ts: TypeScript, overlay: Pick<Overlay, "resolveFrom">, file: PacketFile): string[] {
+  const fileName = path.join(root, file.path);
+  const sourceFile = ts.createSourceFile(fileName, file.text, ts.ScriptTarget.Latest, false);
+  const found: string[] = [];
+  for (const statement of sourceFile.statements) {
+    const specifier = (ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement)) && statement.moduleSpecifier;
+    if (!specifier || !ts.isStringLiteral(specifier)) continue;
+    const resolved = overlay.resolveFrom(specifier.text, fileName);
+    if (!resolved) continue;
+    const projectPath = toProjectPath(root, resolved);
+    if (projectPath.startsWith("../") || path.isAbsolute(projectPath) || projectPath.split("/").includes("node_modules") || projectPath.endsWith(".d.ts")) continue;
+    if (!found.includes(projectPath)) found.push(projectPath);
+  }
+  return found;
+}
+
 /**
  * Project files that the implementation and test files of a packet import
- * and that the packet does not hold: helpers, other modules.
+ * and that the packet does not hold: other modules, schemas.
  */
 function importsOutside(
   root: string,
@@ -297,6 +327,9 @@ export function formatReviewMarkdown(report: ReviewReport): string {
     lines.push("", "### Dependencies", "");
     const named = (edges: { contract: string; module: string }[]) => (edges.length === 0 ? "none" : edges.map((edge) => `${edge.contract} (${edge.module})`).join(", "));
     lines.push(`- uses: ${named(packet.dependencies.uses)}`, `- used by: ${named(packet.dependencies.usedBy)}`, `- designs included: ${packet.dependencies.designs.length === 0 ? "none" : packet.dependencies.designs.join(", ")}`);
+    lines.push("", "### Helpers loaded with the tests", "");
+    if (packet.helpers.length === 0) lines.push("- none: the tests import nothing else from the project");
+    for (const file of packet.helpers) lines.push(`- ${file}`);
     lines.push("", "### Tests without declarations", "");
     if (packet.untaggedTests.length === 0) lines.push("- none: every test file of the module declares something");
     for (const file of packet.untaggedTests) lines.push(`- ${file} (matched by the tests patterns, no \`@tests\` / \`@covers\`: proof there is not linked)`);
