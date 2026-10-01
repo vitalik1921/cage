@@ -30,6 +30,9 @@ export interface InitReport {
 
 /** What a project's CLAUDE.md or AGENTS.md gets: the rules for an agent, shipped with the package. */
 const INSTRUCTIONS_FILE = new URL("../examples/claude-code/CLAUDE.md", import.meta.url);
+/** The skills shipped with the package: how to design a module and how to review one. */
+const SKILLS_DIRECTORY = new URL("../examples/skills/", import.meta.url);
+const SKILLS = ["cage-design", "cage-review"] as const;
 /** Seconds: long enough for the compiler on a large project, short enough not to hold a session. */
 const GATE_TIMEOUT = 180;
 
@@ -119,6 +122,19 @@ export function runInit(options: InitOptions): InitReport {
     problem("E_ENVIRONMENT", "error", undefined, `Cannot read the agent instructions shipped with cage (${INSTRUCTIONS_FILE.pathname}): ${(cause as Error).message}`);
     return report();
   }
+  /** Copies each shipped skill into the environment's skills directory; a skill that is already there is the project's and is kept. */
+  const addSkills = (directory: string) => {
+    for (const skill of SKILLS) {
+      let text: string;
+      try {
+        text = fs.readFileSync(new URL(`${skill}/SKILL.md`, SKILLS_DIRECTORY), "utf8");
+      } catch (cause) {
+        problem("E_ENVIRONMENT", "error", undefined, `Cannot read the skill shipped with cage (${new URL(`${skill}/SKILL.md`, SKILLS_DIRECTORY).pathname}): ${(cause as Error).message}`);
+        return;
+      }
+      put(path.join(directory, skill, "SKILL.md"), text, () => undefined, false);
+    }
+  };
   const addInstructions = (file: string) =>
     put(file, instructions, (current) => {
       if (current.includes("cage check")) return undefined;
@@ -152,6 +168,7 @@ export function runInit(options: InitOptions): InitReport {
     });
     if (hasErrors(diagnostics)) return report();
     addInstructions(path.join(repository, "CLAUDE.md"));
+    addSkills(path.join(repository, ".claude", "skills"));
   }
 
   if (options.agents.includes("codex")) {
@@ -173,6 +190,8 @@ export function runInit(options: InitOptions): InitReport {
     });
     if (hasErrors(diagnostics)) return report();
     addInstructions(path.join(repository, "AGENTS.md"));
+    // Codex reads repository skills from .agents/skills.
+    addSkills(path.join(repository, ".agents", "skills"));
   }
   return report();
 }

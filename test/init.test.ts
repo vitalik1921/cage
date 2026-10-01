@@ -45,7 +45,15 @@ test("init writes the configuration with the detected runner and the Claude Code
   assert.deepEqual(first.report.diagnostics, []);
   assert.deepEqual(first.report.agents, ["claude"]);
   assert.equal(first.report.repository, ".");
-  assert.deepEqual(statuses(first.report), { ".cage/config.json": "created", ".claude/settings.json": "created", "CLAUDE.md": "created" });
+  assert.deepEqual(statuses(first.report), {
+    ".cage/config.json": "created",
+    ".claude/settings.json": "created",
+    "CLAUDE.md": "created",
+    ".claude/skills/cage-design/SKILL.md": "created",
+    ".claude/skills/cage-review/SKILL.md": "created",
+  });
+  assert.ok(readFile(root, ".claude/skills/cage-design/SKILL.md").startsWith("---\nname: cage-design\n"));
+  assert.ok(readFile(root, "CLAUDE.md").includes("`cage-design`"));
   assert.deepEqual(JSON.parse(readFile(root, ".cage/config.json")), {
     version: 1,
     tests: ["src/**/*.{test,spec}.ts", "tests/**/*.{test,spec}.ts"],
@@ -61,9 +69,18 @@ test("init writes the configuration with the detected runner and the Claude Code
   assert.equal(cli(root, "check").code, 1);
   assert.match(cli(root, "check").stdout, /E_NO_DESIGNS/);
 
+  // A skill the project edited is its own.
+  writeFile(root, ".claude/skills/cage-review/SKILL.md", "---\nname: cage-review\ndescription: ours\n---\n");
   const again = init(root);
-  assert.deepEqual(statuses(again.report), { ".cage/config.json": "kept", ".claude/settings.json": "kept", "CLAUDE.md": "kept" });
-  assert.equal(cli(root, "init").stdout.split("\n")[3], "init: Stop gate for claude.");
+  assert.deepEqual(statuses(again.report), {
+    ".cage/config.json": "kept",
+    ".claude/settings.json": "kept",
+    "CLAUDE.md": "kept",
+    ".claude/skills/cage-design/SKILL.md": "kept",
+    ".claude/skills/cage-review/SKILL.md": "kept",
+  });
+  assert.equal(readFile(root, ".claude/skills/cage-review/SKILL.md"), "---\nname: cage-review\ndescription: ours\n---\n");
+  assert.ok(cli(root, "init").stdout.split("\n").includes("init: Stop gate for claude."));
 });
 
 test("existing settings and instructions are extended, not replaced, and a gate written by hand is recognised", (t) => {
@@ -77,8 +94,12 @@ test("existing settings and instructions are extended, not replaced, and a gate 
     ".cage/config.json": "kept",
     ".claude/settings.json": "updated",
     "CLAUDE.md": "updated",
+    ".claude/skills/cage-design/SKILL.md": "created",
+    ".claude/skills/cage-review/SKILL.md": "created",
     ".codex/config.toml": "created",
     "AGENTS.md": "created",
+    ".agents/skills/cage-design/SKILL.md": "created",
+    ".agents/skills/cage-review/SKILL.md": "created",
   });
   assert.deepEqual(settings(root), {
     permissions: { allow: ["Bash(ls)"] },
@@ -125,8 +146,12 @@ test("a project inside a repository gets the gate at the repository, naming the 
     ".cage/config.json": "created",
     "../../.claude/settings.json": "created",
     "../../CLAUDE.md": "created",
+    "../../.claude/skills/cage-design/SKILL.md": "created",
+    "../../.claude/skills/cage-review/SKILL.md": "created",
     "../../.codex/config.toml": "created",
     "../../AGENTS.md": "created",
+    "../../.agents/skills/cage-design/SKILL.md": "created",
+    "../../.agents/skills/cage-review/SKILL.md": "created",
   });
   assert.equal(JSON.parse(readFile(root, ".cage/config.json")).testAdapter, "node:test");
   assert.equal(settings(repo).hooks.Stop[0].hooks[0].command, '"$CLAUDE_PROJECT_DIR/apps/my api/node_modules/.bin/cage" gate --root "$CLAUDE_PROJECT_DIR/apps/my api"');
@@ -153,7 +178,10 @@ test("the repository is found through a symbolic link, and a linked instructions
 
   const { report } = init(link, "--agent", "claude", "--agent", "codex");
   assert.equal(report.repository, ".");
-  assert.deepEqual(statuses(report), { ".cage/config.json": "created", ".claude/settings.json": "created", "CLAUDE.md": "updated", ".codex/config.toml": "created", "AGENTS.md": "kept" });
+  assert.deepEqual(
+    report.files.filter((file) => !file.path.includes("/skills/")).map(({ path: file, status }) => [file, status]),
+    [[".cage/config.json", "created"], [".claude/settings.json", "created"], ["CLAUDE.md", "updated"], [".codex/config.toml", "created"], ["AGENTS.md", "kept"]],
+  );
   assert.ok(fs.lstatSync(path.join(repo, "CLAUDE.md")).isSymbolicLink());
   assert.ok(readFile(repo, "AGENTS.md").startsWith("# Agents\n\nShared rules.\n\n## Contract harness\n"));
   assert.ok(fs.existsSync(path.join(repo, ".claude/settings.json")));

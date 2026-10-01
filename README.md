@@ -63,7 +63,7 @@ Run `npx cage check`. It reports, with file and line, every contract without an 
 
 | Command | What it does |
 | --- | --- |
-| `cage init` | First configuration and the Stop hook. Run once. |
+| `cage init` | First configuration, the Stop hook, and two skills for the agent (`cage-design`, `cage-review`). Run once. |
 | `cage check` | Everything: designs, implementations, test links, locks, coverage, reviews. Exit 1 on a violation. |
 | `cage check --phase design` | Designs only — while you write them. |
 | `cage review` | The material of every contract that needs a review, with the instruction and the verdict format. |
@@ -80,7 +80,7 @@ Run `npx cage check`. It reports, with file and line, every contract without an 
 3. For a review: the agent runs `cage review`, reads the material, judges each invariant, writes the verdict and records it with `cage review --record`. The verdict is tied to a fingerprint of the material: change anything and it is stale again.
 4. `cage check` is clean; the agent may stop.
 
-The rules the agent needs are in the `CLAUDE.md` / `AGENTS.md` section that `init` adds. The harness never calls a model itself.
+The rules the agent needs are in the `CLAUDE.md` / `AGENTS.md` section that `init` adds, and in two skills it installs (`.claude/skills/` or `.agents/skills/`): `cage-design` — how to write a module's design, from a plan or from existing code, what deserves a contract and what goes to `.cageignore`, the document structure (purpose, glossary, business rules, data, contracts, out of scope, open questions); `cage-review` — how to judge the tests against the invariants and record the verdict. The harness never calls a model itself.
 
 ## Configuration
 
