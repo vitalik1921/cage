@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.3
+
+- README: the evaluation in full and with its counts (n/N), including where Cage did not help and what it costs; `cage check` described as localizing changes that need review, not as finding defects; "every declared invariant", "no test is linked".
+
 ## 0.2.2
 
 - README: the measured results where Cage helps — review and drift, and test strength with a design; the full results stay in `docs/evaluation.md`.

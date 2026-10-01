@@ -10,14 +10,12 @@
   <a href="https://github.com/vitalik1921/cage/actions/workflows/ci.yml"><img src="https://github.com/vitalik1921/cage/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
-<h2 align="center">Your agent says “done.” Cage checks the contract.</h2>
-
 Cage connects a module's design to its TypeScript implementation, its tests and a recorded review — and feeds whatever is missing back to your coding agent.
 
 You describe the module's interfaces and behavioural rules in a Markdown file next to the code. Cage checks that:
 
 - **The implementation fits the contract.** Checked by the TypeScript compiler.
-- **Every rule has a linked test.** A missing link is a diagnostic with file and line.
+- **Every declared invariant has a linked test.** A missing link is a diagnostic with file and line.
 - **The review is current.** A change to the contract, its implementation or a linked test invalidates the recorded verdict, and Cage names what changed.
 
 As a Stop hook, Cage returns the violations to the agent so that it deals with them before it finishes.
@@ -30,13 +28,13 @@ Cage runs locally and makes no model calls: your agent judges the behaviour, you
 
 Real output, on the Quota example from [Start](#start).
 
-**A rule without a test.** The design promises that a take uses exactly one send; nothing tests it.
+**An invariant without a test.** The design promises that a take uses exactly one send; no test is linked to it.
 
 ```text
 src/quota/quota.cage.mdx:20:6: error E_TEST_MISSING: Invariant Quota: consume has no linked test declaration.
 ```
 
-**A test that changed after its review.** The agent “simplified” the test of that rule; it still passes. Cage names the test, and the Stop hook sends the agent back to review it:
+**A test that changed after its review.** The agent “simplified” the test of that invariant; it still passes. Cage names the test, and the Stop hook sends the agent back to review it:
 
 ```text
 src/quota/quota.cage.mdx:16:18: warning W_REVIEW_STALE: The recorded review of contract "Quota" is for other material;
@@ -60,22 +58,34 @@ $ cage check --base main
 
 ## Does it help?
 
-Measured on a module of a production TypeScript service (NestJS, Drizzle, PostgreSQL), with Claude Sonnet 5.5 as the agent.
+A first evaluation: one module of a production TypeScript service (NestJS, Drizzle, PostgreSQL), Claude Sonnet 5.5 as the agent, two review runs and three implementation runs per variant. These are preliminary signals, not significant results. Method, tools and every number: [docs/evaluation.md](https://github.com/vitalik1921/cage/blob/main/docs/evaluation.md).
 
-**Review finds what the tests miss.** Eight defects that keep every test green, seeded into the module as “the last commit by another agent”, then reviewed:
+The variants: **with Cage** (plugin and design), **design only** (the design document in the repository, no Cage), and **no design**.
 
-| | With Cage | Design in the repo, no Cage | No design |
+**Review.** Eight defects that keep every test green were seeded into the module as “the last commit by another agent”; an agent then reviewed the module.
+
+| | With Cage | Design only | No design |
 | --- | --- | --- | --- |
-| Seeded defects found | **100%** | 88% | 79% |
-| Crooked or disabled tests found | **100%** | 75% | 63% |
-| False alarms on a clean copy | **0%** | 0% | 0% |
+| Seeded defects the reviewer reported | **100%** (16/16) | 88% (14/16) | 79% (11/14) |
+| — of them crooked or disabled tests | **100%** (8/8) | 75% (6/8) | 63% (5/8) |
+| False alarms by the reviewer on a clean copy | 0% (0/16) | 0% (0/16) | 0% (0/14) |
+| Cost of a review | +39% | baseline | −16% |
 
-- An e2e test that had quietly stopped checking an update was found in **100%** of the reviews with Cage and in **0%** of the others: `cage check` named the test that changed.
-- `cage check` alone — no model, no cost — pointed at the changed test, implementation or contract behind **100%** of the seeded defects.
+Denominators are defects × runs: 8 defects × 2 runs. Without a design the defect “design drifted from the code” cannot exist, so 7 × 2.
 
-**A design makes the tests stronger.** Agents implementing tickets against a Cage design wrote tests with a mutation score of **66%**, against **48%** without one.
+The difference from design only came from one defect: an e2e test that had quietly stopped checking an update was reported in 2/2 reviews with Cage and in 0/4 without it. `cage check` had flagged that test as changed since its last review, and the reviewer went to it.
 
-Method, tools and full results: [docs/evaluation.md](https://github.com/vitalik1921/cage/blob/main/docs/evaluation.md).
+`cage check` on its own — no model calls or token cost — localizes the changes that need review: for every seeded defect (8/8) it named the changed test, implementation or contract. It does not judge them: on the clean copy it flagged the harmless edits the same way.
+
+**Implementing changes.** Three tickets with traps, checked afterwards by hidden behavioural tests against a real database:
+
+| | With Cage | Design only | No design |
+| --- | --- | --- | --- |
+| Runs that passed every hidden test | 89% (8/9) | 100% (9/9) | 100% (9/9) |
+| Mutation score of the code the agent changed, mean over runs | 66% | 66% | 48% |
+| Cost of a task | +35% | baseline | −35% |
+
+What the data supports: Cage helped the reviewer notice a specific weakening of a test. This pilot showed no gain in the correctness of implementations, at about a third more cost. The tests were stronger wherever the design was in the repository, with or without Cage.
 
 ## Start
 
@@ -140,7 +150,7 @@ describe("MemoryQuota", () => {
 });
 ```
 
-Run `npx cage check`. It reports, with file and line, every contract without an implementation, every implementation the compiler does not accept in the contract's place, every rule without a test, every stale review, and every exported thing in the module the design does not cover.
+Run `npx cage check`. It reports, with file and line, every contract without an implementation, every implementation the compiler does not accept in the contract's place, every invariant without a linked test, every stale review, and every exported thing in the module the design does not cover.
 
 ## Commands
 
@@ -160,10 +170,10 @@ Run `npx cage check`. It reports, with file and line, every contract without an 
 
 1. The agent changes a design, an implementation or a test. Before it stops, the hook runs `cage gate`.
 2. Whatever fails comes back to the agent: a missing test, a mismatch, a stale review. After three returns in a session the gate lets the agent stop and leaves the report, so that a check it cannot fix does not hold the session forever.
-3. For a review: the agent runs `cage review`, reads the material, judges each rule, and records the verdict with `cage review --record`. Cage checks that the verdict is complete and is for the material as it is now; the judgement itself is the reviewer's, which may be the same agent. The verdict is tied to a fingerprint of the contract, its implementations and the tests linked to it: change any of those and it is stale again; change something else in those files and it is not.
+3. For a review: the agent runs `cage review`, reads the material, judges each invariant, and records the verdict with `cage review --record`. Cage checks that the verdict is complete and is for the material as it is now; the judgement itself is the reviewer's, which may be the same agent. The verdict is tied to a fingerprint of the contract, its implementations and the tests linked to it: change any of those and it is stale again; change something else in those files and it is not.
 4. `cage check` is clean; the agent stops.
 
-The rules the agent needs are in the `CLAUDE.md` / `AGENTS.md` section that `init` adds (or in the plugin), and in the two skills: `cage-design` — what deserves a contract and what goes to `.cageignore`, and the document's structure (purpose, glossary, business rules, data, contracts, out of scope, open questions); `cage-review` — how to judge the tests against the rules and record the verdict.
+The rules the agent needs are in the `CLAUDE.md` / `AGENTS.md` section that `init` adds (or in the plugin), and in the two skills: `cage-design` — what deserves a contract and what goes to `.cageignore`, and the document's structure (purpose, glossary, business rules, data, contracts, out of scope, open questions); `cage-review` — how to judge the tests against the invariants and record the verdict.
 
 ## Configuration
 

@@ -49,17 +49,17 @@ Two limits of the runner shaped the method. It has no graders that run code, so 
 
 | | With Cage | Design, no Cage | No design |
 | --- | --- | --- | --- |
-| Seeded defects found | **100%** | 88% | 79% |
-| Bugs hidden by weak tests | 100% | 100% | 100% |
-| Crooked or disabled tests | 100% | 75% | 63% |
-| Drift between design and code | 100% | 100% | 100% of what is detectable without a design |
-| False alarms on the clean copy | 0% | 0% | 0% |
+| Seeded defects the reviewer reported | **100%** (16/16) | 88% (14/16) | 79% (11/14) |
+| Bugs hidden by weak tests | 100% (4/4) | 100% (4/4) | 100% (4/4) |
+| Crooked or disabled tests | 100% (8/8) | 75% (6/8) | 63% (5/8) |
+| Drift between design and code | 100% (4/4) | 100% (4/4) | 100% (2/2; the design-side drift cannot exist without a design) |
+| False alarms by the reviewer on the clean copy | 0% (0/16) | 0% (0/16) | 0% (0/14) |
 | Cost of a review | +39% | baseline | −16% |
 | Time of a review | +39% | baseline | −5% |
 
-The difference is one defect: the update test that stopped checking the name was found in 100% of the reviews with Cage and in none of the others. `cage check` had reported `test "organization.updated — updates, no duplicate" … changed` as a stale review, and the reviewer went to that test.
+Denominators are defects × runs: 8 defects × 2 runs, and 7 × 2 without a design. The difference is one defect: the update test that stopped checking the name was reported in 2/2 reviews with Cage and in 0/4 of the others. `cage check` had reported `test "organization.updated — updates, no duplicate" … changed` as a stale review, and the reviewer went to that test.
 
-`cage check` alone, with no model, pointed at the changed test or implementation of every seeded defect, and at the contract whose design changed. It cannot tell a defect from a harmless edit: on the clean copy it reported the changed parts too.
+`cage check` alone, with no model calls or token cost, localized every seeded defect (8/8) to the changed test, implementation or contract that needed review. It does not judge them: on the clean copy it reported the harmless edits the same way. Finding a defect is the reviewer's part.
 
 ## Experiment 2: implementing changes
 
@@ -77,21 +77,21 @@ The difference is one defect: the update test that stopped checking the name was
 
 | | With Cage | Design, no Cage | No design |
 | --- | --- | --- | --- |
-| Runs that passed every hidden test | 89% | 100% | 100% |
-| Hidden tests passed | 97% | 100% | 100% |
-| Module tests and typecheck green afterwards | 100% | 100% | 100% |
-| Mutation score of the changed code | 66% | 66% | 48% |
+| Runs that passed every hidden test | 89% (8/9) | 100% (9/9) | 100% (9/9) |
+| Hidden tests passed | 97% (38/39) | 100% (39/39) | 100% (39/39) |
+| Module tests and typecheck green afterwards | 100% (9/9) | 100% (9/9) | 100% (9/9) |
+| Mutation score of the changed code, mean over runs | 66% (9 runs) | 66% (9 runs) | 48% (8 runs; one Stryker run failed its initial test run) |
 | Cost of a task | +35% | baseline | −35% |
 | Time of a task | +31% | baseline | −10% |
-| Runs where the Stop hook returned work | 0% | — | — |
+| Runs where the Stop hook returned work | 0% (0/9) | — | — |
 
 Every variant avoided the guard trap. With Cage the agents kept to its rules on their own — a review was recorded wherever a contract's material had changed — so the Stop hook never had to send anything back. A pilot with three easier tickets, one run per variant, gave the same picture: every hidden test passed in both variants, at +58% cost with Cage.
 
 ## Reading the numbers
 
-- Cage pays off in review: every seeded defect found, and the one that only Cage found was found because a stale review named the test that had changed.
-- On a single implementation task a strong model does not get more correct with Cage, and costs about a third more.
-- The design document in the repository goes with stronger tests (mutation score 66% against 48%), with or without the plugin.
+- Cage helped the reviewer notice a specific weakening of a test: the one defect only the reviews with Cage reported was found because a stale review named the test that had changed.
+- This pilot showed no gain in the correctness of implementations with Cage, at about a third more cost (+35% per task, +39% per review against design only).
+- The tests were stronger wherever the design was in the repository (mutation score 66% / 66% / 48%), with or without the plugin; the experiment does not show that the design caused it.
 
 ## Limits
 
