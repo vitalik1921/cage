@@ -1,6 +1,6 @@
 {
   "name": "cage-ts",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Contract harness for TypeScript: designs in *.cage.mdx, checked against implementations and tests, with a recorded review as a gate for agents.",
   "license": "MIT",
   "repository": {
