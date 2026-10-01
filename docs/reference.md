@@ -13,7 +13,7 @@ cage check --base origin/main   # additionally: everything locked on origin/main
 cage review                 # the material of every contract without a fresh review, for a reviewer (a person or a model), Markdown; --format json
 cage review Accounts        # named contracts only; --all for every contract
 cage review --record verdicts.json   # record the reviewer's verdict in .cage/review.json; check then requires it
-cage gate                   # Stop hook for an agent: check; errors and REVIEW_* block the stop (exit 2), the report goes to the agent
+cage gate                   # Stop hook for an agent: check; errors and missing or stale reviews block the stop (exit 2), the report goes to the agent
 ```
 
 The loop: change `*.cage.mdx` → `cage check --phase design` → change implementations and tests → `cage check` → review → the project's own `tsc` and tests.
@@ -155,11 +155,11 @@ So the review is a second gate: change a test, the code or the design, and `chec
 
 **Who reviews.** The harness never calls a model: it has no network and no provider. The reviewer is the agent that works on the code anyway, in its own environment (Claude Code, Codex or another), because every such environment has its own stop gate — a hook that runs by itself. The loop:
 
-1. The hook before the agent's stop runs `cage gate`: a `check` in which errors and any `REVIEW_*` finding (whatever the `"review"` level) block the stop — exit 2, the report and the hint go to the agent as feedback. After three blocks in a session the gate lets the agent go with the report, so that a check that cannot be fixed does not hold the session forever; the hook protocol (`session_id`, `stop_hook_active`) is read from stdin.
+1. The hook before the agent's stop runs `cage gate`: a `check` in which errors, and a missing or stale review whatever the `"review"` level, block the stop — exit 2, the report and the hint go to the agent as feedback. A weak finding blocks only under `"review": "require"`, where it is an error: a recorded judgement is not something the agent can always act on in the session, while a change without a fresh look is. After three blocks in a session the gate lets the agent go with the report, so that a check that cannot be fixed does not hold the session forever; the hook protocol (`session_id`, `stop_hook_active`) is read from stdin.
 2. The agent sees `REVIEW_MISSING` / `REVIEW_STALE`, runs `cage review`, reads the packet, writes the verdict into a file in the format from the end of the packet, and runs `cage review --record <file>`.
 3. `cage check` is green; the agent may stop.
 
-`cage init` sets all of this up: the `Stop` hook entry in `.claude/settings.json` (one line: `cage gate --root …`; the harness is a devDependency of the project) or `[[hooks.Stop]]` in `.codex/config.toml`, and the section with the rules for the agent in `CLAUDE.md` / `AGENTS.md` (among them: never lower an assessment or remove an invariant for a green `check`). The text of the rules is `examples/claude-code/CLAUDE.md`, shipped with the package. Another environment needs the same hook by its own means. The verdict is made by the same agent that wrote the code; the trace stays in the diff of `.cage/review.json`, and in CI `cage check` with `"review": "require"` lets no contract through without a fresh verdict. A CI agent may run the same loop once more.
+`cage init` sets all of this up: the `Stop` hook entry in `.claude/settings.json` (one line: `cage gate --root …`; the harness is a devDependency of the project) or `[[hooks.Stop]]` in `.codex/config.toml`, and the section with the rules for the agent in `CLAUDE.md` / `AGENTS.md` (among them: never lower an assessment or remove an invariant for a green `check`). The text of the rules is `plugin/rules.md`, shipped with the package; the Claude Code plugin in `plugin/` brings the same rules, the skills and the hook without `init`. Another environment needs the same hook by its own means. The verdict is made by the same agent that wrote the code; the trace stays in the diff of `.cage/review.json`, and in CI `cage check` with `"review": "require"` lets no contract through without a fresh verdict. A CI agent may run the same loop once more.
 
 ### The JSON report of `check`
 

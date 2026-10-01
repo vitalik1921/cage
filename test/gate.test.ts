@@ -10,14 +10,19 @@ import { cli, cliWithStdin, copyFixture, editFile, writeFile } from "./helpers.t
 /** A session of its own, so that the block counter of another test or run is not this one's. */
 function session(t: TestContext): string {
   const id = `test-${crypto.randomBytes(6).toString("hex")}`;
-  t.after(() => fs.rmSync(path.join(os.tmpdir(), `cage-gate-${id}`), { force: true }));
+  t.after(() => {
+    for (const name of counters(id)) fs.rmSync(path.join(os.tmpdir(), name), { force: true });
+  });
   return id;
 }
+
+/** The block counters of a session, one per project it stopped at. */
+const counters = (id: string) => fs.readdirSync(os.tmpdir()).filter((name) => name.startsWith(`cage-gate-${id}-`));
 
 const gate = (root: string, input: object | string | undefined, ...args: string[]) =>
   cliWithStdin(root, typeof input === "object" ? JSON.stringify(input) : input, "gate", ...args);
 
-test("the gate blocks on errors and on review findings, whatever the review level, and passes a clean check", (t) => {
+test("the gate blocks on errors and on missing reviews, whatever the review level, and passes a clean check", (t) => {
   const root = copyFixture(t, "vertical");
   const id = session(t);
 
@@ -50,6 +55,48 @@ test("the gate blocks on errors and on review findings, whatever the review leve
   assert.equal(error.code, 2);
   assert.match(error.stderr, /E_TEST_MISSING/);
   assert.match(error.stderr, /\(1 blocking\)/);
+});
+
+test("a weak finding blocks the gate only where reviews are required; a missing or stale review blocks at any level", (t) => {
+  const root = copyFixture(t, "vertical");
+  const id = session(t);
+  // Record a verdict for every contract, with one weak finding on Send.
+  const packet = JSON.parse(cli(root, "review", "--all", "--format", "json").stdout) as { contracts: { contract: string; fingerprint: string; invariants: { id: string }[] }[] };
+  const verdicts = packet.contracts.map(({ contract, fingerprint, invariants }) => ({
+    contract,
+    fingerprint,
+    // A contract without invariants gets one finding about the contract as a whole.
+    findings: (invariants.length === 0 ? [{ id: null }] : invariants).map(({ id }, index) => ({
+      invariant: id,
+      assessment: contract === "Send" && index === 0 ? "weak" : "adequate",
+      reason: "judged.",
+      evidence: "src/modules/campaigns/send.test.ts:1",
+      suggestedChange: null,
+    })),
+  }));
+  writeFile(root, "verdicts.json", JSON.stringify({ version: 1, verdicts }));
+  assert.equal(cli(root, "review", "--record", path.join(root, "verdicts.json")).code, 0);
+
+  // Under "warn" the weak finding is reported and the agent may stop.
+  const warned = gate(root, { session_id: id });
+  assert.equal(warned.code, 0);
+  assert.match(cli(root, "check").stdout, /W_REVIEW_WEAK/);
+
+  // Under "require" it is an error and blocks, with the hint for it.
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "require" }));
+  const required = gate(root, { session_id: id });
+  assert.equal(required.code, 2);
+  assert.match(required.stderr, /E_REVIEW_WEAK/);
+  assert.match(required.stderr, /For E_REVIEW_WEAK: improve the test or the design/);
+
+  // A change to the material makes the review stale, which blocks under "warn" too.
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1 }));
+  editFile(root, "src/modules/campaigns/send.test.ts", (s) => s.replace("/** @covers sender-error */", "/**\n * @covers sender-error\n */"));
+  editFile(root, "src/modules/campaigns/send-service.ts", (s) => `${s}\n`.replace("export class", "/* touched */\nexport class"));
+  const stale = gate(root, { session_id: id });
+  assert.equal(stale.code, 2);
+  assert.match(stale.stderr, /W_REVIEW_STALE/);
+  assert.doesNotMatch(stale.stderr, /For E_REVIEW_WEAK/);
 });
 
 test("after MAX_BLOCKS blocks in one session the gate lets the agent stop, with the report; a pass resets the count", (t) => {
@@ -85,7 +132,7 @@ test("a project without any design yet passes the gate: right after init there i
   const result = gate(root, { session_id: id });
   assert.equal(result.code, 0);
   assert.equal(result.stderr, "cage gate: no *.cage.mdx design yet, nothing to check.\n");
-  assert.ok(!fs.existsSync(path.join(os.tmpdir(), `cage-gate-${id}`)));
+  assert.deepEqual(counters(id), []);
 });
 
 test("a block counter of a session a day old is swept by the next run; a fresh one is kept", (t) => {

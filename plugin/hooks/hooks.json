@@ -1,0 +1,15 @@
+{
+  "description": "cage: the rules at the start of a session, and `cage gate` before the agent stops, for every cage project in the repository.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/context.sh\"" }]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [{ "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/gate.sh\"", "timeout": 180 }]
+      }
+    ]
+  }
+}

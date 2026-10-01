@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- A Claude Code plugin (`plugin/`, marketplace `vitalik1921/cage`): the rules at session start, the `cage-design` and `cage-review` skills, and a Stop hook that runs `cage gate` for every project of the repository with a `.cage/config.json`. It uses the project's own install, else `npx cage-ts@<its version>`. `init` takes the rules and skills from the same directory.
+- The gate counts blocks per session and project, so that the projects of a monorepo do not share one count.
+- The agent rules warn against a bare `npx cage`: an unrelated npm package has that name.
+- `cage gate` blocks on a weak finding only under `"review": "require"`. A missing or stale review still blocks at any level: a change needs a fresh verdict. Before, a project with recorded weak findings could not let an agent stop under `"review": "warn"` until they were all fixed, whatever the agent's task.
+
 ## 0.1.1
 
 What the first design written with the published package, and its review, showed.

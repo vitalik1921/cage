@@ -33,7 +33,7 @@ export const senderWarning = () => {
  * that a project in it, like a real one, resolves `@types/node` and
  * `typescript` from node_modules.
  */
-function scratchDirectory(t: TestContext, name: string): string {
+export function scratchDirectory(t: TestContext, name: string): string {
   const scratch = path.join(import.meta.dirname, ".tmp");
   fs.mkdirSync(scratch, { recursive: true });
   const dir = fs.mkdtempSync(path.join(scratch, `${name}-`));

@@ -23,6 +23,14 @@ npm i -D cage-ts
 npx cage init            # .cage/config.json + Stop hook for Claude Code (--agent codex, --agent none)
 ```
 
+In Claude Code you may use the plugin instead of the hook and skills that `init` writes into the repository: it brings the rules, the two skills and the Stop hook, and gates every project that has a `.cage/config.json`.
+
+```text
+npx cage-ts init --agent none        # the configuration only
+/plugin marketplace add vitalik1921/cage
+/plugin install cage@cage
+```
+
 Describe a module in a `*.cage.mdx` file next to its code:
 
 ````mdx
@@ -81,7 +89,7 @@ Run `npx cage check`. It reports, with file and line, every contract without an 
 | `cage review` | The material of every contract that needs a review, with the instruction and the verdict format. |
 | `cage review --record <file>` | Records a verdict. `check` then requires one for every contract, fresh. |
 | `cage lock` | Records the contracts marked `@final` / `@extendable`; `check` refuses changes to them. |
-| `cage gate` | `check` as a Stop hook: errors and review findings block the agent. `init` wires it up. |
+| `cage gate` | `check` as a Stop hook: errors and missing or stale reviews block the agent. `init` wires it up. |
 
 `--root <dir>` for a project inside a monorepo; `--format json` for machines. In CI, `cage check --base origin/main` also refuses a lock that was lifted on the branch.
 
@@ -111,7 +119,7 @@ The rules the agent needs are in the `CLAUDE.md` / `AGENTS.md` section that `ini
 ```
 
 - `testAdapter`: `node:test` or `vitest`.
-- `review`: a contract without a fresh recorded review is a warning (`warn`), an error (`require`) or nothing (`off`). The Stop hook blocks on it either way.
+- `review`: a contract without a fresh recorded review is a warning (`warn`), an error (`require`) or nothing (`off`). The Stop hook blocks on a missing or stale review either way; a weak finding blocks it only under `require`.
 - `coverage`: exported code of a designed module without `@implements` is a warning, an error, or not looked at. A `.cageignore` next to the designs lists files that need no design.
 
 Commit `.cage/` (config, locks, reviews) and `.cageignore` with the designs.

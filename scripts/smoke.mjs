@@ -20,7 +20,13 @@ try {
   const report = JSON.parse(run("check", "--format", "json"));
   const errors = report.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
   if (!report.ok || errors.length > 0) throw new Error(`check of the fixture failed:\n${errors.map((d) => `${d.code}: ${d.message}`).join("\n")}`);
-  console.log(`smoke: ${tarball} installs; cage ${version} checks the fixture: ${report.counts.contracts} contracts, ${report.counts.linkedInvariants} of ${report.counts.invariants} invariants linked.`);
+  // `init` copies the rules and skills out of the package: they have to be in the tarball where it looks for them.
+  execFileSync("git", ["init", "--quiet"], { cwd: project });
+  run("init", "--agent", "claude");
+  for (const file of ["CLAUDE.md", ".claude/settings.json", ".claude/skills/cage-design/SKILL.md", ".claude/skills/cage-review/SKILL.md"]) {
+    if (!fs.existsSync(path.join(project, file))) throw new Error(`init did not write ${file}`);
+  }
+  console.log(`smoke: ${tarball} installs; cage ${version} checks the fixture: ${report.counts.contracts} contracts, ${report.counts.linkedInvariants} of ${report.counts.invariants} invariants linked; init writes the hook, the rules and the skills.`);
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });
 }

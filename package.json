@@ -28,7 +28,7 @@
   },
   "files": [
     "dist",
-    "examples",
+    "plugin",
     "LICENSE",
     "README.md"
   ],
@@ -44,7 +44,8 @@
     "test": "node --test test/*.test.ts",
     "verify": "npm run typecheck && npm test && npm run build && node dist/cli.js --version",
     "smoke": "node scripts/smoke.mjs",
-    "prepublishOnly": "npm run verify && npm run smoke"
+    "prepublishOnly": "npm run verify && npm run smoke",
+    "version": "node scripts/sync-plugin-version.mjs && git add plugin/.claude-plugin/plugin.json"
   },
   "dependencies": {
     "remark-mdx": "3.1.1",

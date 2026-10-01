@@ -1,0 +1,10 @@
+{
+  "name": "cage",
+  "version": "0.1.1",
+  "description": "A gate for agent-written code: designs as contracts next to the code, checked against implementations, tests and a recorded review before the agent may stop.",
+  "author": { "name": "vitalik1921", "url": "https://github.com/vitalik1921" },
+  "homepage": "https://github.com/vitalik1921/cage",
+  "repository": "https://github.com/vitalik1921/cage",
+  "license": "MIT",
+  "keywords": ["contracts", "design", "typescript", "stop-hook", "review"]
+}

@@ -29,9 +29,9 @@ export interface InitReport {
 }
 
 /** What a project's CLAUDE.md or AGENTS.md gets: the rules for an agent, shipped with the package. */
-const INSTRUCTIONS_FILE = new URL("../examples/claude-code/CLAUDE.md", import.meta.url);
+const INSTRUCTIONS_FILE = new URL("../plugin/rules.md", import.meta.url);
 /** The skills shipped with the package: how to design a module and how to review one. */
-const SKILLS_DIRECTORY = new URL("../examples/skills/", import.meta.url);
+const SKILLS_DIRECTORY = new URL("../plugin/skills/", import.meta.url);
 const SKILLS = ["cage-design", "cage-review"] as const;
 /** Seconds: long enough for the compiler on a large project, short enough not to hold a session. */
 const GATE_TIMEOUT = 180;

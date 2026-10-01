@@ -1,0 +1,11 @@
+{
+  "name": "cage",
+  "owner": { "name": "vitalik1921", "url": "https://github.com/vitalik1921" },
+  "plugins": [
+    {
+      "name": "cage",
+      "source": "./plugin",
+      "description": "A gate for agent-written code: designs as contracts next to the code, checked against implementations, tests and a recorded review before the agent may stop."
+    }
+  ]
+}
