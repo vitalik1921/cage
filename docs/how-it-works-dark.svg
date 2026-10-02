@@ -51,7 +51,7 @@
 
   <rect x="550" y="237" width="340" height="420" rx="14" fill="#1d1830" stroke="#4a3d78" stroke-width="1.5"/>
   <text x="720" y="293" text-anchor="middle" class="mono" font-size="43" font-weight="600">cage</text>
-  <text x="720" y="324" text-anchor="middle" class="eyebrow accent">CHECKS BEFORE “DONE”</text>
+  <text x="720" y="324" text-anchor="middle" class="eyebrow accent">DETERMINISTIC CHECKS</text>
   <text x="720" y="384" text-anchor="middle" class="body" font-weight="600">Code fits the interface</text>
   <text x="720" y="416" text-anchor="middle" class="small secondary">TypeScript compiler</text>
   <path d="M 577 451 H 863" stroke="#4a3d78" stroke-width="1"/>
