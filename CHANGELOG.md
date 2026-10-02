@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.5
+
+- README opens with the problem Cage answers: the spec, the code and the tests drifting apart as agents change code.
+
 ## 0.2.4
 
 - README: a diagram of how Cage works (light and dark), plain terms on the first screen (spec, rule, linked test, outdated review, frozen contract), Cage's checks stated as deterministic with the review's judgement left to the agent, and a "How you use it" section with five scenarios and the prompts for the bundled skills.
