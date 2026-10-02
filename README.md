@@ -21,8 +21,8 @@ Cage keeps three things of a TypeScript module in sync — **the spec** (what th
 
 - **The spec** is a Markdown file next to the code (`quota.cage.mdx`): TypeScript interfaces, and the rules they promise, written as plain sentences — `@invariant consume A successful take uses exactly one send.`
 - **The code** says which interface it implements (`@implements Quota`); **the tests** say which rules they check (`@covers consume`).
-- **Cage checks** that the code fits the interface (the TypeScript compiler decides), that every rule has a linked test, and that the review of those tests is up to date.
-- **The review** is your agent's written verdict that the tests really check the rules. Cage stores it with a hash of the code and tests it looked at; change either, and Cage asks for a new review and says what changed.
+- **Cage checks deterministically** — no model involved, the same answer on every run — that the code fits the interface (the TypeScript compiler decides), that every rule has a linked test, and that the review of those tests is up to date.
+- **The review** is your agent's written verdict that the tests really check the rules: the judgement is the agent's, whether it is still up to date is Cage's. Cage stores it with a hash of the code and tests it looked at; change either, and Cage asks for a new review and says what changed.
 - **When the agent says it is done** (the Stop hook of Claude Code or Codex), Cage sends whatever is out of sync back to it. After three tries in one session it lets the agent stop, with the report.
 
 Cage runs locally and makes no model calls: your agent does the judging, your test runner runs the tests. Start with one module — the bundled skills can write its spec from existing code. Node ≥ 24.11, TypeScript 5 or 6.
