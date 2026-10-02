@@ -10,7 +10,10 @@
   <a href="https://github.com/vitalik1921/cage/actions/workflows/ci.yml"><img src="https://github.com/vitalik1921/cage/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
-Cage keeps three things of a TypeScript module in sync — **the spec** (what the module promises), **the code** and **the tests** — and tells your coding agent what is out of sync before it hands the work back.
+<p align="center"><b>Coding agents change code fast, and the spec and the tests quietly fall behind:</b><br>
+the spec promises one thing, the code does another, and a test that still passes no longer checks either.</p>
+
+Cage keeps the three in sync — **the spec** (what a TypeScript module promises), **the code** and **the tests** — and tells your coding agent what is out of sync before it hands the work back.
 
 <p align="center">
   <picture>
