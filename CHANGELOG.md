@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.4
+
+- README: a diagram of how Cage works (light and dark), plain terms on the first screen (spec, rule, linked test, outdated review, frozen contract), Cage's checks stated as deterministic with the review's judgement left to the agent, and a "How you use it" section with five scenarios and the prompts for the bundled skills.
+
 ## 0.2.3
 
 - README: the evaluation in full and with its counts (n/N), including where Cage did not help and what it costs; `cage check` described as localizing changes that need review, not as finding defects; "every declared invariant", "no test is linked".
