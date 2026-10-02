@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="650" viewBox="0 166 1440 650" role="img" aria-labelledby="title desc">
+  <title id="title">How Cage keeps a spec, code and tests in sync</title>
+  <desc id="desc">The spec file declares a TypeScript interface and a rule it promises. Cage checks that the tagged class fits the interface, that a test is linked to the rule, and that the recorded review still matches the code and tests. Whatever is missing goes back to the coding agent, which fixes the code or tests, or reviews again, and the check runs again. Whether the behaviour is right is judged in review and by the project's tests.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9" fill="none" stroke="#8b949e" stroke-width="1.6" stroke-linejoin="round"/></marker>
+    <style>
+      text { font-family: Inter, 'DejaVu Sans', Arial, sans-serif; fill: #e6edf3; }
+      .mono { font-family: 'DejaVu Sans Mono', monospace; }
+      .secondary { fill: #9aa5b4; }
+      .accent { fill: #b8a3ff; }
+      .eyebrow { font-size: 19px; font-weight: 600; letter-spacing: 2px; }
+      .body { font-size: 24px; }
+      .small { font-size: 22px; }
+      .link { fill: none; stroke: #8e79c9; stroke-width: 3; }
+      .flow { fill: none; stroke: #8b949e; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    </style>
+  </defs>
+
+  <rect width="1440" height="900" fill="#0d1117"/>
+
+  <text x="64" y="213" class="eyebrow secondary">SPEC</text>
+  <text x="976" y="213" class="eyebrow secondary">CODE + TESTS</text>
+
+  <rect x="64" y="237" width="400" height="358" rx="14" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="88" y="281" class="mono small secondary">quota.cage.mdx</text>
+  <path d="M 64 305 H 464" stroke="#30363d" stroke-width="1.5"/>
+  <text x="88" y="350" class="eyebrow secondary">INTERFACE</text>
+  <text x="88" y="390" class="mono" font-size="26">Quota.take(id)</text>
+  <text x="88" y="423" class="mono small secondary">→ Promise&lt;boolean&gt;</text>
+  <path d="M 88 451 H 440" stroke="#30363d" stroke-width="1"/>
+  <text x="88" y="489" class="eyebrow secondary">RULE · consume</text>
+  <text x="88" y="528" class="body">A successful take uses</text>
+  <text x="88" y="562" class="body">exactly one send.</text>
+
+  <rect x="976" y="237" width="400" height="358" rx="14" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="1000" y="281" class="mono" font-size="21" fill="#9aa5b4">quota.ts · quota.test.ts</text>
+  <path d="M 976 305 H 1376" stroke="#30363d" stroke-width="1.5"/>
+  <text x="1000" y="350" class="mono small accent">@implements Quota</text>
+  <text x="1000" y="390" class="mono" font-size="24">class MemoryQuota</text>
+  <text x="1000" y="423" class="mono small secondary">take(id) { … }</text>
+  <path d="M 1000 451 H 1352" stroke="#30363d" stroke-width="1"/>
+  <text x="1000" y="489" class="mono small accent">@covers consume</text>
+  <text x="1000" y="528" class="body">Test: takes exactly</text>
+  <text x="1000" y="562" class="body">one send</text>
+
+  <path d="M 464 385 H 550 M 890 385 H 976 M 464 529 H 550 M 890 529 H 976" class="link"/>
+  <circle cx="464" cy="385" r="5" fill="#8e79c9"/>
+  <circle cx="976" cy="385" r="5" fill="#8e79c9"/>
+  <circle cx="464" cy="529" r="5" fill="#8e79c9"/>
+  <circle cx="976" cy="529" r="5" fill="#8e79c9"/>
+
+  <rect x="550" y="237" width="340" height="420" rx="14" fill="#1d1830" stroke="#4a3d78" stroke-width="1.5"/>
+  <text x="720" y="293" text-anchor="middle" class="mono" font-size="43" font-weight="600">cage</text>
+  <text x="720" y="324" text-anchor="middle" class="eyebrow accent">CHECKS BEFORE “DONE”</text>
+  <text x="720" y="384" text-anchor="middle" class="body" font-weight="600">Code fits the interface</text>
+  <text x="720" y="416" text-anchor="middle" class="small secondary">TypeScript compiler</text>
+  <path d="M 577 451 H 863" stroke="#4a3d78" stroke-width="1"/>
+  <text x="720" y="503" text-anchor="middle" class="body" font-weight="600">Every rule has a test</text>
+  <text x="720" y="535" text-anchor="middle" class="small secondary">linked with @covers</text>
+  <path d="M 577 567 H 863" stroke="#4a3d78" stroke-width="1"/>
+  <text x="720" y="606" text-anchor="middle" class="body" font-weight="600">Review is up to date</text>
+  <text x="720" y="637" text-anchor="middle" class="small secondary">redone after changes</text>
+
+  <path d="M 720 657 V 702" class="flow" marker-end="url(#arrow)"/>
+  <text x="738" y="687" class="small secondary">if anything is missing</text>
+
+  <rect x="480" y="710" width="480" height="70" rx="10" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+  <text x="720" y="753" text-anchor="middle" class="body">What’s missing → back to the agent</text>
+  <path d="M 960 745 H 1176 V 603" class="flow" marker-end="url(#arrow)"/>
+  <text x="1196" y="659" class="small secondary">Fix or</text>
+  <text x="1196" y="690" class="small secondary">review</text>
+  <text x="987" y="781" class="small secondary">then check again</text>
+
+</svg>

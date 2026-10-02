@@ -10,45 +10,48 @@
   <a href="https://github.com/vitalik1921/cage/actions/workflows/ci.yml"><img src="https://github.com/vitalik1921/cage/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
 </p>
 
-Cage connects a module's design to its TypeScript implementation, its tests and a recorded review — and feeds whatever is missing back to your coding agent.
+Cage keeps three things of a TypeScript module in sync — **the spec** (what the module promises), **the code** and **the tests** — and tells your coding agent what is out of sync before it hands the work back.
 
-You describe the module's interfaces and behavioural rules in a Markdown file next to the code. Cage checks that:
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/vitalik1921/cage/main/docs/how-it-works-dark.svg">
+    <img src="https://raw.githubusercontent.com/vitalik1921/cage/main/docs/how-it-works.svg" alt="The spec declares an interface and a rule; Cage checks that the code fits the interface, that the rule has a linked test, and that the review is up to date; whatever is missing goes back to the agent, which fixes it and checks again." width="900">
+  </picture>
+</p>
 
-- **The implementation fits the contract.** Checked by the TypeScript compiler.
-- **Every declared invariant has a linked test.** A missing link is a diagnostic with file and line.
-- **The review is current.** A change to the contract, its implementation or a linked test invalidates the recorded verdict, and Cage names what changed.
+- **The spec** is a Markdown file next to the code (`quota.cage.mdx`): TypeScript interfaces, and the rules they promise, written as plain sentences — `@invariant consume A successful take uses exactly one send.`
+- **The code** says which interface it implements (`@implements Quota`); **the tests** say which rules they check (`@covers consume`).
+- **Cage checks** that the code fits the interface (the TypeScript compiler decides), that every rule has a linked test, and that the review of those tests is up to date.
+- **The review** is your agent's written verdict that the tests really check the rules. Cage stores it with a hash of the code and tests it looked at; change either, and Cage asks for a new review and says what changed.
+- **When the agent says it is done** (the Stop hook of Claude Code or Codex), Cage sends whatever is out of sync back to it. After three tries in one session it lets the agent stop, with the report.
 
-As a Stop hook, Cage returns the violations to the agent so that it deals with them before it finishes.
-
-Start with one module. The bundled agent skills draft its design from a plan or from existing code, tag the implementation and the tests, and guide the review.
-
-Cage runs locally and makes no model calls: your agent judges the behaviour, your test runner runs the tests. Node ≥ 24.11, TypeScript 5 or 6.
+Cage runs locally and makes no model calls: your agent does the judging, your test runner runs the tests. Start with one module — the bundled skills can write its spec from existing code. Node ≥ 24.11, TypeScript 5 or 6.
 
 ## What it catches
 
 Real output, on the Quota example from [Start](#start).
 
-**An invariant without a test.** The design promises that a take uses exactly one send; no test is linked to it.
+**A rule with no test.** The spec promises that a take uses exactly one send; no test is linked to that rule.
 
 ```text
 src/quota/quota.cage.mdx:20:6: error E_TEST_MISSING: Invariant Quota: consume has no linked test declaration.
 ```
 
-**A test that changed after its review.** The agent “simplified” the test of that invariant; it still passes. Cage names the test, and the Stop hook sends the agent back to review it:
+**A test that changed after its review.** The agent “simplified” the test of that rule; it still passes. Cage names the test, and sends the agent back to review it:
 
 ```text
 src/quota/quota.cage.mdx:16:18: warning W_REVIEW_STALE: The recorded review of contract "Quota" is for other material;
   since then: test "takes exactly one send" (src/quota/quota.test.ts) changed. Review it again.
 ```
 
-**A changed agreement.** The contract is marked `@final`, and the agent changes it anyway:
+**A frozen interface that changed.** The interface is marked `@final` (frozen), and the agent changes it anyway:
 
 ```text
 src/quota/quota.cage.mdx:17:18: error E_LOCK_VIOLATION: Contract "Quota" is `@final`: it must not change.
   `take` changed; it was: take(accountId: AccountId): Promise<boolean>;
 ```
 
-If the agent lifts the lock to get past it, CI compares with the main branch:
+If the agent unfreezes it to get past that, CI compares with the main branch:
 
 ```text
 $ cage check --base main
@@ -60,32 +63,32 @@ $ cage check --base main
 
 A first evaluation: one module of a production TypeScript service (NestJS, Drizzle, PostgreSQL), Claude Sonnet 5.5 as the agent, two review runs and three implementation runs per variant. These are preliminary signals, not significant results. Method, tools and every number: [docs/evaluation.md](https://github.com/vitalik1921/cage/blob/main/docs/evaluation.md).
 
-The variants: **with Cage** (plugin and design), **design only** (the design document in the repository, no Cage), and **no design**.
+The variants: **with Cage** (plugin and spec), **spec only** (the spec file in the repository, no Cage), and **no spec**.
 
-**Review.** Eight defects that keep every test green were seeded into the module as “the last commit by another agent”; an agent then reviewed the module.
+**Review.** We planted eight problems that keep every test green — weakened tests, bugs the tests cannot see, spec and code drifting apart — as “the last commit by another agent”, then asked an agent to review the module.
 
-| | With Cage | Design only | No design |
+| | With Cage | Spec only | No spec |
 | --- | --- | --- | --- |
-| Seeded defects the reviewer reported | **100%** (16/16) | 88% (14/16) | 79% (11/14) |
-| — of them crooked or disabled tests | **100%** (8/8) | 75% (6/8) | 63% (5/8) |
+| Planted problems the reviewer found | **100%** (16/16) | 88% (14/16) | 79% (11/14) |
+| — of them weakened or disabled tests | **100%** (8/8) | 75% (6/8) | 63% (5/8) |
 | False alarms by the reviewer on a clean copy | 0% (0/16) | 0% (0/16) | 0% (0/14) |
 | Cost of a review | +39% | baseline | −16% |
 
-Denominators are defects × runs: 8 defects × 2 runs. Without a design the defect “design drifted from the code” cannot exist, so 7 × 2.
+Denominators are problems × runs: 8 problems × 2 runs. Without a spec the problem “spec drifted from the code” cannot exist, so 7 × 2.
 
-The difference from design only came from one defect: an e2e test that had quietly stopped checking an update was reported in 2/2 reviews with Cage and in 0/4 without it. `cage check` had flagged that test as changed since its last review, and the reviewer went to it.
+The difference from spec only came from one problem: an e2e test that had quietly stopped checking an update was reported in 2/2 reviews with Cage and in 0/4 without it. `cage check` had flagged that test as changed since its last review, and the reviewer went to it.
 
-`cage check` on its own — no model calls or token cost — localizes the changes that need review: for every seeded defect (8/8) it named the changed test, implementation or contract. It does not judge them: on the clean copy it flagged the harmless edits the same way.
+`cage check` on its own — no model calls or token cost — localizes the changes that need review: for every planted problem (8/8) it named the changed test, code or spec. It does not judge them: on the clean copy it flagged the harmless edits the same way.
 
 **Implementing changes.** Three tickets with traps, checked afterwards by hidden behavioural tests against a real database:
 
-| | With Cage | Design only | No design |
+| | With Cage | Spec only | No spec |
 | --- | --- | --- | --- |
 | Runs that passed every hidden test | 89% (8/9) | 100% (9/9) | 100% (9/9) |
-| Mutation score of the code the agent changed, mean over runs | 66% | 66% | 48% |
+| Mutation score of the code the agent changed (share of deliberately broken versions the tests catch), mean over runs | 66% | 66% | 48% |
 | Cost of a task | +35% | baseline | −35% |
 
-What the data supports: Cage helped the reviewer notice a specific weakening of a test. This pilot showed no gain in the correctness of implementations, at about a third more cost. The tests were stronger wherever the design was in the repository, with or without Cage.
+What the data supports: Cage helped the reviewer notice a specific weakening of a test. This pilot showed no gain in the correctness of implementations, at about a third more cost. The tests were stronger wherever the spec was in the repository, with or without Cage.
 
 ## Start
 
@@ -104,7 +107,7 @@ npx cage-ts init --agent none        # the configuration only
 /plugin install cage@cage
 ```
 
-Describe a module in a `*.cage.mdx` file next to its code — or ask your agent to, with the [`cage-design`](https://github.com/vitalik1921/cage/blob/main/plugin/skills/cage-design/SKILL.md) skill, from a plan or from the existing code:
+Write a spec for a module in a `*.cage.mdx` file next to its code — or ask your agent to, with the [`cage-design`](https://github.com/vitalik1921/cage/blob/main/plugin/skills/cage-design/SKILL.md) skill, from a plan or from the existing code:
 
 ````mdx
 # Quota
@@ -133,6 +136,8 @@ export interface Quota {
 ```
 ````
 
+`@contract` marks an interface the code must implement, `@invariant` a rule it promises (an id, then a sentence), `@data` a type it uses. Prose outside the `ts design` blocks is for people.
+
 Tag the implementation and the tests:
 
 ```ts
@@ -150,7 +155,7 @@ describe("MemoryQuota", () => {
 });
 ```
 
-Run `npx cage check`. It reports, with file and line, every contract without an implementation, every implementation the compiler does not accept in the contract's place, every invariant without a linked test, every stale review, and every exported thing in the module the design does not cover.
+Run `npx cage check`. It reports, with file and line, every contract with no implementation, every implementation that does not fit its contract, every rule with no linked test, every outdated review, and every exported class or function of the module the spec does not mention.
 
 ## Commands
 
@@ -158,22 +163,22 @@ Run `npx cage check`. It reports, with file and line, every contract without an 
 | --- | --- |
 | `cage init` | First configuration, the Stop hook, and two skills for the agent (`cage-design`, `cage-review`). Run once. |
 | `cage check` | Everything: designs, implementations, test links, locks, coverage, reviews. Exit 1 on a violation. |
-| `cage check --phase design` | Designs only — while you write them. |
-| `cage review` | The material of every contract that needs a review, with the instruction and the verdict format. |
-| `cage review --record <file>` | Records a verdict in `.cage/review.json`. `check` then requires one for every contract, fresh. |
-| `cage lock` | Records the contracts marked `@final` / `@extendable`; `check` refuses changes to them. |
-| `cage gate` | `check` as a Stop hook: errors and missing or stale reviews go back to the agent. `init` wires it up. |
+| `cage check --phase design` | Specs only — while you write them. |
+| `cage review` | For every contract whose review is missing or outdated: its spec, code and tests in one document, with instructions for the reviewer and the answer format. |
+| `cage review --record <file>` | Saves the reviewer's verdict in `.cage/review.json`. From then on `check` wants an up-to-date one for every contract. |
+| `cage lock` | Freezes the contracts marked `@final` (no changes) or `@extendable` (additions only); `check` refuses other changes. |
+| `cage gate` | `check` for the agent's Stop hook: errors and missing or outdated reviews go back to the agent. `init` wires it up. |
 
 `--root <dir>` for a project inside a monorepo; `--format json` for machines. In CI, `cage check --base origin/main` also refuses a lock that was lifted on the branch.
 
 ## The loop with an agent
 
-1. The agent changes a design, an implementation or a test. Before it stops, the hook runs `cage gate`.
-2. Whatever fails comes back to the agent: a missing test, a mismatch, a stale review. After three returns in a session the gate lets the agent stop and leaves the report, so that a check it cannot fix does not hold the session forever.
-3. For a review: the agent runs `cage review`, reads the material, judges each invariant, and records the verdict with `cage review --record`. Cage checks that the verdict is complete and is for the material as it is now; the judgement itself is the reviewer's, which may be the same agent. The verdict is tied to a fingerprint of the contract, its implementations and the tests linked to it: change any of those and it is stale again; change something else in those files and it is not.
+1. The agent changes the spec, the code or a test. When it says it is done, the Stop hook runs `cage gate`.
+2. Whatever is out of sync comes back to the agent: a rule with no test, code that does not fit, an outdated review. After three returns in a session the gate lets the agent stop and leaves the report, so that a check it cannot fix does not hold the session forever.
+3. For a review: the agent runs `cage review`, reads the material, judges each rule, and records the verdict with `cage review --record`. Cage checks that the verdict is complete and is for the material as it is now; the judgement itself is the reviewer's, which may be the same agent. The verdict is tied to a fingerprint of the contract, its implementations and the tests linked to it: change any of those and it is stale again; change something else in those files and it is not.
 4. `cage check` is clean; the agent stops.
 
-The rules the agent needs are in the `CLAUDE.md` / `AGENTS.md` section that `init` adds (or in the plugin), and in the two skills: `cage-design` — what deserves a contract and what goes to `.cageignore`, and the document's structure (purpose, glossary, business rules, data, contracts, out of scope, open questions); `cage-review` — how to judge the tests against the invariants and record the verdict.
+The rules the agent needs are in the `CLAUDE.md` / `AGENTS.md` section that `init` adds (or in the plugin), and in the two skills: `cage-design` — what deserves a contract and what goes to `.cageignore`, and the spec's structure (purpose, glossary, business rules, data, contracts, out of scope, open questions); `cage-review` — how to judge the tests against the rules and record the verdict.
 
 ## Configuration
 
@@ -192,10 +197,10 @@ The rules the agent needs are in the `CLAUDE.md` / `AGENTS.md` section that `ini
 ```
 
 - `testAdapter`: `node:test` or `vitest`.
-- `review`: a contract without a fresh recorded review is a warning (`warn`), an error (`require`) or nothing (`off`). The Stop hook returns a missing or stale review to the agent either way; a weak finding only under `require`.
-- `coverage`: exported code of a designed module without `@implements` is a warning, an error, or not looked at. A `.cageignore` next to the designs lists files that need no design.
+- `review`: a contract without an up-to-date review is a warning (`warn`), an error (`require`) or nothing (`off`). The Stop hook returns a missing or outdated review to the agent either way; a weak verdict only under `require`.
+- `coverage`: exported code of a module with a spec but without `@implements` is a warning, an error, or not looked at. A `.cageignore` next to the spec lists files that need none.
 
-Commit `.cage/` (config, locks, reviews) and `.cageignore` with the designs.
+Commit `.cage/` (config, frozen contracts, reviews) and `.cageignore` with the specs.
 
 ## More
 
