@@ -59,6 +59,44 @@ $ cage check --base main
   but its entry is gone from .cage/lock.json. A lock that main has is not lifted here.
 ```
 
+## How you use it
+
+Two skills come with Cage: **`cage-design`** writes and changes specs, **`cage-review`** judges whether the tests really check the rules and records the verdict. In Claude Code they load when the task matches, or by name: `/cage-design`, `/cage-review` (`/cage:cage-design` with the plugin). Codex finds them in `.agents/skills/`. The prompts below are what you type.
+
+**Bring an existing module under Cage.**
+
+```text
+Write the spec for src/modules/accounts from its code and tests.
+```
+
+`cage-design` reads the module's public surface and its tests, picks the few contracts worth keeping (services, ports — not helpers or DTOs, which go to `.cageignore`), writes rules no stronger than the tests can show, tags the code and the tests, and runs `cage check` until it is clean. What it could not decide goes under “Open questions” in the spec.
+
+**Plan a new module, spec first.**
+
+```text
+Plan a spec for a send quota: each account gets N sends a month; a send is refused when none are left.
+```
+
+`cage-design` writes the spec — purpose, glossary, business rules, data, contracts, out of scope, open questions — and checks it with `cage check --phase design`. You read it; then `Implement the spec.` From here the Stop hook holds the agent to it: code that does not fit, or a rule with no test, comes back before the agent may finish.
+
+**Change behaviour through the spec.**
+
+```text
+A deleted organization must not come back from a late webhook. Change the spec first, then the code.
+```
+
+The agent edits the rule, then the code and its tests. Those edits make the recorded review outdated, so on “done” Cage sends the agent to `cage-review`, which judges the changed rule against the new tests and records the verdict.
+
+**Review a change someone else made.**
+
+```text
+Review the last commit in src/modules/accounts: do the tests still check what the spec promises?
+```
+
+`cage check` names what changed since the last review — this test, that implementation, this contract. `cage-review` reads the spec, the code, the tests and the stubs they use side by side, reports each weak spot with `file:line`, and records the verdict.
+
+**Keep agreements in CI.** Mark the contracts others rely on `@final` (no changes) or `@extendable` (additions only) and run `cage lock`. In CI, `cage check --base origin/main` fails a branch that changed or unfroze them.
+
 ## Does it help?
 
 A first evaluation: one module of a production TypeScript service (NestJS, Drizzle, PostgreSQL), Claude Sonnet 5.5 as the agent, two review runs and three implementation runs per variant. These are preliminary signals, not significant results. Method, tools and every number: [docs/evaluation.md](https://github.com/vitalik1921/cage/blob/main/docs/evaluation.md).
