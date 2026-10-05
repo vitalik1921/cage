@@ -3,10 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { test, type TestContext } from "node:test";
 import type { CheckReport } from "../src/check.ts";
+import type { Diagnostic } from "../src/diagnostic.ts";
 import type { ReviewIndex, ReviewReport } from "../src/review.ts";
 import ts from "typescript";
-import { dependencyClosure } from "../src/review-material.ts";
-import { cli, contract, designFile, designProject, editFile, mdx, writeFile } from "./helpers.ts";
+import { collectMaterial, createFileReader, dependencyClosure } from "../src/review-material.ts";
+import { checkLinking, cli, contract, designFile, designProject, editFile, mdx, writeFile } from "./helpers.ts";
 
 // What makes a recorded review outdated beyond the contract, its implementation statement and its test
 // statements: the code they rely on, in the same file and in the files they import, and the module's prose.
@@ -113,8 +114,24 @@ function staleBecause(root: string): string | undefined {
   const { code, report } = check(root);
   const stale = report.diagnostics.find((diagnostic) => diagnostic.code === "E_REVIEW_STALE");
   if (stale) assert.equal(code, 1);
-  return stale && /since then: (.*)\. Review it again\./.exec(stale.message)?.[1];
+  // The parts, one a line in the message, joined as a list here.
+  return stale && /since then:\n([\s\S]*)\nReview it again\./.exec(stale.message)?.[1].split("\n").map((line) => line.replace(/^- /, "")).join(", ");
 }
+
+test("a test file edited while review runs: the material is cut from the text the check read, not from the disk", (t) => {
+  const root = quotaProject(t);
+  const result = checkLinking(root);
+  // Edited after the check read it, before the material is collected: the same lines, all empty. The locations of
+  // the tests and of their beforeEach now point past the end of their lines on the disk.
+  editFile(root, TESTS, (text) => text.replace(/[^\n]/g, ""));
+  const diagnostics: Diagnostic[] = [];
+  const material = collectMaterial(result, "Quota", createFileReader(root, diagnostics, result.linking.sources).read);
+  assert.deepEqual(diagnostics, []);
+  const tests = material.parts.filter((part) => part.key.startsWith("test "));
+  assert.equal(tests.length, 2);
+  for (const part of tests) assert.match(part.text, /beforeEach\(\(\) => \{\n {4}quota = fresh\(MemoryQuota\);/);
+  assert.match(tests.map((part) => part.text).join("\n"), /assert\.equal\(quota\.left, 1\);/);
+});
 
 test("a change in a file the implementation imports makes the review outdated (audit P0)", (t) => {
   const root = quotaProject(t);
@@ -159,7 +176,7 @@ test("a change of the module's prose makes the review outdated; another contract
   // The prose is every contract's business context.
   editFile(root, DESIGN, (text) => text.replace("a send is refused when none are left", "both sends go through"));
   assert.deepEqual(
-    check(root).report.diagnostics.filter((diagnostic) => diagnostic.code === "E_REVIEW_STALE").map((diagnostic) => [diagnostic.contract, /since then: (.*)\. Review/.exec(diagnostic.message)?.[1]]),
+    check(root).report.diagnostics.filter((diagnostic) => diagnostic.code === "E_REVIEW_STALE").map((diagnostic) => [diagnostic.contract, /since then:\n- (.*)\nReview/.exec(diagnostic.message)?.[1]]),
     [
       ["Quota", `the prose of ${DESIGN} changed`],
       ["Ledger", `the prose of ${DESIGN} changed`],
@@ -203,20 +220,25 @@ test("what lies beyond the bounds is reported, never silent; exclude takes a fil
   const warned = check(shallow).report.diagnostics.find((diagnostic) => diagnostic.code === "E_REVIEW_SCOPE_LIMIT");
   // Under "review": "require" the limit is an error, so that it cannot pass unnoticed in CI.
   assert.ok(warned);
-  assert.match(warned.message, /^The fingerprint of the review of contract "Quota" stops at the bounds of `reviewDependencies` \(3 dependency files fingerprinted\): a change in src\/quota\/b\.ts \(past the depth\) would not make the review outdated\./);
+  assert.match(warned.message, /^The fingerprint of the review of contract "Quota" stops at the bounds of `reviewDependencies` \(3 dependency files fingerprinted\); a change in these would not make the review outdated:\n- src\/quota\/b\.ts \(past the depth\)\nThe bounds are the project's setting\.$/);
+  // The message states the fact; it sends nobody to the configuration, because an agent reads it.
+  assert.doesNotMatch(warned.message, /config\.json|Raise|exclude/);
   assert.deepEqual(packet(shallow).contracts[0].fingerprinted, [RULE, STUB, "src/quota/a.ts"]);
+  // The packet and the index do not carry it at all: the fingerprinted files say what is covered.
+  assert.ok(!packet(shallow).contracts[0].diagnostics.some((diagnostic) => diagnostic.code.endsWith("REVIEW_SCOPE_LIMIT")));
+  assert.ok(!(JSON.parse(cli(shallow, "review", "--all", "--format", "json").stdout) as ReviewIndex).diagnostics.some((diagnostic) => diagnostic.code.endsWith("REVIEW_SCOPE_LIMIT")));
 
   const few = quotaProject(t, chain, { review: "warn", reviewDependencies: { maxFiles: 1 } });
   const limited = check(few).report.diagnostics.find((diagnostic) => diagnostic.code === "W_REVIEW_SCOPE_LIMIT");
   assert.equal(limited, undefined, "nothing is recorded yet: the limit is about a recorded review");
   assert.deepEqual(packet(few).contracts[0].fingerprinted, [RULE]);
-  assert.ok(packet(few).contracts[0].diagnostics.some((diagnostic) => diagnostic.code === "W_REVIEW_SCOPE_LIMIT" && diagnostic.message.includes(`${STUB} (past the file limit)`)));
+  recordAdequate(few);
+  assert.ok(check(few).report.diagnostics.some((diagnostic) => diagnostic.code === "W_REVIEW_SCOPE_LIMIT" && diagnostic.message.includes(`${STUB} (past the file limit)`)));
 
-  // A packet carries its own contract's limit, not another's from the same document.
+  // check reports a contract's own limit, not another's from the same document.
   const two = quotaProject(t, { ...chain, [DESIGN]: mdx(QUOTA, contract("Ledger", "note(): void;", "@invariant noted A take is noted.")), "src/quota/ledger.ts": "/** @implements Ledger */\nexport const ledger = { note: (): void => {} };\n", "src/quota/ledger.test.ts": lines('import assert from "node:assert/strict";', 'import { it } from "node:test";', "/** @tests Ledger", " * @covers noted */", 'it("notes", () => { assert.ok(true); });') }, { reviewDependencies: { depth: 1 } });
-  const ledger = packet(two).contracts.find((entry) => entry.contract === "Ledger")!;
-  assert.deepEqual(ledger.diagnostics.filter((diagnostic) => diagnostic.code.endsWith("REVIEW_SCOPE_LIMIT")), []);
-  assert.equal(packet(two).contracts.find((entry) => entry.contract === "Quota")!.diagnostics.filter((diagnostic) => diagnostic.code === "W_REVIEW_SCOPE_LIMIT").length, 1);
+  recordAdequate(two, false);
+  assert.deepEqual(check(two).report.diagnostics.filter((diagnostic) => diagnostic.code.endsWith("REVIEW_SCOPE_LIMIT")).map((diagnostic) => diagnostic.contract), ["Quota"]);
 
   const excluded = quotaProject(t, chain, { reviewDependencies: { exclude: ["src/quota/a.ts"] } });
   recordAdequate(excluded);
@@ -230,7 +252,7 @@ test("bounds outside their range are a configuration error", (t) => {
     const root = quotaProject(t, {}, { reviewDependencies });
     const { code, stdout } = cli(root, "check");
     assert.equal(code, 2);
-    assert.match(stdout, /E_CONFIG: "reviewDependencies" must be an object with "depth" \(0–10\), "maxFiles" \(0–1000\) and "exclude"/);
+    assert.match(stdout, /E_CONFIG: error at \.cage\/config\.json\n  "reviewDependencies" must be an object with "depth" \(0–10\), "maxFiles" \(0–1000\) and "exclude"/);
   }
 });
 

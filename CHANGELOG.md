@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.1
+
+- **A diagnostic reads code first.** The text report prints `CODE: severity at file:line:column` and the message on the lines below, indented; a list in a message — the parts that changed since a review, the tests that cannot run, the files past the bounds — is one item a line, and `REVIEW_STALE` names ten parts at most, then counts the rest (`cage review <Name>` lists them all). Before, everything was one line per diagnostic, and a stale review of a contract with forty tests was one line of two thousand characters. JSON is unchanged except that these messages contain line breaks.
+- **`REVIEW_SCOPE_LIMIT` is `check`'s to say, not the review's.** The review packet and the index no longer carry it, and the `check` message states where the fingerprint stops without telling anyone to raise `depth` or `maxFiles` or to edit `exclude`: an agent that reads it in a review went to change `.cage/config.json`. The rules for the agent and the `cage-review` skill say that the configuration is the project's. A dependency that cannot be read is still reported in the packet.
+- **A file edited while `cage review` runs no longer crashes it.** The material of a review was read from the disk a second time, after the check had found the tests and implementations in it; when a test file changed in between, a test's position pointed past the end of its line and `review` stopped with `internal error: Debug Failure. False expression.` The material is now cut from the very text the check read.
+
 ## 0.3.0
 
 - **`cage review` without names is an index, not a dump.** It lists the contracts in need of a review — what changed since the recorded review (`changed`: the part, `changed` / `new` / `gone`, file and line) and which invariants that touches (`touched`) — one line each, no file text; `--all` lists every contract with its status. Before, it exported the material of every such contract whole: on a project with a hundred contracts, a million tokens for a reviewer that reads one contract at a time.

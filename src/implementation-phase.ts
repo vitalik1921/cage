@@ -53,6 +53,11 @@ export interface ImplementationPhaseResult extends DesignPhaseResult {
     tests: TestDeclaration[];
     /** Invariants not checked for a test because a rejected tag names their contract: fixing the tag may reveal them. */
     uncheckedInvariants: number;
+    /**
+     * The implementation and test files as this phase read them, by project path. Every location above is a
+     * position in these texts; a later read of the disk may find a file changed in between.
+     */
+    sources: ReadonlyMap<string, string>;
   } | null;
 }
 
@@ -225,7 +230,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
       diagnostics.push({
         code: "E_TEST_INACTIVE",
         severity: "error",
-        message: `Invariant ${invariant.contract}: ${invariant.id} is linked only to tests that cannot run an assertion: ${inactive.map(describeTest).join("; ")}. ${inactive.some((test) => test.status === "broken-import") ? "Fix the broken import of the test file, enable a test, or give it a body." : "Enable one, or give it a body."} Cage reads tests and does not run them: this is what their text shows, not proof that an active test checks the rule.`,
+        message: `Invariant ${invariant.contract}: ${invariant.id} is linked only to tests that cannot run an assertion:\n${inactive.map((test) => `- ${describeTest(test)}`).join("\n")}\n${inactive.some((test) => test.status === "broken-import") ? "Fix the broken import of the test file, enable a test, or give it a body." : "Enable one, or give it a body."} Cage reads tests and does not run them: this is what their text shows, not proof that an active test checks the rule.`,
         ...invariant.location,
         contract: invariant.contract,
         invariant: invariant.id,
@@ -265,7 +270,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
   }
 
   diagnostics.sort(compareDiagnostics);
-  return { ...design, root, reviewScope, designSound: true, linking: { implementations, tests, uncheckedInvariants } };
+  return { ...design, root, reviewScope, designSound: true, linking: { implementations, tests, uncheckedInvariants, sources: new Map(sources.map(({ file, text }) => [file, text])) } };
 }
 
 const unknownContract = (tag: string, name: string, location: SourceLocation): Diagnostic => ({

@@ -69,8 +69,12 @@ export type FileReader = (file: string, role: PacketFile["role"], text?: string)
 /** Why a local file is left out of a fingerprint: past the depth, past the file limit, or a link out of the project. */
 export type Beyond = "depth" | "maxFiles" | "outside";
 
-/** A reader that loads each file once and reports what cannot be read. */
-export function createFileReader(root: string, diagnostics: Diagnostic[]): { read: FileReader; files: Map<string, PacketFile> } {
+/**
+ * A reader that loads each file once and reports what cannot be read. A file among `sources` (the texts the
+ * check read, see `linking.sources`) is taken from there and not from the disk: the locations of implementations,
+ * tests and hooks are positions in that text, and a file edited during the run would no longer match them.
+ */
+export function createFileReader(root: string, diagnostics: Diagnostic[], sources?: ReadonlyMap<string, string>): { read: FileReader; files: Map<string, PacketFile> } {
   const files = new Map<string, PacketFile>();
   const outside = new Set<string>();
   const read: FileReader = (file, role, text) => {
@@ -85,7 +89,7 @@ export function createFileReader(root: string, diagnostics: Diagnostic[]): { rea
       return undefined;
     }
     try {
-      const normalized = (text ?? stripBom(fs.readFileSync(path.join(root, file), "utf8"))).replace(/\r\n?/g, "\n");
+      const normalized = (sources?.get(file) ?? text ?? stripBom(fs.readFileSync(path.join(root, file), "utf8"))).replace(/\r\n?/g, "\n");
       const loaded = { path: file, role, text: normalized, digest: digestOf(normalized) };
       files.set(file, loaded);
       return loaded;

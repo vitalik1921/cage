@@ -25,7 +25,7 @@ export const inFixture = (file: string, needle: string) => ({ file, ...find(fs.r
 /** Where the fixture's one warning points: the contract without invariants. */
 export const senderWarning = () => {
   const { file, line, column } = inFixture(MAIL, "Sender {");
-  return `${file}:${line}:${column}: warning W_NO_INVARIANTS: Contract "Sender" has no \`@invariant\`: only its types can be checked.`;
+  return `W_NO_INVARIANTS: warning at ${file}:${line}:${column}\n  Contract "Sender" has no \`@invariant\`: only its types can be checked.`;
 };
 
 /**

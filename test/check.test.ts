@@ -133,7 +133,8 @@ test("errors are exit 1 and warnings exit 0; a diagnostic names its contract and
   assert.equal(text.code, 1);
   assert.ok(
     text.stdout.includes(
-      `${QUOTA}:${duplicate.line}:${duplicate.column}: error E_INVARIANT_DUPLICATE: Invariant id "empty" is already used in contract "Quota".\n` +
+      `E_INVARIANT_DUPLICATE: error at ${QUOTA}:${duplicate.line}:${duplicate.column}\n` +
+        `  Invariant id "empty" is already used in contract "Quota".\n` +
         `  ${QUOTA}:${original.line}:${original.column}: The other invariant.\n`,
     ),
   );
@@ -266,7 +267,7 @@ test("a project TypeScript that cannot be loaded does not stop the check", (t) =
 /** The warning for a contract that nobody has reviewed yet, as the text report prints it. */
 function reviewMissing(design: string, name: string): string {
   const { line, column } = inFixture(design, `${name} {`);
-  return `${design}:${line}:${column}: warning W_REVIEW_MISSING: Contract "${name}" has no recorded review. Run \`cage review ${name}\`, have the material reviewed, and record the verdict with \`cage review --record\`.`;
+  return `W_REVIEW_MISSING: warning at ${design}:${line}:${column}\n  Contract "${name}" has no recorded review. Run \`cage review ${name}\`, have the material reviewed, and record the verdict with \`cage review --record\`.`;
 }
 
 function fullCheck(root: string, ...args: string[]): { code: number; report: CheckReport } {
@@ -336,7 +337,7 @@ test("an invariant without a test and a contract without an implementation are e
   assert.deepEqual(report.counts, { contracts: 3, data: 1, invariants: 8, implementations: 2, testDeclarations: 8, activeTestDeclarations: 8, linkedInvariants: 7, activeInvariants: 7, executedTests: null, uncheckedInvariants: 0, reviewedInvariants: 0, weakInvariants: 0, weakContracts: 0, acceptedInvariants: 0, acceptedContracts: 0 });
   // The class that lost its tag is now also code that no design covers.
   const sender = inFixture("src/modules/mail/callback-sender.ts", "CallbackSender");
-  assert.ok(cli(root, "check").stdout.includes(`${sender.file}:${sender.line}:${sender.column}: warning W_NOT_DESIGNED: Exported class "CallbackSender"`));
+  assert.ok(cli(root, "check").stdout.includes(`W_NOT_DESIGNED: warning at ${sender.file}:${sender.line}:${sender.column}\n  Exported class "CallbackSender"`));
   assert.match(cli(root, "check").stdout, /2 implementations; tests: 8 declarations \(8 active\), 7 of 8 invariants linked, 7 to an active test, not run by cage; reviews: 0 attested adequate, 0 found weak, 8 unreviewed; 2 errors, 5 warnings\./);
 });
 

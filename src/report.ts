@@ -7,9 +7,16 @@ function formatLocation({ file, line, column }: Pick<RelatedLocation, "file" | "
   return line === undefined ? `${file}: ` : `${file}:${line}:${column}: `;
 }
 
+/**
+ * One diagnostic as text: the code first, so that what kind of thing it is reads before where; then the severity and
+ * the place on the same line; the message on the lines below, indented, one list item per line where the message has
+ * a list. Related places follow, indented, as `file:line:column: message`.
+ */
 export function formatDiagnostic(diagnostic: Diagnostic): string {
-  const code = diagnostic.tsCode === undefined ? diagnostic.code : `${diagnostic.code} TS${diagnostic.tsCode}`;
-  const lines = [`${formatLocation(diagnostic)}${diagnostic.severity} ${code}: ${diagnostic.message.replaceAll("\n", "\n  ")}`];
+  const { file, line, column } = diagnostic;
+  const where = file === undefined ? "" : line === undefined ? ` at ${file}` : ` at ${file}:${line}:${column}`;
+  const ts = diagnostic.tsCode === undefined ? "" : ` (TS${diagnostic.tsCode})`;
+  const lines = [`${diagnostic.code}: ${diagnostic.severity}${where}${ts}`, ...diagnostic.message.split("\n").map((text) => `  ${text}`)];
   for (const related of diagnostic.related ?? []) lines.push(`  ${formatLocation(related)}${related.message.replaceAll("\n", "\n  ")}`);
   return lines.join("\n");
 }

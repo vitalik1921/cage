@@ -225,7 +225,7 @@ function prepare(options: ImplementationPhaseOptions) {
   const root = path.resolve(options.root);
   const result = checkImplementationPhase(options);
   const diagnostics = [...result.diagnostics];
-  const { read, files } = createFileReader(root, diagnostics);
+  const { read, files } = createFileReader(root, diagnostics, result.linking?.sources);
   const materials = new Map<string, Material>();
   const materialOf = (name: string) => {
     if (!materials.has(name)) materials.set(name, collectMaterial(result, name, read));
@@ -342,7 +342,9 @@ export function runReviewIndex(options: ImplementationPhaseOptions, selection: "
   const entries: ReviewIndexEntry[] = [];
   for (const contract of [...index.contracts].sort((a, b) => compareText(a.module, b.module) || compareText(a.name, b.name))) {
     const material = materialOf(contract.name);
-    diagnostics.push(...scopeDiagnostics(material, "warn").filter((diagnostic) => !diagnostics.some((known) => known.code === diagnostic.code && known.contract === diagnostic.contract && known.file === diagnostic.file)));
+    // A dependency that cannot be read is a hole of unknown size and is said; the bounds of the scope are not: they are the
+    // project's setting, reported by `check`, and a reviewer is not to be sent to the configuration.
+    diagnostics.push(...scopeDiagnostics(material, "warn").filter((diagnostic) => diagnostic.code === "E_ENVIRONMENT" && !diagnostics.some((known) => known.code === diagnostic.code && known.contract === diagnostic.contract && known.file === diagnostic.file)));
     const { fingerprint, digests } = fingerprintOf(material.parts);
     const prior = priorOf(contract);
     const { status } = recordedReviewOf(reviews.diagnostics.length > 0, prior, fingerprint);
@@ -431,8 +433,10 @@ function packetOf(
 ): ContractPacket {
   const { compiler } = result;
   const { contract, own, dependencyDesigns, uses, usedBy, implementations, declarations, testFiles, files } = material;
-  // What the bounds of the fingerprint leave out is the reviewer's business too: those files may change without notice.
-  diagnostics.push(...scopeDiagnostics(material, "warn").filter((diagnostic) => !diagnostics.some((known) => known.code === diagnostic.code && known.contract === diagnostic.contract && known.file === diagnostic.file)));
+  // A dependency that cannot be read leaves a hole in the packet and is said. The bounds of the fingerprint are not said here:
+  // they are the project's `reviewDependencies` setting, reported by `check`; a packet that named them would send the reviewer
+  // to the configuration instead of the material. The fingerprinted files are listed, so what is covered is in view.
+  diagnostics.push(...scopeDiagnostics(material, "warn").filter((diagnostic) => diagnostic.code === "E_ENVIRONMENT" && !diagnostics.some((known) => known.code === diagnostic.code && known.contract === diagnostic.contract && known.file === diagnostic.file)));
   const name = contract.name;
   // What the tests import from the project is part of what they prove: a stub decides whether a test observes anything.
   // Loaded one level deep, test files only; what the implementations import stays listed, not loaded.
@@ -707,7 +711,7 @@ export function formatReviewMarkdown(report: ReviewReport): string {
     }
     lines.push("", "### Diagnostics", "");
     if (packet.diagnostics.length === 0) lines.push("- none");
-    for (const diagnostic of packet.diagnostics) lines.push(`- ${at(diagnostic) || "(project)"}: ${diagnostic.severity} ${diagnostic.code}: ${diagnostic.message.replaceAll("\n", " ")}`);
+    for (const diagnostic of packet.diagnostics) lines.push(`- ${at(diagnostic) || "(project)"}: ${diagnostic.severity} ${diagnostic.code}: ${diagnostic.message.replaceAll("\n", "\n  ")}`);
     lines.push("");
   }
 
@@ -765,7 +769,7 @@ export function formatReviewIndexMarkdown(report: ReviewIndex): string {
   }
   if (report.diagnostics.length > 0) {
     lines.push("", "## Diagnostics", "");
-    for (const diagnostic of report.diagnostics) lines.push(`- ${[diagnostic.file, diagnostic.line, diagnostic.column].filter((part) => part !== undefined).join(":") || "(project)"}: ${diagnostic.severity} ${diagnostic.code}: ${diagnostic.message.replaceAll("\n", " ")}`);
+    for (const diagnostic of report.diagnostics) lines.push(`- ${[diagnostic.file, diagnostic.line, diagnostic.column].filter((part) => part !== undefined).join(":") || "(project)"}: ${diagnostic.severity} ${diagnostic.code}: ${diagnostic.message.replaceAll("\n", "\n  ")}`);
   }
   return `${lines.join("\n")}\n`;
 }

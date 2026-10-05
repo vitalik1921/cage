@@ -45,20 +45,24 @@ Real output, on the Quota example from [Start](#start).
 **A rule with no test.** The spec promises that a take uses exactly one send; no test is linked to that rule.
 
 ```text
-src/quota/quota.cage.mdx:20:6: error E_TEST_MISSING: Invariant Quota: consume has no linked test declaration.
+E_TEST_MISSING: error at src/quota/quota.cage.mdx:20:6
+  Invariant Quota: consume has no linked test declaration.
 ```
 
 **A test that changed after its review.** The agent “simplified” the test of that rule; it still passes. Cage names the test, and sends the agent back to review it:
 
 ```text
-src/quota/quota.cage.mdx:16:18: warning W_REVIEW_STALE: The recorded review of contract "Quota" is for other material;
-  since then: test "takes exactly one send" (src/quota/quota.test.ts) changed. Review it again.
+W_REVIEW_STALE: warning at src/quota/quota.cage.mdx:16:18
+  The recorded review of contract "Quota" is for other material; since then:
+  - test "takes exactly one send" (src/quota/quota.test.ts) changed
+  Review it again.
 ```
 
 **A frozen interface that changed.** The interface is marked `@final` (frozen), and the agent changes it anyway:
 
 ```text
-src/quota/quota.cage.mdx:17:18: error E_LOCK_VIOLATION: Contract "Quota" is `@final`: it must not change.
+E_LOCK_VIOLATION: error at src/quota/quota.cage.mdx:17:18
+  Contract "Quota" is `@final`: it must not change.
   `take` changed; it was: take(accountId: AccountId): Promise<boolean>;
 ```
 
@@ -66,8 +70,9 @@ If the agent unfreezes it to get past that, CI compares with the main branch:
 
 ```text
 $ cage check --base main
-.cage/lock.json: error E_LOCK_BASE: Contract "Quota" of src/quota is locked as `@final` on main,
-  but its entry is gone from .cage/lock.json. A lock that main has is not lifted here.
+E_LOCK_BASE: error at .cage/lock.json
+  Contract "Quota" of src/quota is locked as `@final` on main, but its entry is gone from .cage/lock.json.
+  A lock that main has is not lifted here.
 ```
 
 ## How you use it

@@ -58,7 +58,7 @@ for (const assessment of ["weak", "unrelated", "insufficient-context"] as const)
     writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "require" }));
     const required = cli(root, "check");
     assert.equal(required.code, 1);
-    assert.match(required.stdout, /error E_REVIEW_WEAK: The review of contract "Quota" found the contract as a whole/);
+    assert.match(required.stdout, /E_REVIEW_WEAK: error at [^\n]+\n  The review of contract "Quota" found the contract as a whole/);
   });
 }
 

@@ -58,7 +58,7 @@ test("check shows at most maxDiagnostics, the ones that matter most, in the orde
 
   const text = cli(root, "check", "--max-diagnostics", "14").stdout;
   const lines = text.trimEnd().split("\n");
-  assert.equal(lines.filter((line) => /: (error|warning) [EW]_/.test(line)).length, 14);
+  assert.equal(lines.filter((line) => /^[EW]_[A-Z_]+: (error|warning)/.test(line)).length, 14);
   assert.equal(lines.at(-2), '7 more not shown (4 W_REVIEW_MISSING, 3 W_NO_INVARIANTS): the report shows 14 at most. Fix what is shown and check again, or pass --max-diagnostics all ("maxDiagnostics" in .cage/config.json).');
   // The summary counts every diagnostic, shown or not.
   assert.match(lines.at(-1)!, /; 12 errors, 9 warnings\. TypeScript/);
@@ -93,14 +93,14 @@ test("the gate's feedback is limited the same way, while what blocks is counted 
   const gate = (...args: string[]) => cliWithStdin(root, JSON.stringify({ session_id: "max-diagnostics-test" }), "gate", ...args);
   const blocked = gate();
   assert.equal(blocked.code, 2);
-  assert.equal(blocked.stderr.split("\n").filter((line) => /: error [EW]_/.test(line)).length, 2);
+  assert.equal(blocked.stderr.split("\n").filter((line) => /^E_[A-Z_]+: error/.test(line)).length, 2);
   // Codes by count, equal counts by name.
   assert.match(blocked.stderr, /^19 more not shown \(6 E_IMPLEMENTATION_MISSING, 6 W_REVIEW_MISSING, 4 E_TEST_MISSING, 3 W_NO_INVARIANTS\): the report shows 2 at most\./m);
   assert.match(blocked.stderr, /`cage check` is not clean \(18 blocking\)\./);
   const whole = gate("--max-diagnostics", "all");
   assert.equal(whole.code, 2);
   assert.doesNotMatch(whole.stderr, /more not shown/);
-  assert.equal(whole.stderr.split("\n").filter((line) => /: (error|warning) [EW]_/.test(line)).length, 21);
+  assert.equal(whole.stderr.split("\n").filter((line) => /^[EW]_[A-Z_]+: (error|warning)/.test(line)).length, 21);
 });
 
 test("--max-diagnostics and maxDiagnostics take a whole number or all, for check and gate only", (t) => {

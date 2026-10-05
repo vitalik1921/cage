@@ -70,9 +70,9 @@ function outsideLink(t: TestContext, preserveSymlinks: boolean): void {
   assert.ok(!packet.helpers.includes(`${QUOTA_DIR}/linked.ts`));
   assert.ok(!packet.fingerprinted.includes(`${QUOTA_DIR}/linked.ts`));
   assert.ok(!packet.diagnostics.some(({ code }) => code === "E_ENVIRONMENT"), JSON.stringify(packet.diagnostics));
-  // Said, not silent: the helper at the packet, the dependency at the bounds of the fingerprint.
+  // Said, not silent: the helper at the packet; the hole in the fingerprint is check's to say, not the packet's.
   assert.ok(packet.diagnostics.some(({ code, file, message }) => code === "W_OUTSIDE_ROOT" && file === `${QUOTA_DIR}/linked.ts` && /outside the project/.test(message)), JSON.stringify(packet.diagnostics));
-  assert.ok(packet.diagnostics.some(({ code, message }) => code === "W_REVIEW_SCOPE_LIMIT" && message.includes(`${QUOTA_DIR}/linked.ts (a link out of the project)`)), JSON.stringify(packet.diagnostics));
+  assert.ok(!packet.diagnostics.some(({ code }) => code.endsWith("REVIEW_SCOPE_LIMIT")), JSON.stringify(packet.diagnostics));
 
   const recorded = record(root, adequate(), packet.fingerprint);
   assert.equal(recorded.code, 0, JSON.stringify(recorded.report.diagnostics));
@@ -140,7 +140,7 @@ test("the variables of a block or a loop around a test, and the loop's header, a
   assert.deepEqual(staleOf(root), []);
   const edit = (from: string, to: string) => writeFile(root, QUOTA_TEST, fs.readFileSync(path.join(root, QUOTA_TEST), "utf8").replace(from, to));
 
-  const changed = (title: string) => new RegExp(`since then: test "${title}" \\(src/modules/quota/quota\\.test\\.ts\\) changed\\.`);
+  const changed = (title: string) => new RegExp(`since then:\\n- test "${title}" \\(src/modules/quota/quota\\.test\\.ts\\) changed\\n`);
   edit("for (const left of [0])", "for (const left of [1])");
   assert.match(staleOf(root)[0] ?? "", changed("refuses"));
   assert.equal(record(root, adequate()).code, 0);

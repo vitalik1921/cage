@@ -229,7 +229,7 @@ test("a declaration is linked whether or not it would run; an invariant linked o
   );
   const { errors, warnings } = checkLinking(root);
   assert.deepEqual(errors.map(({ code, invariant }) => ({ code, invariant })), ["empty", "consume", "race"].map((invariant) => ({ code: "E_TEST_INACTIVE", invariant })));
-  assert.match(errors[0].message, /^Invariant Quota: empty is linked only to tests that cannot run an assertion: "skipped suite > skipped" \(src\/m\/contracts\.test\.ts:8, skipped by `\.skip` on its suite "skipped suite"\)\. Enable one, or give it a body\. Cage reads tests and does not run them/);
+  assert.match(errors[0].message, /^Invariant Quota: empty is linked only to tests that cannot run an assertion:\n- "skipped suite > skipped" \(src\/m\/contracts\.test\.ts:8, skipped by `\.skip` on its suite "skipped suite"\)\nEnable one, or give it a body\. Cage reads tests and does not run them/);
   assert.deepEqual(warnings.filter(({ code }) => code === "W_TEST_INACTIVE"), []);
 });
 
@@ -270,7 +270,8 @@ test("skip and todo by modifier or option, an empty body and a missing callback 
     "skip turned off: active",
   ]);
   const { errors } = checkLinking(root);
-  assert.deepEqual(errors.map(({ code, invariant, message }) => ({ code, invariant, why: /\(([^)]*)\)\.[^"]*$/.exec(message.split("; ").at(-1) ?? "")?.[1] })), [
+  // The last listed test of the message: `- "title" (file:line, why)`, one a line.
+  assert.deepEqual(errors.map(({ code, invariant, message }) => ({ code, invariant, why: /\(([^)]*)\)$/.exec(message.split("\n").filter((line) => line.startsWith("- ")).at(-1) ?? "")?.[1] })), [
     { code: "E_TEST_INACTIVE", invariant: "empty", why: "src/m/contracts.test.ts:11, todo by the `todo` option" },
     { code: "E_TEST_INACTIVE", invariant: "consume", why: "src/m/contracts.test.ts:15, has no callback" },
   ]);

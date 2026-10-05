@@ -31,7 +31,7 @@ test("a test file whose project import names something the file does not export 
   const because = `its file has a broken import: "./quota-fixture.ts" (${QUOTA_TEST}:4) does not export "quotaWith"`;
   assert.ok(quota.every(({ inactiveBecause }) => inactiveBecause === because));
   assert.deepEqual(errors.map(({ code, invariant }) => ({ code, invariant })), ["accounts", "empty", "consume", "race"].map((invariant) => ({ code: "E_TEST_INACTIVE", invariant })));
-  assert.match(errors[0].message, /\. Fix the broken import of the test file, enable a test, or give it a body\. Cage reads tests and does not run them/);
+  assert.match(errors[0].message, /\nFix the broken import of the test file, enable a test, or give it a body\. Cage reads tests and does not run them/);
   // The other contracts' tests are in another file and stay active.
   assert.ok(linking.tests.filter((declaration) => declaration.contract !== "Quota").every(({ status }) => status === "active"));
 

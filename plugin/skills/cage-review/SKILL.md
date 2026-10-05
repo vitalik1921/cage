@@ -32,3 +32,4 @@ description: Review the contracts of a cage project — judge whether the tests 
 - `adequate` needs evidence: name the test and what it asserts. "The test exists" is not evidence.
 - Never lower an assessment, remove or soften an invariant, or edit `.cage/review.json` by hand to make the check pass. `cage review --accept` is not a review: it records the material as accepted without a verdict, and only a person decides that; do not run it unless asked to.
 - Do not run the project's tests to decide; this is a reading of what the tests would prove, not whether they pass today.
+- The packet lists the fingerprinted dependencies; how far the fingerprint reaches is the project's `reviewDependencies` setting. Do not change `.cage/config.json` to widen or narrow it.

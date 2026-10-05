@@ -10,6 +10,9 @@ import { collectMaterial, createFileReader, externalUses, fingerprintOf, type Ma
 /** Relative to the project root. */
 export const REVIEW_FILE = ".cage/review.json";
 
+/** How many changed parts a `REVIEW_STALE` message names; the rest is a count, and `cage review` lists them all. */
+const MAX_LISTED_PARTS = 10;
+
 export const ASSESSMENTS = ["adequate", "weak", "unrelated", "insufficient-context"] as const;
 export type Assessment = (typeof ASSESSMENTS)[number];
 
@@ -125,14 +128,17 @@ function describePart(key: string): string {
 /**
  * What the bounds of the review scope left out of a contract's fingerprint, and what could not be read:
  * a change there would not make the review outdated, so it is said, never left silent. The level is the
- * review level's: under "require" a fingerprint with holes is an error.
+ * review level's: under "require" a fingerprint with holes is an error. The message states the fact and
+ * names the setting; it gives no advice, because the agent reads it and the bounds are the project's to set.
+ * `check` reports it; the review packet and index do not, so that a reviewer is not sent to the configuration.
  */
 export function scopeDiagnostics(material: Material, level: "warn" | "require"): Diagnostic[] {
   // A dependency that cannot be read is a hole of unknown size: the material cannot be established.
   const diagnostics: Diagnostic[] = material.unreadable.map(({ file, message }) => ({ code: "E_ENVIRONMENT", severity: "error" as const, message: `Cannot read a dependency of the review of "${material.contract.name}": ${message}`, file, contract: material.contract.name }));
+  // One file a line, five at most: the message is read, not parsed.
   const listed = (entries: Material["beyond"], why: (entry: Material["beyond"][number]) => string) => {
-    const shown = entries.slice(0, 5).map((entry) => `${entry.file} (${why(entry)})`);
-    return `${shown.join(", ")}${entries.length > shown.length ? ` and ${entries.length - shown.length} more` : ""}`;
+    const shown = entries.slice(0, 5).map((entry) => `- ${entry.file} (${why(entry)})`);
+    return `${shown.join("\n")}${entries.length > shown.length ? `\n- and ${entries.length - shown.length} more` : ""}`;
   };
   const limit = (message: string): Diagnostic => ({
     code: `${level === "require" ? "E" : "W"}_REVIEW_SCOPE_LIMIT`,
@@ -145,7 +151,7 @@ export function scopeDiagnostics(material: Material, level: "warn" | "require"):
   if (bounded.length > 0) {
     diagnostics.push(
       limit(
-        `The fingerprint of the review of contract "${material.contract.name}" stops at the bounds of \`reviewDependencies\` (${material.dependencies.length} dependency files fingerprinted): a change in ${listed(bounded, ({ why }) => (why === "depth" ? "past the depth" : "past the file limit"))} would not make the review outdated. Raise "depth" or "maxFiles", or list files the contract does not depend on in "exclude", in .cage/config.json.`,
+        `The fingerprint of the review of contract "${material.contract.name}" stops at the bounds of \`reviewDependencies\` (${material.dependencies.length} dependency files fingerprinted); a change in these would not make the review outdated:\n${listed(bounded, ({ why }) => (why === "depth" ? "past the depth" : "past the file limit"))}\nThe bounds are the project's setting.`,
       ),
     );
   }
@@ -153,7 +159,7 @@ export function scopeDiagnostics(material: Material, level: "warn" | "require"):
   if (outside.length > 0) {
     diagnostics.push(
       limit(
-        `The fingerprint of the review of contract "${material.contract.name}" leaves out what lies outside the project: a change in ${listed(outside, () => "a link out of the project")} would not make the review outdated. cage does not read files outside the project; move the file into it, or list it in "exclude" of \`reviewDependencies\` if the contract does not depend on it.`,
+        `The fingerprint of the review of contract "${material.contract.name}" leaves out what lies outside the project; a change in these would not make the review outdated:\n${listed(outside, () => "a link out of the project")}\ncage does not read files outside the project.`,
       ),
     );
   }
@@ -191,7 +197,7 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
   if (reviews.diagnostics.length > 0) return { diagnostics: reviews.diagnostics, status };
   const severity = level === "require" ? "error" : "warning";
   const code = (name: string) => `${level === "require" ? "E" : "W"}_REVIEW_${name}`;
-  const { read } = createFileReader(root, diagnostics);
+  const { read } = createFileReader(root, diagnostics, result.linking?.sources);
 
   for (const contract of index.contracts) {
     const subject = `contract "${contract.name}"`;
@@ -215,12 +221,14 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
       const removed = Object.keys(entry.material).filter((key) => !Object.hasOwn(digests, key));
       const what = [...changed.map((key) => (Object.hasOwn(entry.material, key) ? `${describePart(key)} changed` : `${describePart(key)} is new`)), ...removed.map((key) => `${describePart(key)} is gone`)];
       // The files may all match while the recorded fingerprint does not: the entry was edited or made by other rules.
-      const since = what.length > 0 ? `since then: ${what.join(", ")}` : "its recorded fingerprint does not match its files";
+      // One part a line, ten at most: the full list is the index's (`cage review`), the message is a pointer.
+      const shown = what.length > MAX_LISTED_PARTS ? [...what.slice(0, MAX_LISTED_PARTS), `and ${what.length - MAX_LISTED_PARTS} more: \`cage review ${contract.name}\` lists them`] : what;
+      const since = what.length > 0 ? `since then:\n${shown.map((item) => `- ${item}`).join("\n")}` : "its recorded fingerprint does not match its files.";
       // A changed declaration is a changed promise: whoever imports its implementation from outside the module relies on the old one.
       const users = changed.includes("contract") && result.compiler ? externalUses(root, result.compiler.ts, result.compiler.overlay, material.implementations, contract.module, contract.members.map((member) => member.name), sourceFiles) : [];
-      const outside = users.length > 0 ? ` The contract changed and is used outside its module by ${users.map((use) => `${use.file}:${use.line}${use.members.length > 0 ? ` (${use.members.join(", ")})` : ""}`).join(", ")}: they rely on the old promise.` : "";
+      const outside = users.length > 0 ? `\nThe contract changed and is used outside its module by ${users.map((use) => `${use.file}:${use.line}${use.members.length > 0 ? ` (${use.members.join(", ")})` : ""}`).join(", ")}: they rely on the old promise.` : "";
       // An acceptance was never a review: what is asked for is a review, not another acceptance.
-      const record = entry.accepted ? `The acceptance of ${subject} (recorded without a review) is for other material; ${since}. Review it.` : `The recorded review of ${subject} is for other material; ${since}. Review it again.`;
+      const record = entry.accepted ? `The acceptance of ${subject} (recorded without a review) is for other material; ${since}\nReview it.` : `The recorded review of ${subject} is for other material; ${since}\nReview it again.`;
       diagnostics.push({
         code: code("STALE"),
         severity,
@@ -334,7 +342,7 @@ export function recordVerdicts(options: ImplementationPhaseOptions, verdictsFile
   diagnostics.push(...existing.diagnostics);
   if (existing.diagnostics.length > 0) return report([]);
 
-  const { read } = createFileReader(root, diagnostics);
+  const { read } = createFileReader(root, diagnostics, result.linking?.sources);
   const entries = new Map(existing.entries.map((entry) => [keyOf(entry), entry]));
   const recorded: RecordReport["recorded"] = [];
   for (const [order, verdict] of given.entries()) {
@@ -468,7 +476,7 @@ export function acceptContracts(options: ImplementationPhaseOptions, names: read
   if (hasErrors(diagnostics)) return report([]);
   selected.sort((a, b) => compareText(a.module, b.module) || compareText(a.name, b.name));
 
-  const { read } = createFileReader(root, diagnostics);
+  const { read } = createFileReader(root, diagnostics, result.linking?.sources);
   const entries = new Map(existing.entries.map((entry) => [keyOf(entry), entry]));
   const accepted: AcceptReport["accepted"] = [];
   for (const contract of selected) {

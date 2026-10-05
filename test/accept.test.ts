@@ -99,7 +99,7 @@ test("a change makes an acceptance outdated like a review; --accept without name
   const stale = check(root).report.diagnostics.filter(({ code }) => code === "W_REVIEW_STALE");
   assert.equal(stale.length, 1);
   assert.equal(stale[0].contract, "Send");
-  assert.match(stale[0].message, /^The acceptance of contract "Send" \(recorded without a review\) is for other material; since then: test "не передає повідомлення без квоти \(edited\)" \(src\/modules\/campaigns\/send\.test\.ts\) is new, test "не передає повідомлення без квоти" \(src\/modules\/campaigns\/send\.test\.ts\) is gone\. Review it\.$/);
+  assert.match(stale[0].message, /^The acceptance of contract "Send" \(recorded without a review\) is for other material; since then:\n- test "не передає повідомлення без квоти \(edited\)" \(src\/modules\/campaigns\/send\.test\.ts\) is new\n- test "не передає повідомлення без квоти" \(src\/modules\/campaigns\/send\.test\.ts\) is gone\nReview it\.$/);
   assert.deepEqual(index(root).contracts.map(({ contract, status }) => `${contract} ${status}`), ["Send outdated"]);
   // The gate blocks on an outdated acceptance as on an outdated review.
   assert.equal(cliWithStdin(root, JSON.stringify({ session_id: "accept-stale" }), "gate").code, 2);

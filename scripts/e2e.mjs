@@ -209,7 +209,10 @@ try {
   log("50-outside-link", [`diagnostics: ${JSON.stringify(linked.diagnostics, null, 2)}`, `helpers: ${JSON.stringify(linked.helpers)}`, `fingerprinted: ${JSON.stringify(linked.fingerprinted)}`, `sentinel in any output: ${outputs.some((text) => text.includes(SENTINEL))}`, `with the outside file unreadable: ${JSON.stringify(unopened.diagnostics.map(({ code }) => code))}`].join("\n"));
   assert.ok(!outputs.some((text) => text.includes(SENTINEL)));
   assert.ok(linked.diagnostics.some(({ code }) => code === "W_OUTSIDE_ROOT"));
-  assert.ok(linked.diagnostics.some(({ code, message }) => code === "W_REVIEW_SCOPE_LIMIT" && message.includes("a link out of the project")));
+  // The packet does not name the bounds of the fingerprint (a reviewer is not sent to the configuration); check does, once the review is recorded.
+  assert.ok(!linked.diagnostics.some(({ code }) => code.endsWith("REVIEW_SCOPE_LIMIT")));
+  // Reviews are required here, so the hole is an error.
+  assert.ok(json(cage(loop, "check", "--format", "json")).diagnostics.some(({ code, message }) => code === "E_REVIEW_SCOPE_LIMIT" && message.includes("a link out of the project")));
   assert.ok(!unopened.diagnostics.some(({ code }) => code === "E_ENVIRONMENT"));
   fs.writeFileSync(path.join(loop, TESTS), testText);
   fs.writeFileSync(implementation, implementationText);
@@ -265,7 +268,8 @@ try {
     stale.push(`${from} -> ${to}: fingerprint ${before} -> ${after}\n${check.stdout.split("\n").filter((line) => line.includes("REVIEW_STALE")).join("\n")}`);
     assert.notEqual(after, before);
     assert.equal(check.status, 1);
-    assert.match(check.stdout, new RegExp(`E_REVIEW_STALE: .*test "${title}"`));
+    // The code heads the diagnostic; the changed parts follow one a line.
+    assert.match(check.stdout, new RegExp(`E_REVIEW_STALE: error at [^\\n]+\\n(?:[^\\n]*\\n)*?  - test "${title}"`));
     assert.equal(recordQuota(quotaFindings()).status, 0);
   }
   log("60-block-loop-setup", stale.join("\n"));

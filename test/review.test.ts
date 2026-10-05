@@ -300,7 +300,7 @@ test("a change to the material makes the review stale, naming the file, and the 
   assert.deepEqual(reviewDiagnostics(root).filter(({ contract }) => contract === "Send"), [
     {
       code: "W_REVIEW_STALE",
-      message: `The recorded review of contract "Send" is for other material; since then: test "не передає повідомлення без квоти (edited)" (${SEND_TEST}) is new, test "не передає повідомлення без квоти" (${SEND_TEST}) is gone. Review it again.`,
+      message: `The recorded review of contract "Send" is for other material; since then:\n- test "не передає повідомлення без квоти (edited)" (${SEND_TEST}) is new\n- test "не передає повідомлення без квоти" (${SEND_TEST}) is gone\nReview it again.`,
       contract: "Send",
       invariant: undefined,
       ...contractPosition,
@@ -318,19 +318,19 @@ test("a change to the material makes the review stale, naming the file, and the 
   const tampered = JSON.parse(reviewFile);
   writeFile(root, REVIEW_FILE, JSON.stringify({ ...tampered, reviews: [{ ...tampered.reviews[0], fingerprint: "sha256:0" }] }));
   editFile(root, SEND_TEST, (s) => s.replace('it("не передає повідомлення без квоти (edited)"', 'it("не передає повідомлення без квоти"'));
-  assert.match(reviewDiagnostics(root).find(({ contract }) => contract === "Send")?.message ?? "", /for other material; its recorded fingerprint does not match its files\. Review it again\./);
+  assert.match(reviewDiagnostics(root).find(({ contract }) => contract === "Send")?.message ?? "", /for other material; its recorded fingerprint does not match its files\.\nReview it again\./);
   writeFile(root, REVIEW_FILE, reviewFile);
 
   // A changed declaration names who outside the module relies on it.
   writeFile(root, "src/modules/mail/digest.ts", 'import { SendService } from "../campaigns/send-service.ts";\n\nexport const digest = (service: SendService) => service.run("a", "text");\n');
   editFile(root, CAMPAIGNS, (s) => s.replace("@invariant limit За false", "@invariant limit За false (уточнено)"));
-  assert.match(reviewDiagnostics(root).find(({ contract }) => contract === "Send")?.message ?? "", /the contract declaration changed\. Review it again\. The contract changed and is used outside its module by src\/modules\/mail\/digest\.ts:1 \(run\): they rely on the old promise\./);
+  assert.match(reviewDiagnostics(root).find(({ contract }) => contract === "Send")?.message ?? "", /- the contract declaration changed\nReview it again\.\nThe contract changed and is used outside its module by src\/modules\/mail\/digest\.ts:1 \(run\): they rely on the old promise\./);
   editFile(root, CAMPAIGNS, (s) => s.replace("@invariant limit За false (уточнено)", "@invariant limit За false"));
   fs.rmSync(path.join(root, "src/modules/mail/digest.ts"));
 
   // The implementation is material; a file of another contract, or a comment next to the tests, is not.
   editFile(root, SEND_SERVICE, (s) => s.replace('return "sent";', 'return "sent" as const;'));
-  assert.match(reviewDiagnostics(root).find(({ contract }) => contract === "Send")?.message ?? "", new RegExp(`since then: implementation SendService \\(${SEND_SERVICE}\\) changed`));
+  assert.match(reviewDiagnostics(root).find(({ contract }) => contract === "Send")?.message ?? "", new RegExp(`since then:\\n- implementation SendService \\(${SEND_SERVICE}\\) changed`));
   assert.equal(record(root, { ...verdicts, verdicts: [{ ...verdicts.verdicts[0], fingerprint: fingerprintOf(root, "Send") }] }).code, 0);
   editFile(root, "src/modules/quota/quota.test.ts", (s) => `${s}// not material of Send\n`);
   editFile(root, SEND_TEST, (s) => `${s}// not material either\n`);
