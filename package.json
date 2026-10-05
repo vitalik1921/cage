@@ -46,7 +46,8 @@
     "smoke": "node scripts/smoke.mjs",
     "e2e": "node scripts/e2e.mjs",
     "prepublishOnly": "npm run verify && npm run smoke",
-    "version": "node scripts/sync-plugin-version.mjs && git add plugin/.claude-plugin/plugin.json"
+    "version": "node scripts/sync-plugin-version.mjs && git add plugin/.claude-plugin/plugin.json",
+    "cage": "cage check"
   },
   "dependencies": {
     "remark-mdx": "3.1.1",
@@ -57,6 +58,7 @@
   "devDependencies": {
     "@types/mdast": "4.0.4",
     "@types/node": "24.19.0",
+    "cage-stable": "npm:cage-ts@^0.4.0",
     "typescript-5": "npm:typescript@5.9.3"
   }
 }

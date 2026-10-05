@@ -288,6 +288,8 @@ test("a recorded verdict makes check content with the contract, and the review f
   assert.match(check(root).report.diagnostics[0].message, /"review" must be "off", "warn" or "require"/);
 });
 
+/** @tests Cli
+ * @covers review-stale record-refuses */
 test("a change to the material makes the review stale, naming the file, and the old verdict cannot be recorded", (t) => {
   const root = copyFixture(t, "vertical");
   const fingerprint = fingerprintOf(root, "Send");
@@ -401,6 +403,8 @@ test("findings other than adequate are reported where the invariant is, with the
   assert.equal(check(root).code, 1);
 });
 
+/** @tests Cli
+ * @covers record-refuses */
 test("a verdict is refused when it is not about the designs as they are, and then nothing is recorded", (t) => {
   const root = copyFixture(t, "vertical");
   const good = { contract: "Send", fingerprint: fingerprintOf(root, "Send"), findings: SEND_INVARIANTS.map((id) => finding(id)) };

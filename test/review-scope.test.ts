@@ -133,6 +133,8 @@ test("a test file edited while review runs: the material is cut from the text th
   assert.match(tests.map((part) => part.text).join("\n"), /assert\.equal\(quota\.left, 1\);/);
 });
 
+/** @tests Cli
+ * @covers review-stale */
 test("a change in a file the implementation imports makes the review outdated (audit P0)", (t) => {
   const root = quotaProject(t);
   recordAdequate(root);
@@ -150,6 +152,8 @@ test("a function of the implementation's own file that it calls is part of it; o
   assert.equal(staleBecause(root), `implementation MemoryQuota (${IMPLEMENTATION}) changed`);
 });
 
+/** @tests Cli
+ * @covers review-stale */
 test("a stub the tests import, and the setup of their suite, are part of what the tests observe", (t) => {
   const root = quotaProject(t);
   recordAdequate(root);
@@ -161,6 +165,8 @@ test("a stub the tests import, and the setup of their suite, are part of what th
   assert.equal(staleBecause(root), `test "refuses when empty" (${TESTS}) changed, test "takes one send" (${TESTS}) changed`);
 });
 
+/** @tests Cli
+ * @covers review-stale */
 test("a change of the module's prose makes the review outdated; another contract's declaration in the same document does not (audit P1)", (t) => {
   const root = quotaProject(t, {
     [DESIGN]: mdx(QUOTA, contract("Ledger", "note(): void;", "@invariant noted A take is noted.")).replace("What the module is for.", "Each account gets a number of sends; a send is refused when none are left."),
@@ -207,6 +213,8 @@ test("another contract's implementation is fingerprinted, not followed: what it 
   assert.deepEqual(stale, ["Rule"]);
 });
 
+/** @tests Cli
+ * @covers review-scope-silent */
 test("what lies beyond the bounds is reported, never silent; exclude takes a file out deliberately", (t) => {
   const chain = {
     [RULE]: 'import { a } from "./a.ts";\nexport const hasQuota = (left: number): boolean => left > a;\n',

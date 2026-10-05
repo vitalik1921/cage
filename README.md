@@ -109,6 +109,10 @@ Review the last commit in src/modules/accounts: do the tests still check what th
 
 **Keep agreements in CI.** Mark the contracts others rely on `@final` (no changes) or `@extendable` (additions only) and run `cage lock`. In CI, `cage check --base origin/main` fails a branch that changed or unfroze them.
 
+## Cage checks itself
+
+This repository has its own spec, [`src/cage.cage.mdx`](https://github.com/vitalik1921/cage/blob/main/src/cage.cage.mdx): the command line, the configuration loader and the legend of codes as contracts, the rules of this README as their invariants, and the harness's own tests linked to them. CI runs `cage check` on it with the published package, and the Stop hook holds the agent that works on Cage to the same loop as any other project.
+
 ## Does it help?
 
 A first evaluation: one module of a production TypeScript service (NestJS, Drizzle, PostgreSQL), Claude Sonnet 5.5 as the agent, two review runs and three implementation runs per variant. These are preliminary signals, not significant results. Method, tools and every number: [docs/evaluation.md](https://github.com/vitalik1921/cage/blob/main/docs/evaluation.md).

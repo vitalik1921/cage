@@ -84,6 +84,8 @@ test("init writes the configuration with the detected runner and the Claude Code
   assert.ok(cli(root, "init", "--agent", "claude").stdout.split("\n").includes("init: Stop gate for claude."));
 });
 
+/** @tests Cli
+ * @covers init-safe */
 test("existing settings and instructions are extended, not replaced, and a gate written by hand is recognised", (t) => {
   const root = repository(t, {
     ".claude/settings.json": JSON.stringify({ permissions: { allow: ["Bash(ls)"] }, hooks: { Stop: [{ hooks: [{ type: "command", command: "./other.sh" }] }], PostToolUse: [] } }),

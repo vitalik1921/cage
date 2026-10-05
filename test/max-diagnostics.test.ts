@@ -23,6 +23,8 @@ function check(root: string, ...args: string[]): { code: number; report: CheckRe
 const rank = (diagnostic: Diagnostic) => (diagnostic.code === "E_CONFIG" || diagnostic.code === "E_ENVIRONMENT" ? 0 : isError(diagnostic) ? 1 : /REVIEW_(MISSING|STALE)$/.test(diagnostic.code) ? 2 : 3);
 const key = ({ code, file, line, column }: Diagnostic) => `${code} ${file}:${line}:${column}`;
 
+/** @tests Cli
+ * @covers check-limit */
 test("check shows at most maxDiagnostics, the ones that matter most, in the order of the report, and counts the rest by code", (t) => {
   const root = noisyProject(t);
   const full = check(root, "--max-diagnostics", "all");
@@ -87,6 +89,8 @@ test("check shows at most maxDiagnostics, the ones that matter most, in the orde
   assert.deepEqual(check(root).report.omitted, { limit: null, count: 0, errors: 0, warnings: 0, byCode: {} });
 });
 
+/** @tests Cli
+ * @covers check-limit */
 test("the gate's feedback is limited the same way, while what blocks is counted over everything", (t) => {
   const root = noisyProject(t);
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, maxDiagnostics: 2 }));

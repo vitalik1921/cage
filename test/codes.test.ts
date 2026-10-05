@@ -20,6 +20,8 @@ function emittedCodes(): Set<string> {
   return codes;
 }
 
+/** @tests Codes
+ * @covers legend */
 test("every code the source emits is in the legend, and the legend in the reference", () => {
   const emitted = emittedCodes();
   assert.ok(emitted.size > 40, `${emitted.size} codes found`);
@@ -31,6 +33,8 @@ test("every code the source emits is in the legend, and the legend in the refere
   }
 });
 
+/** @tests Cli
+ * @covers codes */
 test("cage codes prints one line per code, what it means and what to do, and takes no options", (t) => {
   const root = designProject(t, {});
   const run = cli(root, "codes");

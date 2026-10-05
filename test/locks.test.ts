@@ -55,6 +55,8 @@ test("a declaration is open unless it is marked: the index records the lock leve
   );
 });
 
+/** @tests Cli
+ * @covers locks */
 test("a marked declaration must be recorded; `cage lock` records it and changes nothing afterwards", (t) => {
   const root = project(t);
   assert.deepEqual(
@@ -95,6 +97,8 @@ test("a marked declaration must be recorded; `cage lock` records it and changes 
   assert.equal(cli(root, "lock").stdout.split("\n").at(-2), `lock: 0 recorded, 0 extended, 4 unchanged in ${LOCK_FILE}.`);
 });
 
+/** @tests Cli
+ * @covers locks */
 test("a @final declaration must not change: not a signature, not a member more or less", (t) => {
   const root = project(t);
   lock(root);

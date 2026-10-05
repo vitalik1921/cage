@@ -114,6 +114,8 @@ test("check --phase design reports the plan fixture: 3 contracts, 1 data type, 8
   );
 });
 
+/** @tests Cli
+ * @covers exit-codes diagnostic-line */
 test("errors are exit 1 and warnings exit 0; a diagnostic names its contract and invariant", (t) => {
   const root = copyFixture(t, "vertical");
   const original = inFixture(QUOTA, "@invariant empty");
@@ -140,6 +142,8 @@ test("errors are exit 1 and warnings exit 0; a diagnostic names its contract and
   assert.match(text.stdout, /7 invariants; 1 error, 1 warning\./);
 });
 
+/** @tests Cli
+ * @covers exit-codes */
 test("configuration and environment problems are exit 2, an empty scope exit 1", (t) => {
   const root = copyFixture(t, "vertical");
   const codes = (args: string[] = []) => {
@@ -277,6 +281,8 @@ function fullCheck(root: string, ...args: string[]): { code: number; report: Che
 
 const linked = (report: CheckReport) => Object.fromEntries((report.invariants ?? []).map(({ contract, id, linkedTestCount }) => [`${contract}: ${id}`, linkedTestCount]));
 
+/** @tests Cli
+ * @covers diagnostic-line */
 test("check reports the whole plan fixture: 3 implementations, 8 linked invariants", (t) => {
   const root = copyFixture(t, "vertical");
   const before = snapshot(root);

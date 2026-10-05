@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Cage checks itself: `src/cage.cage.mdx` with the command line, the configuration loader and the legend of codes as contracts and the README's rules as invariants, linked to the harness's own tests and reviewed; CI runs `cage check` on the repository with the published package.
+- The rules for the agent no longer say that a packet ends with the reviewer's instruction: it ends with the verdict template, and the instruction is the `cage-review` skill's.
+
 ## 0.4.0
 
 - **A diagnostic is a code, a thing and a place.** The text report prints `CODE: what (file:line:column)` — `E_TEST_MISSING: Quota.consume (…)`, `W_REVIEW_STALE: Quota (…)` with the changed parts beneath, `E_TYPE_MISMATCH: MemoryQuota does not fit Quota (…, TS1360)` with the compiler's explanation beneath — and nothing else: no severity word (the prefix says it), no sentence about what the code means or what to do. That is `cage codes`, one line per code, and the "Codes" table of the reference. Every message was rewritten this way; the JSON `message` is the same short text. A report of fifty findings is fifty facts.

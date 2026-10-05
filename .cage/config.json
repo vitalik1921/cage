@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "tests": [
+    "test/*.test.ts"
+  ],
+  "testAdapter": "node:test",
+  "review": "warn",
+  "coverage": "warn",
+  "maxDiagnostics": 50,
+  "reviewDependencies": {
+    "depth": 5,
+    "maxFiles": 60
+  }
+}

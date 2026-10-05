@@ -72,6 +72,8 @@ test("--base compares the lock file with the one at a revision, and says so in t
   assert.ok(cli(root, "check", "--phase", "design", "--base", "HEAD").stdout.endsWith("(project). Locks compared with HEAD.\n"));
 });
 
+/** @tests Cli
+ * @covers locks */
 test("a lock lifted by editing the lock file passes locally and fails against the base", (t) => {
   const { root } = repository(t);
   change(root, "take(account: AccountId): boolean;", "take(account: AccountId): number;");

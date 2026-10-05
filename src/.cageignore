@@ -1,0 +1,42 @@
+# cage's own design names its ports: the command line, the configuration loader and the legend of codes.
+# Everything else in src/ is how they are done, not what they promise. Tags in these files are still read.
+
+# The executable: wires the ports to the process.
+cli.ts
+
+# The ports' files: their other exports are helpers of the port, not promises of their own.
+main.ts
+config.ts
+codes.ts
+
+# Reading the documents and the designs.
+mdx.ts
+doc-comments.ts
+design-index.ts
+design-model.ts
+design-phase.ts
+metadata.ts
+extraction.ts
+graph.ts
+discovery.ts
+location.ts
+typescript.ts
+
+# Checking implementations, tests and coverage.
+implementation-phase.ts
+implementations.ts
+test-declarations.ts
+coverage.ts
+check.ts
+report.ts
+diagnostic.ts
+
+# Locks, reviews, the gate and init: commands behind the command line.
+locks.ts
+lock-command.ts
+review.ts
+review-material.ts
+review-record.ts
+record-file.ts
+gate.ts
+init.ts

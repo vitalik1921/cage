@@ -1,0 +1,159 @@
+# cage
+
+cage keeps a TypeScript project's specs, code and tests in sync, so that a coding agent is told what drifted before it hands the work back. The specs are `*.cage.mdx` documents next to the code; a contract in them is an interface the code must implement, an invariant a rule a linked test must check, and the review a recorded verdict that the tests really check the rules. cage runs locally, makes no model calls and runs no tests: the agent judges, the test runner runs.
+
+This document is cage's own spec, checked by the published cage against this repository. The contracts are the harness's ports: the command line, the configuration and the legend of codes. Everything behind them — parsing documents, indexing designs, comparing types, reading tests, fingerprinting material — is implementation, listed in `.cageignore`.
+
+## Glossary
+
+- **Design**: the `*.cage.mdx` documents of one directory, read as one module.
+- **Contract**: an exported interface marked `@contract`, implemented by code marked `@implements`.
+- **Invariant**: a rule of a contract, `@invariant id text`, linked to tests marked `@covers id`.
+- **Material**: what a review of a contract is about: its declaration, the prose of its module, its implementations, its linked tests with their setup, and the local files they import.
+- **Fingerprint**: a digest of the material, part by part; a recorded verdict is tied to it.
+- **Review**: a recorded verdict, per invariant, that the tests check the rule; an acceptance is a record without a verdict.
+- **Diagnostic**: one finding of a check, with a code (`E_…` fails the check, `W_…` does not), the thing it is about and the place.
+
+## Business rules
+
+- A check is deterministic and never calls a model or runs a test. Green means the structure is in order and the recorded verdicts are for the material as it is now; it never means the tests pass or the verdicts are right.
+- What was not checked is said as such, never counted as zero or passed.
+- A diagnostic names the thing and the place; what it means and what to do about it is one place, `cage codes`.
+- The agent reads reports by the hundred: a report shows what matters most and counts the rest, a packet carries facts and the lines that changed, never a lecture.
+- A verdict is recorded only against the material as it is now, complete and with a reason and evidence; otherwise nothing is recorded.
+- A review goes stale when anything in its material changes, and the check names what.
+- A lock on a declaration is lifted only by a person, visibly, in the lock file; a lock the base branch has is never lifted on a branch.
+- Nothing cage writes for a project overwrites what a person wrote.
+
+## Out of scope
+
+Running tests, judging tests, calling models, reading test runners' reports, Jest, Windows.
+
+## Open questions
+
+- A design in a directory with many files is one module: a prose edit in any document outdates every contract's review. Splitting `src/` into directories would narrow that, at the cost of moving files.
+- `Cli` carries many more invariants than the `cage-design` skill suggests for one contract, because the command line is the one port of the harness. Splitting it into a contract per command would need the internal report types declared in the design, or methods typed `unknown`; neither checks more than this does.
+
+```ts design
+/**
+ * @data
+ * @description What the command line gets from its environment: the working directory, what was piped in, where to write, and whether a person can answer a question.
+ */
+export interface CliIo {
+  cwd: string;
+  stdin?: string;
+  stdout: (text: string) => void;
+  stderr: (text: string) => void;
+  ask?: (question: string) => string | null;
+}
+
+/**
+ * @data
+ * @description A place a diagnostic refers to besides its own: a message and, when known, a file, line and column.
+ */
+export interface RelatedLocation {
+  message: string;
+  file?: string;
+  line?: number;
+  column?: number;
+  endLine?: number;
+  endColumn?: number;
+}
+
+/**
+ * @data
+ * @description One finding of a check: a code, its severity, what it is about and where. Locations are project-relative POSIX paths, line and column from 1.
+ */
+export interface Diagnostic {
+  code: string;
+  severity: "error" | "warning";
+  message: string;
+  file?: string;
+  line?: number;
+  column?: number;
+  endLine?: number;
+  endColumn?: number;
+  tsCode?: number;
+  contract?: string;
+  invariant?: string;
+  related?: RelatedLocation[];
+}
+
+/**
+ * @data
+ * @description The bounds of the dependency part of a review's fingerprint: import levels followed, files fingerprinted per contract, patterns left out.
+ */
+export interface ReviewDependencies {
+  depth: number;
+  maxFiles: number;
+  exclude: string[];
+}
+
+/**
+ * @data
+ * @description The project's configuration, every field present: the file's values over the defaults.
+ */
+export interface Config {
+  version: 1;
+  tsconfig: string;
+  designs: string[];
+  implementations: string[];
+  tests: string[];
+  exclude: string[];
+  testAdapter: "node:test" | "vitest";
+  review: "off" | "warn" | "require";
+  coverage: "off" | "warn" | "require";
+  reviewDependencies: ReviewDependencies;
+  maxDiagnostics: number | "all";
+}
+
+/**
+ * @data
+ * @description A loaded configuration with what was wrong with the file, if anything; with a problem the defaults are returned.
+ */
+export interface LoadedConfig {
+  config: Config;
+  diagnostics: Diagnostic[];
+}
+
+/**
+ * @contract
+ * @description The command line of the harness: runs one command for the given arguments and environment and returns the exit code. Reports go to stdout, usage errors and the gate's feedback to stderr.
+ * @invariant exit-codes The exit code is 2 for a usage, configuration or environment problem, 1 when a rule is violated, 0 otherwise; warnings never change it.
+ * @invariant diagnostic-line A diagnostic is printed as `CODE: what (file:line:column)` with its details on indented lines below; no line says what the code means or what to do.
+ * @invariant check-limit `check` and `gate` print at most `maxDiagnostics` diagnostics, the ones that matter most, and count the rest by code; the exit code and the summary count every one.
+ * @invariant review-index `review` without names prints an index: the contracts without a record of their material as it is now, what changed since the recorded review and which invariants that touches; `--all` lists every contract with its status.
+ * @invariant review-packet `review <Name>` carries the lines of the parts that changed since the recorded review and the previous finding of each invariant, or every file when there is no review to compare with; `--files all` includes every file whole and `--files none` the references only.
+ * @invariant review-touched Where the record cannot tell what a change touches — no part differs by its digest, a previous finding rests on a changed test, an invariant lost its coverage, or anything but a test changed — every invariant is touched.
+ * @invariant review-scope-silent The review packet and index never name `REVIEW_SCOPE_LIMIT`; `check` reports it as a fact about the project's setting.
+ * @invariant record-refuses `review --record` refuses a verdict for other material, for an unknown contract or invariant, with an invariant left unassessed, or with a finding without a reason or evidence, and then records nothing.
+ * @invariant review-stale A change to a contract, the prose of its module, an implementation, a linked test, its setup, or a local file they import makes the recorded review outdated, and `check` names the changed parts.
+ * @invariant accept `review --accept` records the material of every contract without a fresh record as accepted without a review; `check` asks for no review until it changes and counts acceptances apart from attested ones.
+ * @invariant gate `gate` exits 2 on an error or a missing or outdated review and 0 otherwise, whatever the review level; after three blocks in one session it lets the agent stop with the report.
+ * @invariant locks `lock` records the declarations marked `@final` or `@extendable`; `check` reports a change to a recorded declaration, and `--base` refuses a lock that the base revision has and the lock file no longer does.
+ * @invariant codes `codes` prints one line per diagnostic code the harness can emit, with what it means and what to do about it.
+ * @invariant init-safe `init` never overwrites a file a person wrote, adds its gate beside other hooks, and passes every path to a hook as data.
+ */
+export interface Cli {
+  (argv: readonly string[], io: CliIo): number;
+}
+
+/**
+ * @contract
+ * @description Loads the project's configuration: the given file, else `.cage/config.json` when it exists, else the defaults.
+ * @invariant defaults Without a file the defaults apply; a field left out keeps its default, and `reviewDependencies` is merged field by field.
+ * @invariant fields An unknown field, a wrong type or invalid JSON is an `E_CONFIG` for each problem, and the defaults are returned with it.
+ */
+export interface ConfigLoader {
+  (root: string, configPath?: string): LoadedConfig;
+}
+
+/**
+ * @contract
+ * @description The legend of diagnostic codes as text.
+ * @invariant legend One line per code the harness can emit, each with what it means and what to do about it; every code the source emits is in it, and nothing else.
+ */
+export interface Codes {
+  (): string;
+}
+```

@@ -1,0 +1,259 @@
+{
+  "version": 1,
+  "reviews": [
+    {
+      "module": "src",
+      "contract": "Cli",
+      "fingerprint": "sha256:6faa270d3537f20d5a1a56cf06bcbdd0755223fefc91b5e59907a58bdd01feb6",
+      "material": {
+        "contract": "sha256:bd6984ba22cfa93368002762acd4320860b1ad0585d8a86b4feb828209e71a28",
+        "design src/cage.cage.mdx": "sha256:ada2e9323c59cee624ce11610d68416a1d0d93b6d1449e567d727b45b9f90824",
+        "implementation src/main.ts#runCli": "sha256:bb41564f08b445f6d65e876af41be4639edefb6c1056c42e1e5152bfc86408f1",
+        "test test/accept.test.ts:review --accept records every contract in need of a review as accepted without a verdict, and check asks for none": "sha256:3f615724b19dbfb814535b5c8cf529ae1800c8364718c5493376092997bdd246",
+        "test test/accept.test.ts:a change makes an acceptance outdated like a review; --accept without names renews only those, and keeps a verdict": "sha256:94dac16e5fdd0a75632be73eca5c7056ae5309e9b1bdfc49c1148dae56ef4e51",
+        "test test/check.test.ts:errors are exit 1 and warnings exit 0; a diagnostic names its contract and invariant": "sha256:3347a48a817119fa6b23fa57cf1586929522e46f7c124d3bfc4f95a3af6e42be",
+        "test test/check.test.ts:configuration and environment problems are exit 2, an empty scope exit 1": "sha256:af66ef211af72f216dbb10d5b30bb467124a1ce37c55a9001b2a9ff5f28a8e72",
+        "test test/check.test.ts:check reports the whole plan fixture: 3 implementations, 8 linked invariants": "sha256:70d35d2e66b7ae158bffcf0dcc745b6d128e18fe91d1cbca075b2d0ceba37e74",
+        "test test/cli.test.ts:invalid arguments exit 2 with a message on stderr and nothing on stdout": "sha256:8de680dceb3e195ede6fc5610c5f6005fda09bce2d60d816c7dd2fa416d861ae",
+        "test test/codes.test.ts:cage codes prints one line per code, what it means and what to do, and takes no options": "sha256:f58ace5c49fc90d0f0043c8cc45a634f8f6474abdf1c04cb5d08a642fca0c802",
+        "test test/gate.test.ts:the gate blocks on errors and on missing reviews, whatever the review level, and passes a clean check": "sha256:43f8e31a01a8ffa1a5a2c4fdda46e726a954b47662434121272f4b1d8fc5c726",
+        "test test/gate.test.ts:a weak finding blocks the gate only where reviews are required; a missing or stale review blocks at any level": "sha256:12eefc2969c97c0769b6cfebc3326913efac063bc9e5ad10362cfb320f10e398",
+        "test test/gate.test.ts:after MAX_BLOCKS blocks in one session the gate lets the agent stop, with the report; a pass resets the count": "sha256:4badef1f386f76c910fd52b2cf9d403ecd26638ee335810d03141fb4eddd563d",
+        "test test/init-safety.test.ts:the generated hooks pass every path as data: no substitution runs, and the Codex config stays valid TOML": "sha256:54341b347c11b56d3d23383e7b9072841a99b75249c81f01604a51c9f89888eb",
+        "test test/init-safety.test.ts:a hook that only mentions cage gate is not the gate: init adds its own beside it and says so": "sha256:118993cbdad1b6dc4116ef9a1b9a2d239ae520ef278b852c41bfec6a0a3160a5",
+        "test test/init.test.ts:existing settings and instructions are extended, not replaced, and a gate written by hand is recognised": "sha256:886347b129e628911e8fe10bf8e1add62ecdf0154236008150311df10c049b97",
+        "test test/lock-base.test.ts:a lock lifted by editing the lock file passes locally and fails against the base": "sha256:1ac3eef8952fe23bcbdf8c8cbe7a5c6cf04f1c1cf034a066df23d389b5b85e24",
+        "test test/locks.test.ts:a marked declaration must be recorded; `cage lock` records it and changes nothing afterwards": "sha256:57f9a7d347cf5a72d39920c8801cc90a81a0c141816461302cf10d754823f6fa",
+        "test test/locks.test.ts:a @final declaration must not change: not a signature, not a member more or less": "sha256:1ce5b90a3fdec03ea73d0b2f605481cafda56f08b722cd3a8d2533c5555740b2",
+        "test test/max-diagnostics.test.ts:check shows at most maxDiagnostics, the ones that matter most, in the order of the report, and counts the rest by code": "sha256:0eb51b48a957ea1b620adbefe34c94b569bae94795e24cd118ca5d420a6e54af",
+        "test test/max-diagnostics.test.ts:the gate's feedback is limited the same way, while what blocks is counted over everything": "sha256:9f1453f86ad63f036554c5523a561c0c025d2058fddb0b52842960ea455ae776",
+        "test test/review-boundaries.test.ts:a finding without a reason, or without evidence where its assessment needs some, is refused with the whole verdict": "sha256:1e1c67ae3dca53c34c51d5576a83262d39318cff791e619b59a3f76b25e65f96",
+        "test test/review-index.test.ts:without names review is an index: which contracts need a review, what changed and which invariants it touches": "sha256:72a93f3bc06e8364ee2c753a8af1e3ccb21ca3fb2c6c0d289c5215b9fdc4a782",
+        "test test/review-index.test.ts:a named packet carries the changed lines of an outdated review with the previous findings; --files all and none change what comes along": "sha256:929007b0a76eeeb16689522b675d8be241ba61df0cbe6d25e1dc04f693579ca1",
+        "test test/review-index.test.ts:the index keeps every error in view: a broken review file is named, not only counted": "sha256:f42559336a3058b7c0d8156e694284bfc483abc1e41c81238d8fb3bb0400d523",
+        "test test/review-index.test.ts:touched is conservative where the record cannot tell: a reorder, a finding resting on a changed test, a coverage lost": "sha256:ebee256442e0db5e8511cbab143bfe6d5dd024d7128e664dd55cc45eb476af5a",
+        "test test/review-scope.test.ts:a change in a file the implementation imports makes the review outdated (audit P0)": "sha256:cd71daf362f4a98c405bc941ded7706771627a0cdf7dea872216330999a79a49",
+        "test test/review-scope.test.ts:a stub the tests import, and the setup of their suite, are part of what the tests observe": "sha256:a3404fdafca7a82dbeba275e9c16d9543b8a7f6aac4047b723df458de26cd20a",
+        "test test/review-scope.test.ts:a change of the module's prose makes the review outdated; another contract's declaration in the same document does not (audit P1)": "sha256:6f5a7d173cc02c1062106fe0e878ebc0aa3be65a2fc91895bb6b86888999ad14",
+        "test test/review-scope.test.ts:what lies beyond the bounds is reported, never silent; exclude takes a file out deliberately": "sha256:30b64fed42e7ee1a86727bad238899f0f1e748cad44b6b2fd08e6685e453f6b4",
+        "test test/review.test.ts:a change to the material makes the review stale, naming the file, and the old verdict cannot be recorded": "sha256:16885783bc2b58f4518ed03bb92593cf62e227797ded8e6819287f3433281f49",
+        "test test/review.test.ts:a verdict is refused when it is not about the designs as they are, and then nothing is recorded": "sha256:ad7e7258f656015003e69f55db1b23315e49302880df6d2ae2268ac6906a2c14",
+        "dependency src/check.ts": "sha256:d8be6b423a1380b2a642393301d4b76a29f78fb6663fd12672198c5f9ee7dd39",
+        "dependency src/codes.ts": "sha256:c446856029c4d1075a28501a44a12b4a8e422317a9824a44d719ae85a38f15df",
+        "dependency src/config.ts": "sha256:a45aa37cc39b437676f990180dc62052832a4ade047578cb67684a7498bd94d6",
+        "dependency src/diagnostic.ts": "sha256:0035878f6eb70a82a842c722b69d98da2f9b214f7d8c4321e1b6fed198cc31df",
+        "dependency src/discovery.ts": "sha256:25943573526770b652c6fc6e56ff7ab7196fa3d3e07991fd0c6351593d92f6c7",
+        "dependency src/gate.ts": "sha256:08af6dafbb6e76d158857ceff62d9667bb9aacda002d9a780ffa119d92af42c3",
+        "dependency src/init.ts": "sha256:2378166e06cc4e2eb94f4effbcdc041bb8729014be5c3908a8906ee86a036106",
+        "dependency src/lock-command.ts": "sha256:3d0e1fb4667ee3bd35744849c93854406e8c4bbb8d7b161f001c6227081f0e27",
+        "dependency src/report.ts": "sha256:1d88e155b1a60a84255930115b87cb4d24fa1cdf6dddaefb8f1a8140c2032d69",
+        "dependency src/review-record.ts": "sha256:c9514df319a716ac78211867b578e95a4fcc6bd18a71bbd8dfe7e114418b4a23",
+        "dependency src/review.ts": "sha256:94d5c9f34d3d58067272ec09c906ddb2f1de38317c223b44ba02672c6730f844",
+        "dependency test/helpers.ts": "sha256:fc63b8aabc7605146efd4c83ba50ff9ef6ee1e8f46f721ba9c78e6d6e2236c95",
+        "dependency src/typescript.ts": "sha256:fe7923d393c2d00b86ec2edb27b1782f07cfa9df6db38f63a69726bc376b3017",
+        "dependency src/locks.ts": "sha256:b23ae4322742bed215ff7f1c15200f756ac055f9fc07b51b430e0d824a6ddf58",
+        "dependency src/review-material.ts": "sha256:9cbae761c19ee7cb915de747cf4a8a4877f5a195058c5c62dbd7b1ac847f153e",
+        "dependency src/design-phase.ts": "sha256:63d7d9b31b2def44d5a205b5473aa3bdc22454297d37bd1a7f4d0c050a47c247",
+        "dependency src/implementation-phase.ts": "sha256:f039339371f00518ebb10caef2a884fac44ab2f6e90e8910383af65e3345b411",
+        "dependency src/location.ts": "sha256:5bf7111477026c949aef8c1243e46488037018ed596c52f2dadc8a4367699e3f",
+        "dependency src/extraction.ts": "sha256:304797f5ff41928fa4d85364f3ae144d720cf2179cfe5ce62ab88b290df0f447",
+        "dependency src/record-file.ts": "sha256:1cc18a9589366b083d0bbf6a2c7f2a26486a6ae3344791504c4ca98b6ffb0ad7",
+        "dependency src/design-index.ts": "sha256:19e45c5709f7f824cb42d1c2f590b12fb3970170b24a94dde9d556b8d2426fb6",
+        "dependency src/mdx.ts": "sha256:d8b2eeaad6511ed51d124e63adfe1094b28ba921dd4d553050923d1c2014fa7e",
+        "dependency src/coverage.ts": "sha256:b58fac07c3a7214de6c2734f69f483a302a2c2daec5569a7f0392bdc51640037",
+        "dependency src/implementations.ts": "sha256:9ef9040687b615326c40c8c29065cf28cceeaaf63dfe1c920233583caa6e6783",
+        "dependency src/metadata.ts": "sha256:b12f1698031169da7f8164c59a9ae7d09e8255809d17f8da88ab09408c3be9c5",
+        "dependency src/test-declarations.ts": "sha256:8799930c3ca42551913c910460a37ff70a9f2da6ce4b52fb45b51bc8f787eced",
+        "dependency src/design-model.ts": "sha256:2b2ae020bf7076e4cc3d38b8ecb501875c2d5e42b9b6847d58c530daf17cda28",
+        "dependency src/doc-comments.ts": "sha256:da7754b17593c902272208167f83e3827ac05d40f640c9f5f6576ee69ca20d4a",
+        "dependency src/graph.ts": "sha256:86e15dbf047f21942af10d576a5f3da64ff0d3677b63b62bf98e87145cf57e66"
+      },
+      "findings": [
+        {
+          "invariant": "exit-codes",
+          "assessment": "adequate",
+          "reason": "The tests assert 1 for a rule violation with ok false, 2 for a configuration or environment problem and for a usage error, and 0 for a check with warnings only.",
+          "evidence": "test/check.test.ts:119; test/check.test.ts:147; test/cli.test.ts:30",
+          "suggestedChange": null
+        },
+        {
+          "invariant": "diagnostic-line",
+          "assessment": "adequate",
+          "reason": "The exact stdout of the fixture check is asserted line by line: code, thing and place, with a related place on an indented line and nothing else.",
+          "evidence": "test/check.test.ts:119; test/check.test.ts:286",
+          "suggestedChange": null
+        },
+        {
+          "invariant": "check-limit",
+          "assessment": "adequate",
+          "reason": "The tests assert the shown lines, their rank and order against an independent ranking, the counts by code, the summary over everything, the exit code of the full report, and the gate counting what blocks over everything.",
+          "evidence": "test/max-diagnostics.test.ts:28; test/max-diagnostics.test.ts:94",
+          "suggestedChange": null
+        },
+        {
+          "invariant": "review-index",
+          "assessment": "adequate",
+          "reason": "The tests assert the entries, their statuses, the changed parts with places, the touched invariants, --all with every contract, and that a broken review file is named in full.",
+          "evidence": "test/review-index.test.ts:26; test/review-index.test.ts:170",
+          "suggestedChange": null
+        },
+        {
+          "invariant": "review-packet",
+          "assessment": "adequate",
+          "reason": "The test asserts the excerpt lines against the file with their numbers, the previous finding per invariant as changed or unchanged, every file when there is no record, and the files under --files all and none.",
+          "evidence": "test/review-index.test.ts:86",
+          "suggestedChange": null
+        },
+        {
+          "invariant": "review-touched",
+          "assessment": "adequate",
+          "reason": "The tests assert every invariant touched after a reorder with everything included, after an implementation change, when a previous finding cites a changed test, and when a test is re-tagged away from an invariant.",
+          "evidence": "test/review-index.test.ts:26; test/review-index.test.ts:191",
+          "suggestedChange": null
+        },
+        {
+          "invariant": "review-scope-silent",
+          "assessment": "adequate",
+          "reason": "The test asserts no REVIEW_SCOPE_LIMIT in the packet or the index and the message of check with the files and without advice.",
+          "evidence": "test/review-scope.test.ts:218",
+          "suggestedChange": null
+        },
+        {
+          "invariant": "record-refuses",
+          "assessment": "adequate",
+          "reason": "The tests assert each refusal (other material, unknown contract, two verdicts, unknown or unassessed invariant, no finding, blank reason, missing evidence) and that the review file stays byte for byte.",
+          "evidence": "test/review-boundaries.test.ts:209; test/review.test.ts:293; test/review.test.ts:408",
+          "suggestedChange": null
+        },
+        {
+          "invariant": "review-stale",
+          "assessment": "adequate",
+          "reason": "The tests assert staleness from a dependency, a stub and the suite setup, the prose, a renamed test, the contract and an implementation, each naming the part, and no staleness from a comment or another contract.",
+          "evidence": "test/review-scope.test.ts:138; test/review-scope.test.ts:157; test/review-scope.test.ts:170; test/review.test.ts:293",
+          "suggestedChange": null
+        },
+        {
+          "invariant": "accept",
+          "assessment": "adequate",
+          "reason": "The tests assert the recorded entries, the counts apart from attested ones, the packet status, staleness on a change, and what --accept renews, keeps or replaces with names and --all.",
+          "evidence": "test/accept.test.ts:39; test/accept.test.ts:99",
+          "suggestedChange": null
+        },
+        {
+          "invariant": "gate",
+          "assessment": "adequate",
+          "reason": "The tests assert 2 on a missing review at any level, on a stale review, on an error and on a weak finding under require; 0 with reviews off, after a fix, and after MAX_BLOCKS with the report; and the count reset.",
+          "evidence": "test/gate.test.ts:27; test/gate.test.ts:64; test/gate.test.ts:108",
+          "suggestedChange": null
+        },
+        {
+          "invariant": "locks",
+          "assessment": "adequate",
+          "reason": "The tests assert the record lock writes and that it changes nothing afterwards, the violation on a changed @final declaration, and the refusal against the base of a lock lifted in the file.",
+          "evidence": "test/lock-base.test.ts:77; test/locks.test.ts:60; test/locks.test.ts:102",
+          "suggestedChange": null
+        },
+        {
+          "invariant": "codes",
+          "assessment": "adequate",
+          "reason": "The test asserts the output equals formatCodes, one line per code in the legend format with the count of CODES, and the global options accepted.",
+          "evidence": "test/codes.test.ts:38",
+          "suggestedChange": null
+        },
+        {
+          "invariant": "init-safe",
+          "assessment": "adequate",
+          "reason": "The tests assert existing settings and instructions extended rather than replaced, a near-miss hook kept with the gate added beside it, and paths with substitutions creating no marker and leaving the TOML valid.",
+          "evidence": "test/init-safety.test.ts:46; test/init-safety.test.ts:81; test/init.test.ts:89",
+          "suggestedChange": null
+        }
+      ]
+    },
+    {
+      "module": "src",
+      "contract": "Codes",
+      "fingerprint": "sha256:b2c2f26518a2cc99c4bb4c9a2466bd5dd32402d552c26df19699a4cfde453883",
+      "material": {
+        "contract": "sha256:95d71c5d4dde2c0745b4e5a9c00167559a7fe78f496ff863de276b70a975634a",
+        "design src/cage.cage.mdx": "sha256:ada2e9323c59cee624ce11610d68416a1d0d93b6d1449e567d727b45b9f90824",
+        "implementation src/codes.ts#formatCodes": "sha256:348252921efa59c1ca1015e2eb678eb12a6e06665944882853323697973c40c5",
+        "test test/codes.test.ts:every code the source emits is in the legend, and the legend in the reference": "sha256:5032340391f67893f50ad106e363f8001d0ab0960ad4b4d40b37665ddbf773b1",
+        "dependency test/helpers.ts": "sha256:fc63b8aabc7605146efd4c83ba50ff9ef6ee1e8f46f721ba9c78e6d6e2236c95",
+        "dependency src/config.ts": "sha256:a45aa37cc39b437676f990180dc62052832a4ade047578cb67684a7498bd94d6",
+        "dependency src/design-phase.ts": "sha256:63d7d9b31b2def44d5a205b5473aa3bdc22454297d37bd1a7f4d0c050a47c247",
+        "dependency src/diagnostic.ts": "sha256:0035878f6eb70a82a842c722b69d98da2f9b214f7d8c4321e1b6fed198cc31df",
+        "dependency src/discovery.ts": "sha256:25943573526770b652c6fc6e56ff7ab7196fa3d3e07991fd0c6351593d92f6c7",
+        "dependency src/implementation-phase.ts": "sha256:f039339371f00518ebb10caef2a884fac44ab2f6e90e8910383af65e3345b411",
+        "dependency src/main.ts": "sha256:b91537798089acf86c1abbeaee6afa5948933be08f5c2b08ee5a734a0cf3a86d",
+        "dependency src/design-index.ts": "sha256:19e45c5709f7f824cb42d1c2f590b12fb3970170b24a94dde9d556b8d2426fb6",
+        "dependency src/extraction.ts": "sha256:304797f5ff41928fa4d85364f3ae144d720cf2179cfe5ce62ab88b290df0f447",
+        "dependency src/location.ts": "sha256:5bf7111477026c949aef8c1243e46488037018ed596c52f2dadc8a4367699e3f",
+        "dependency src/mdx.ts": "sha256:d8b2eeaad6511ed51d124e63adfe1094b28ba921dd4d553050923d1c2014fa7e",
+        "dependency src/typescript.ts": "sha256:fe7923d393c2d00b86ec2edb27b1782f07cfa9df6db38f63a69726bc376b3017",
+        "dependency src/coverage.ts": "sha256:b58fac07c3a7214de6c2734f69f483a302a2c2daec5569a7f0392bdc51640037",
+        "dependency src/implementations.ts": "sha256:9ef9040687b615326c40c8c29065cf28cceeaaf63dfe1c920233583caa6e6783",
+        "dependency src/metadata.ts": "sha256:b12f1698031169da7f8164c59a9ae7d09e8255809d17f8da88ab09408c3be9c5",
+        "dependency src/test-declarations.ts": "sha256:8799930c3ca42551913c910460a37ff70a9f2da6ce4b52fb45b51bc8f787eced",
+        "dependency src/design-model.ts": "sha256:2b2ae020bf7076e4cc3d38b8ecb501875c2d5e42b9b6847d58c530daf17cda28",
+        "dependency src/doc-comments.ts": "sha256:da7754b17593c902272208167f83e3827ac05d40f640c9f5f6576ee69ca20d4a",
+        "dependency src/graph.ts": "sha256:86e15dbf047f21942af10d576a5f3da64ff0d3677b63b62bf98e87145cf57e66"
+      },
+      "findings": [
+        {
+          "invariant": "legend",
+          "assessment": "adequate",
+          "reason": "The test asserts that every code the source emits is in CODES and nothing else, that the reference table matches, and that cage codes prints exactly formatCodes with one line per code.",
+          "evidence": "test/codes.test.ts:25",
+          "suggestedChange": null
+        }
+      ]
+    },
+    {
+      "module": "src",
+      "contract": "ConfigLoader",
+      "fingerprint": "sha256:5eaffade0aaece06897330cdc3c54d2739c109af41ac49d6bbd5ba288e07e7d9",
+      "material": {
+        "contract": "sha256:aa0a8126dd82f22a748ad81b423273f326e04b343ac6073e5c1b246b92e33397",
+        "design src/cage.cage.mdx": "sha256:ada2e9323c59cee624ce11610d68416a1d0d93b6d1449e567d727b45b9f90824",
+        "implementation src/config.ts#loadConfig": "sha256:ff47a6f349e283baabd17a923d0eda338c2be1f987bd9a4722da2178cec1d440",
+        "test test/config.test.ts:defaults apply when there is no .cage/config.json": "sha256:3582eb6d2c760275929ef7044a62c615a443f002965a8b3bd7d6fc9b68fc3a91",
+        "test test/config.test.ts:.cage/config.json is found; given fields replace the defaults, the rest stay": "sha256:cb798bb79725f518a082116a7854475e965c8b9513a7c9d344870794b6156590",
+        "test test/config.test.ts:an invalid configuration is reported field by field": "sha256:dd02d97ac80ec8960787143b937faace9e92c8ebc8c463330744d921e3fdd900",
+        "dependency src/location.ts": "sha256:5bf7111477026c949aef8c1243e46488037018ed596c52f2dadc8a4367699e3f",
+        "dependency test/helpers.ts": "sha256:fc63b8aabc7605146efd4c83ba50ff9ef6ee1e8f46f721ba9c78e6d6e2236c95",
+        "dependency src/design-phase.ts": "sha256:63d7d9b31b2def44d5a205b5473aa3bdc22454297d37bd1a7f4d0c050a47c247",
+        "dependency src/diagnostic.ts": "sha256:0035878f6eb70a82a842c722b69d98da2f9b214f7d8c4321e1b6fed198cc31df",
+        "dependency src/discovery.ts": "sha256:25943573526770b652c6fc6e56ff7ab7196fa3d3e07991fd0c6351593d92f6c7",
+        "dependency src/implementation-phase.ts": "sha256:f039339371f00518ebb10caef2a884fac44ab2f6e90e8910383af65e3345b411",
+        "dependency src/main.ts": "sha256:b91537798089acf86c1abbeaee6afa5948933be08f5c2b08ee5a734a0cf3a86d",
+        "dependency src/design-index.ts": "sha256:19e45c5709f7f824cb42d1c2f590b12fb3970170b24a94dde9d556b8d2426fb6",
+        "dependency src/extraction.ts": "sha256:304797f5ff41928fa4d85364f3ae144d720cf2179cfe5ce62ab88b290df0f447",
+        "dependency src/mdx.ts": "sha256:d8b2eeaad6511ed51d124e63adfe1094b28ba921dd4d553050923d1c2014fa7e",
+        "dependency src/typescript.ts": "sha256:fe7923d393c2d00b86ec2edb27b1782f07cfa9df6db38f63a69726bc376b3017",
+        "dependency src/coverage.ts": "sha256:b58fac07c3a7214de6c2734f69f483a302a2c2daec5569a7f0392bdc51640037",
+        "dependency src/implementations.ts": "sha256:9ef9040687b615326c40c8c29065cf28cceeaaf63dfe1c920233583caa6e6783",
+        "dependency src/metadata.ts": "sha256:b12f1698031169da7f8164c59a9ae7d09e8255809d17f8da88ab09408c3be9c5",
+        "dependency src/test-declarations.ts": "sha256:8799930c3ca42551913c910460a37ff70a9f2da6ce4b52fb45b51bc8f787eced",
+        "dependency src/design-model.ts": "sha256:2b2ae020bf7076e4cc3d38b8ecb501875c2d5e42b9b6847d58c530daf17cda28",
+        "dependency src/doc-comments.ts": "sha256:da7754b17593c902272208167f83e3827ac05d40f640c9f5f6576ee69ca20d4a",
+        "dependency src/graph.ts": "sha256:86e15dbf047f21942af10d576a5f3da64ff0d3677b63b62bf98e87145cf57e66"
+      },
+      "findings": [
+        {
+          "invariant": "defaults",
+          "assessment": "adequate",
+          "reason": "The tests assert the defaults without a file, given fields over the defaults with the rest kept, and reviewDependencies merged field by field.",
+          "evidence": "test/config.test.ts:11; test/config.test.ts:18",
+          "suggestedChange": null
+        },
+        {
+          "invariant": "fields",
+          "assessment": "adequate",
+          "reason": "The test asserts one E_CONFIG per problem with its message, including unknown fields, wrong types, a non-object and invalid JSON, and the defaults returned with a broken file.",
+          "evidence": "test/config.test.ts:43",
+          "suggestedChange": null
+        }
+      ]
+    }
+  ]
+}

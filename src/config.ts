@@ -69,6 +69,7 @@ export interface LoadedConfig {
  * Loads `configPath` (relative to `root`), or `.cage/config.json` when it
  * exists, or the defaults. Fields left out of the file keep their defaults;
  * a given array replaces the default one.
+ * @implements ConfigLoader
  */
 export function loadConfig(root: string, configPath?: string): LoadedConfig {
   const file = path.resolve(root, configPath ?? DEFAULT_CONFIG_FILE);

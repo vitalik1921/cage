@@ -34,6 +34,8 @@ function verdictFor(root: string, name: string) {
   return cli(root, "review", "--record", path.join(root, "verdicts.json"));
 }
 
+/** @tests Cli
+ * @covers accept */
 test("review --accept records every contract in need of a review as accepted without a verdict, and check asks for none", (t) => {
   const root = copyFixture(t, "vertical");
   assert.deepEqual(reviewCodes(root), ["W_REVIEW_MISSING Send", "W_REVIEW_MISSING Sender", "W_REVIEW_MISSING Quota"]);
@@ -92,6 +94,8 @@ test("review --accept records every contract in need of a review as accepted wit
   assert.equal(readFile(root, REVIEW_FILE), snapshot(root)[REVIEW_FILE]);
 });
 
+/** @tests Cli
+ * @covers accept */
 test("a change makes an acceptance outdated like a review; --accept without names renews only those, and keeps a verdict", (t) => {
   const root = copyFixture(t, "vertical");
   assert.equal(accept(root).code, 0);

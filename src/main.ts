@@ -38,7 +38,7 @@ Commands:
   lock                  Record the declarations marked @final or @extendable in .cage/lock.json
   review                An index for the reviewer: the contracts without a fresh recorded review, what changed since the
                         recorded one and which invariants it touches; --all lists every contract. markdown (default) or json
-  review <name...>      The material of the named contracts, one packet each, with the instruction and the verdict format;
+  review <name...>      The material of the named contracts, one packet each, with the verdict template at the end;
                         --files changed (default): the lines that changed since the recorded review, everything when there
                         is none; --files all: every file whole; --files none: references only
   review --record <f>   Record the verdicts in <f> (json, the shape the review asks for; relative to the current directory) in .cage/review.json
@@ -71,7 +71,10 @@ For gate: 0 the agent may stop, 2 it may not (the hook protocol).
 
 class UsageError extends Error {}
 
-/** Runs the CLI and returns the exit code. Reports go to stdout, usage and internal errors to stderr. */
+/**
+ * Runs the CLI and returns the exit code. Reports go to stdout, usage and internal errors to stderr.
+ * @implements Cli
+ */
 export function runCli(argv: readonly string[], io: CliIo): number {
   try {
     return run(argv, io);

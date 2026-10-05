@@ -65,7 +65,10 @@ export const CODES: Record<string, { means: string; then: string }> = {
   W_GATE_COMMAND: { means: "a Stop hook mentions cage gate but is not the gate of this project, or no installed cage was found", then: "check the hook command and the installation" },
 };
 
-/** The legend, one line per code: what it means; what to do. */
+/**
+ * The legend, one line per code: what it means; what to do.
+ * @implements Codes
+ */
 export function formatCodes(): string {
   const width = Math.max(...Object.keys(CODES).map((code) => code.length));
   return `${Object.entries(CODES)

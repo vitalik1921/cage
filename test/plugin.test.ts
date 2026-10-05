@@ -68,3 +68,12 @@ test("the context hook gives the rules and the command that runs cage for each p
   assert.ok(stdout.includes(`- ${repository}: \`${process.execPath} ${CLI}\``));
   assert.match(stdout, /never a bare `npx cage`/);
 });
+
+test("the skills installed in this repository by init are the plugin's, byte for byte", () => {
+  // cage checks itself with the published package; its agent must review with the skills the next release ships.
+  for (const skill of ["cage-design", "cage-review"]) {
+    const installed = fs.readFileSync(path.resolve(".claude/skills", skill, "SKILL.md"), "utf8");
+    const shipped = fs.readFileSync(path.join(PLUGIN, "skills", skill, "SKILL.md"), "utf8");
+    assert.equal(installed, shipped, `.claude/skills/${skill}/SKILL.md differs from plugin/skills: copy the plugin's`);
+  }
+});

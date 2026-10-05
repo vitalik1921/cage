@@ -25,6 +25,8 @@ test("--help and --version print to stdout and exit 0", () => {
   assert.deepEqual(version, { code: 0, stdout: `${manifest.version}\n`, stderr: "" });
 });
 
+/** @tests Cli
+ * @covers exit-codes */
 test("invalid arguments exit 2 with a message on stderr and nothing on stdout", () => {
   const cases: [string[], RegExp][] = [
     [[], /Missing command/],

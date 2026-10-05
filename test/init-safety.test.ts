@@ -41,6 +41,8 @@ function runHook(repo: string, command: string, env: Record<string, string> = {}
   assert.equal(run.status, 0, run.stderr);
 }
 
+/** @tests Cli
+ * @covers init-safe */
 test("the generated hooks pass every path as data: no substitution runs, and the Codex config stays valid TOML", (t) => {
   if (process.platform === "win32") return t.skip("POSIX shells only");
   const { repo, project, argsFile } = specialRepository(t);
@@ -74,6 +76,8 @@ const init = (root: string, ...agents: string[]) => JSON.parse(cli(root, "init",
 const statusOf = (report: InitReport, file: string) => report.files.find((candidate) => candidate.path === file)?.status;
 const stopCommands = (root: string) => (JSON.parse(readFile(root, ".claude/settings.json")).hooks.Stop as { hooks: { command: string }[] }[]).flatMap((group) => group.hooks.map((hook) => hook.command));
 
+/** @tests Cli
+ * @covers init-safe */
 test("a hook that only mentions cage gate is not the gate: init adds its own beside it and says so", (t) => {
   const LEGACY = '"$CLAUDE_PROJECT_DIR/node_modules/.bin/cage" gate --root "$CLAUDE_PROJECT_DIR/."';
   for (const fake of [

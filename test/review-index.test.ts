@@ -21,6 +21,8 @@ function recordAdequate(root: string, names: string[] | string, evidence: (invar
   assert.equal(cli(root, "review", "--record", "verdicts.json").code, 0);
 }
 
+/** @tests Cli
+ * @covers review-index review-touched */
 test("without names review is an index: which contracts need a review, what changed and which invariants it touches", (t) => {
   const root = copyFixture(t, "vertical");
   // Nothing recorded: every contract needs a review, and there is nothing to compare with.
@@ -79,6 +81,8 @@ test("without names review is an index: which contracts need a review, what chan
   assert.match(cli(root, "review").stdout, /outdated, 4 parts changed, touching every invariant/);
 });
 
+/** @tests Cli
+ * @covers review-packet */
 test("a named packet carries the changed lines of an outdated review with the previous findings; --files all and none change what comes along", (t) => {
   const root = copyFixture(t, "vertical");
   // Without a review to compare with, everything comes along, as before.
@@ -161,6 +165,8 @@ test("a named packet carries the changed lines of an outdated review with the pr
   assert.equal(whole.excerpts.length, 1);
 });
 
+/** @tests Cli
+ * @covers review-index */
 test("the index keeps every error in view: a broken review file is named, not only counted", (t) => {
   const root = copyFixture(t, "vertical");
   writeFile(root, ".cage/review.json", "{ nope");
@@ -180,6 +186,8 @@ test("--files goes with the names of contracts only, and takes changed, all or n
   assert.equal(cli(root, "review", "Send", "--files", "changed").code, 0);
 });
 
+/** @tests Cli
+ * @covers review-touched */
 test("touched is conservative where the record cannot tell: a reorder, a finding resting on a changed test, a coverage lost", (t) => {
   // Two tests swap places: every digest matches, the fingerprint does not. Nothing can be told apart, so everything is.
   const reordered = copyFixture(t, "vertical");

@@ -24,3 +24,5 @@ jobs:
       - run: npm run verify
       # the package as npm would ship it installs and runs
       - run: npm run smoke
+      # cage checks itself, with the pinned published package
+      - run: npm run cage

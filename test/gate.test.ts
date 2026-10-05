@@ -22,6 +22,8 @@ const counters = (id: string) => fs.readdirSync(os.tmpdir()).filter((name) => na
 const gate = (root: string, input: object | string | undefined, ...args: string[]) =>
   cliWithStdin(root, typeof input === "object" ? JSON.stringify(input) : input, "gate", ...args);
 
+/** @tests Cli
+ * @covers gate */
 test("the gate blocks on errors and on missing reviews, whatever the review level, and passes a clean check", (t) => {
   const root = copyFixture(t, "vertical");
   const id = session(t);
@@ -57,6 +59,8 @@ test("the gate blocks on errors and on missing reviews, whatever the review leve
   assert.match(error.stderr, /\(1 blocking\)/);
 });
 
+/** @tests Cli
+ * @covers gate */
 test("a weak finding blocks the gate only where reviews are required; a missing or stale review blocks at any level", (t) => {
   const root = copyFixture(t, "vertical");
   const id = session(t);
@@ -99,6 +103,8 @@ test("a weak finding blocks the gate only where reviews are required; a missing 
   assert.doesNotMatch(stale.stderr, /For E_REVIEW_WEAK/);
 });
 
+/** @tests Cli
+ * @covers gate */
 test("after MAX_BLOCKS blocks in one session the gate lets the agent stop, with the report; a pass resets the count", (t) => {
   const root = copyFixture(t, "vertical");
   const id = session(t);

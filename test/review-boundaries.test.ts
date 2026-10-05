@@ -204,6 +204,8 @@ for (const layout of ["test-support", "excluded"] as const) {
 
 // --- 5: a verdict says why and on what, or it is not recorded ---
 
+/** @tests Cli
+ * @covers record-refuses */
 test("a finding without a reason, or without evidence where its assessment needs some, is refused with the whole verdict", (t) => {
   const root = copyFixture(t, "vertical");
   assert.equal(record(root, adequate()).code, 0);
