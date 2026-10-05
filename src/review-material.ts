@@ -12,8 +12,11 @@ import type { Overlay, TypeScript } from "./typescript.ts";
 /** A file the reviewer reads, once, whatever number of contracts it serves. Its text has `\n` line endings whatever the disk has. */
 export interface PacketFile {
   path: string;
-  /** "helper": a project file a test file imports, loaded because a reviewer has to see what a stub stands in for. */
-  role: "design" | "implementation" | "test" | "helper";
+  /**
+   * "helper": a project file a test file imports, loaded because a reviewer has to see what a stub stands in for.
+   * "dependency": a fingerprinted local file, loaded whole because it changed since the recorded review.
+   */
+  role: "design" | "implementation" | "test" | "helper" | "dependency";
   text: string;
   /** Of the normalized text, so that the line endings of a checkout do not count as a change. */
   digest: string;
@@ -29,6 +32,16 @@ export interface PacketFile {
 export interface MaterialPart {
   key: string;
   text: string;
+  /** The file the part comes from, project-relative; every part but `contract`'s declaration text has one. */
+  file: string;
+  /** Where the part starts in its file: the declaration's line, for an implementation or a test. */
+  line?: number;
+  /** The name of an implementation or the title of a test. */
+  name?: string;
+  /** The invariants a test part covers. */
+  covers?: string[];
+  /** The line ranges of the file the part's text was taken from, in the order of the text; absent when the part is a whole file or document. */
+  pieces?: { startLine: number; endLine: number }[];
 }
 
 export interface Material {
@@ -127,8 +140,8 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
 
   // A review is about the contract, the rules its module states in prose, its implementations, the tests declared for it,
   // and the local code they rely on. A change elsewhere in those files is not a change of the material.
-  const parts: MaterialPart[] = [{ key: "contract", text: contract.source }];
-  for (const document of own.documents) parts.push({ key: `design ${document.file}`, text: proseOf(document.source, document.blocks) });
+  const parts: MaterialPart[] = [{ key: "contract", text: contract.source, file: contract.location.file, line: contract.location.line, name: contract.name }];
+  for (const document of own.documents) parts.push({ key: `design ${document.file}`, text: proseOf(document.source, document.blocks), file: document.file });
   const textOf = (file: string) => files.find((candidate) => candidate.path === file)?.text;
   const parsed = new Map<string, ts.SourceFile>();
   const parse = (file: string, text: string) => {
@@ -140,7 +153,7 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
     const text = textOf(implementation.location.file);
     const sourceFile = text !== undefined ? parse(implementation.location.file, text) : undefined;
     const material = compiler && sourceFile ? materialAt(compiler.ts, sourceFile, implementation.location, false) : undefined;
-    parts.push({ key: `implementation ${implementation.location.file}#${implementation.name}`, text: material ?? text ?? "" });
+    parts.push({ key: `implementation ${implementation.location.file}#${implementation.name}`, text: material?.text ?? text ?? "", file: implementation.location.file, line: implementation.location.line, name: implementation.name, ...(material ? { pieces: material.pieces } : {}) });
   }
   const titles = new Map<string, number>();
   for (const declaration of declarations.slice().sort((a, b) => compareText(a.location.file, b.location.file) || a.location.line - b.location.line)) {
@@ -150,7 +163,7 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
     const title = `${declaration.location.file}:${declaration.title}`;
     const seen = titles.get(title) ?? 0;
     titles.set(title, seen + 1);
-    parts.push({ key: `test ${title}${seen > 0 ? ` (${seen + 1})` : ""}`, text: material ?? text ?? "" });
+    parts.push({ key: `test ${title}${seen > 0 ? ` (${seen + 1})` : ""}`, text: material?.text ?? text ?? "", file: declaration.location.file, line: declaration.location.line, name: declaration.title, covers: declaration.covers, ...(material ? { pieces: material.pieces } : {}) });
   }
 
   // The local files the implementations and the tests import, within the bounds of the review scope.
@@ -159,7 +172,7 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
   const closure = compiler
     ? dependencyClosure(result.root, compiler.ts, compiler.overlay, [...ownFiles].sort(compareText).map((file) => ({ file, text: textOf(file) ?? "" })), ownFiles, otherImplementations, result.reviewScope)
     : { files: [], beyond: [], unreadable: [] };
-  for (const dependency of closure.files) parts.push({ key: `dependency ${dependency.file}`, text: dependency.text });
+  for (const dependency of closure.files) parts.push({ key: `dependency ${dependency.file}`, text: dependency.text, file: dependency.file });
   return {
     contract,
     own,
@@ -234,9 +247,10 @@ function expressionStatementAt(ts: TypeScript, sourceFile: ts.SourceFile, locati
  * in effect for it (`setup`, found by their binding to the runner when the declarations were read: the
  * file's top-level ones and those of its suites, aliased, namespaced or global alike) and the variables,
  * functions and classes its enclosing suites declare; then the top-level declarations of the same file
- * that any of these refer to, followed transitively, in source order.
+ * that any of these refer to, followed transitively, in source order. `pieces` are the line ranges the text
+ * was taken from, in the same order, so that a reader can be shown exactly those lines of the file.
  */
-function materialAt(ts: TypeScript, sourceFile: ts.SourceFile, location: SourceLocation, nested: boolean, hooks: readonly SourceLocation[] = []): string | undefined {
+function materialAt(ts: TypeScript, sourceFile: ts.SourceFile, location: SourceLocation, nested: boolean, hooks: readonly SourceLocation[] = []): { text: string; pieces: { startLine: number; endLine: number }[] } | undefined {
   const position = sourceFile.getPositionOfLineAndCharacter(location.line - 1, location.column - 1);
   const start: ts.Node | undefined = nested ? expressionStatementAt(ts, sourceFile, location) : sourceFile.statements.find((statement) => statement.getStart() <= position && position < statement.end);
   if (!start) return undefined;
@@ -279,7 +293,14 @@ function materialAt(ts: TypeScript, sourceFile: ts.SourceFile, location: SourceL
     }
   }
   const text = (node: ts.Node) => node.getFullText().trim();
-  return [start, ...setup.sort((a, b) => a.pos - b.pos), ...referenced.sort((a, b) => a.pos - b.pos)].map(text).join("\n\n");
+  const nodes = [start, ...setup.sort((a, b) => a.pos - b.pos), ...referenced.sort((a, b) => a.pos - b.pos)];
+  // The lines the trimmed full text spans: from its first non-blank character (a comment before the node is part of it) to the node's end.
+  const range = (node: ts.Node) => {
+    const full = node.getFullText();
+    const first = node.pos + (full.length - full.trimStart().length);
+    return { startLine: sourceFile.getLineAndCharacterOfPosition(first).line + 1, endLine: sourceFile.getLineAndCharacterOfPosition(node.end).line + 1 };
+  };
+  return { text: nodes.map(text).join("\n\n"), pieces: nodes.map(range) };
 }
 
 /** The local files a file imports for their values: type-only imports and exports, and dynamic `import()` and `require()` calls, are not followed. */

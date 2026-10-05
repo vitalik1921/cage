@@ -4,7 +4,7 @@ import path from "node:path";
 import { test } from "node:test";
 import type { CheckReport } from "../src/check.ts";
 import { REVIEW_FILE, type AcceptReport, type Finding, type ReviewEntry } from "../src/review-record.ts";
-import type { ReviewReport } from "../src/review.ts";
+import type { ReviewIndex, ReviewReport } from "../src/review.ts";
 import { cli, cliWithStdin, copyFixture, editFile, readFile, snapshot, writeFile } from "./helpers.ts";
 
 const SEND_TEST = "src/modules/campaigns/send.test.ts";
@@ -22,6 +22,7 @@ function check(root: string): { code: number; report: CheckReport } {
 }
 
 const packet = (root: string, ...args: string[]) => JSON.parse(cli(root, "review", "--format", "json", ...args).stdout) as ReviewReport;
+const index = (root: string, ...args: string[]) => JSON.parse(cli(root, "review", "--format", "json", ...args).stdout) as ReviewIndex;
 const entries = (root: string) => (JSON.parse(readFile(root, REVIEW_FILE)) as { reviews: ReviewEntry[] }).reviews;
 const reviewCodes = (root: string) => check(root).report.diagnostics.filter(({ code }) => code.includes("REVIEW_")).map(({ code, contract }) => `${code} ${contract}`);
 
@@ -36,7 +37,7 @@ function verdictFor(root: string, name: string) {
 test("review --accept records every contract in need of a review as accepted without a verdict, and check asks for none", (t) => {
   const root = copyFixture(t, "vertical");
   assert.deepEqual(reviewCodes(root), ["W_REVIEW_MISSING Send", "W_REVIEW_MISSING Sender", "W_REVIEW_MISSING Quota"]);
-  const fingerprints = Object.fromEntries(packet(root, "--all").contracts.map(({ contract, fingerprint }) => [contract, fingerprint]));
+  const fingerprints = Object.fromEntries(index(root, "--all").contracts.map(({ contract, fingerprint }) => [contract, fingerprint]));
 
   const before = snapshot(root);
   const text = cli(root, "review", "--accept");
@@ -82,7 +83,7 @@ test("review --accept records every contract in need of a review as accepted wit
   assert.deepEqual(send.recordedReview, { status: "accepted", assessments: null, contractAssessments: null });
   assert.deepEqual(send.priorNotes, []);
   assert.ok(cli(root, "review", "Send").stdout.includes("- ○ Recorded review: none — this material was accepted without a review (`cage review --accept`); adequacy is not attested; record a verdict with `cage review --record`"));
-  assert.deepEqual(packet(root).contracts, []);
+  assert.deepEqual(index(root).contracts, []);
 
   // Running it again changes nothing: every contract has a record of its material as it is now.
   const again = cli(root, "review", "--accept");
@@ -99,7 +100,7 @@ test("a change makes an acceptance outdated like a review; --accept without name
   assert.equal(stale.length, 1);
   assert.equal(stale[0].contract, "Send");
   assert.match(stale[0].message, /^The acceptance of contract "Send" \(recorded without a review\) is for other material; since then: test "не передає повідомлення без квоти \(edited\)" \(src\/modules\/campaigns\/send\.test\.ts\) is new, test "не передає повідомлення без квоти" \(src\/modules\/campaigns\/send\.test\.ts\) is gone\. Review it\.$/);
-  assert.deepEqual(packet(root).contracts.map(({ contract, recordedReview }) => `${contract} ${recordedReview.status}`), ["Send outdated"]);
+  assert.deepEqual(index(root).contracts.map(({ contract, status }) => `${contract} ${status}`), ["Send outdated"]);
   // The gate blocks on an outdated acceptance as on an outdated review.
   assert.equal(cliWithStdin(root, JSON.stringify({ session_id: "accept-stale" }), "gate").code, 2);
 

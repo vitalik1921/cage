@@ -5,7 +5,7 @@ import path from "node:path";
 import { test, type TestContext } from "node:test";
 import type { InitReport } from "../src/init.ts";
 import { runCli } from "../src/main.ts";
-import type { ReviewReport } from "../src/review.ts";
+import type { ReviewIndex, ReviewReport } from "../src/review.ts";
 import { cli, copyFixture, designProject, editFile, writeFile } from "./helpers.ts";
 
 const SEND_TEST = "src/modules/campaigns/send.test.ts";
@@ -134,7 +134,7 @@ test("the review packet shows what is collected, what the test text says and wha
   editFile(root, SEND_TEST, (text) => text.replace('it("не передає', 'it.skip("не передає'));
   const changed = markdown();
   assert.match(statusOf(changed), /- ! Tests: 1 of 4 declarations inactive in the source \(skipped, todo, empty, or a broken import in their file\); see Tests/);
-  assert.match(statusOf(changed), /- ✗ Recorded review: outdated — it is for other material; the adequacy of this material is not attested/);
+  assert.match(statusOf(changed), /- ✗ Recorded review: outdated — 1 part of the material changed since it, touching 1 of 4 invariants; see "What changed"\. The adequacy of this material is not attested/);
   assert.match(changed, /"SendService > не передає повідомлення без квоти" covers `limit` \(inactive: skipped by `\.skip`\)/);
   const declarations = json().contracts[0].tests[0].declarations;
   assert.deepEqual(declarations.map(({ status }) => status), ["active", "skipped", "active", "active"]);
@@ -147,19 +147,19 @@ test("the review packet shows what is collected, what the test text says and wha
   assert.match(statusOf(markdown()), /- ○ Recorded review: not known — the review file cannot be used/);
 });
 
-test("with every contract reviewed, the default packet says so instead of an empty document", (t) => {
+test("with every contract reviewed, the default index says so instead of an empty document", (t) => {
   const root = designProject(t, {});
-  assert.match(cli(root, "review").stdout, /No contract needs a review|No contract to review\./);
+  assert.match(cli(root, "review").stdout, /The designs could not be indexed; see the diagnostics\./);
   const vertical = copyFixture(t, "vertical");
-  const report = JSON.parse(cli(vertical, "review", "--all", "--format", "json").stdout) as ReviewReport;
-  const verdicts = report.contracts.map((packet) => ({
-    contract: packet.contract,
-    fingerprint: packet.fingerprint,
-    findings: packet.invariants.length === 0 ? [{ invariant: null, assessment: "adequate", reason: "a note", evidence: "x:1", suggestedChange: null }] : packet.invariants.map(({ id }) => ({ invariant: id, assessment: "adequate", reason: "r", evidence: "x:1", suggestedChange: null })),
+  const report = JSON.parse(cli(vertical, "review", "--all", "--format", "json").stdout) as ReviewIndex;
+  const verdicts = report.contracts.map((entry) => ({
+    contract: entry.contract,
+    fingerprint: entry.fingerprint,
+    findings: entry.invariants.length === 0 ? [{ invariant: null, assessment: "adequate", reason: "a note", evidence: "x:1", suggestedChange: null }] : entry.invariants.map((id) => ({ invariant: id, assessment: "adequate", reason: "r", evidence: "x:1", suggestedChange: null })),
   }));
   writeFile(vertical, "verdicts.json", JSON.stringify({ version: 1, verdicts }));
   assert.equal(cli(vertical, "review", "--record", "verdicts.json").code, 0);
-  assert.match(cli(vertical, "review").stdout, /^✓ No contract needs a review: each has a recorded verdict, or an acceptance without a review, of its material as it is now\. `cage review --all` exports every contract\.$/m);
+  assert.match(cli(vertical, "review").stdout, /^✓ No contract needs a review: each has a recorded verdict, or an acceptance without a review, of its material as it is now\. `cage review --all` lists every contract\.$/m);
 });
 
 test("format and path options are checked against the command they are given to", (t) => {

@@ -96,7 +96,7 @@ export function runGate(options: ImplementationPhaseOptions, checkOptions: Check
   }
   const guidance = [
     `\`cage check\` is not clean (${blocking.length} blocking). Fix what it reports before stopping.`,
-    "For REVIEW_MISSING or REVIEW_STALE: run `cage review`, read the material, write the verdict in the format it ends with, and record it with `cage review --record <file>`.",
+    "For REVIEW_MISSING or REVIEW_STALE: `cage review` lists what needs a review and what changed; `cage review <Name>` gives one contract's material. Read it, write the verdict in the format it ends with, and record it with `cage review --record <file>`.",
     ...(blocking.some((diagnostic) => diagnostic.code === "E_REVIEW_WEAK") ? ["For E_REVIEW_WEAK: improve the test or the design as the finding suggests, then review again."] : []),
     "Never lower an assessment or drop an invariant to pass.",
   ];

@@ -33,7 +33,7 @@ test("the gate blocks on errors and on missing reviews, whatever the review leve
   assert.equal(blocked.stdout, "");
   assert.match(blocked.stderr, /W_REVIEW_MISSING: Contract "Send" has no recorded review/);
   assert.match(blocked.stderr, /`cage check` is not clean \(3 blocking\)\. Fix what it reports before stopping\./);
-  assert.match(blocked.stderr, /run `cage review`, read the material/);
+  assert.match(blocked.stderr, /`cage review` lists what needs a review and what changed; `cage review <Name>` gives one contract's material/);
 
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "off" }));
   const clean = gate(root, { session_id: id, stop_hook_active: false });
@@ -61,12 +61,12 @@ test("a weak finding blocks the gate only where reviews are required; a missing 
   const root = copyFixture(t, "vertical");
   const id = session(t);
   // Record a verdict for every contract, with one weak finding on Send.
-  const packet = JSON.parse(cli(root, "review", "--all", "--format", "json").stdout) as { contracts: { contract: string; fingerprint: string; invariants: { id: string }[] }[] };
-  const verdicts = packet.contracts.map(({ contract, fingerprint, invariants }) => ({
+  const index = JSON.parse(cli(root, "review", "--all", "--format", "json").stdout) as { contracts: { contract: string; fingerprint: string; invariants: string[] }[] };
+  const verdicts = index.contracts.map(({ contract, fingerprint, invariants }) => ({
     contract,
     fingerprint,
     // A contract without invariants gets one finding about the contract as a whole.
-    findings: (invariants.length === 0 ? [{ id: null }] : invariants).map(({ id }, index) => ({
+    findings: (invariants.length === 0 ? [null] : invariants).map((id, index) => ({
       invariant: id,
       assessment: contract === "Send" && index === 0 ? "weak" : "adequate",
       reason: "judged.",

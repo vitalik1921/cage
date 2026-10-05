@@ -104,7 +104,7 @@ The agent edits the rule, then the code and its tests. Those edits make the reco
 Review the last commit in src/modules/accounts: do the tests still check what the spec promises?
 ```
 
-`cage check` names what changed since the last review — this test, that implementation, this contract. `cage-review` reads the spec, the code, the tests and the stubs they use side by side, reports each weak spot with `file:line`, and records the verdict.
+`cage check` names what changed since the last review — this test, that implementation, this contract — and `cage review` lists it with the rules it touches, then gives one contract at a time: the changed lines next to the previous verdict, the rest by file and line. `cage-review` reads the spec, the code, the tests and the stubs they use side by side, reports each weak spot with `file:line`, and records the verdict.
 
 **Keep agreements in CI.** Mark the contracts others rely on `@final` (no changes) or `@extendable` (additions only) and run `cage lock`. In CI, `cage check --base origin/main` fails a branch that changed or unfroze them.
 
@@ -214,7 +214,8 @@ Run `npx cage check`. It reports, with file and line, every contract with no imp
 | `cage init` | First configuration, the Stop hook, and two skills for the agent (`cage-design`, `cage-review`). Run once. |
 | `cage check` | Everything: designs, implementations, test links, locks, coverage, reviews. Exit 1 on a violation. |
 | `cage check --phase design` | Specs only — while you write them. |
-| `cage review` | For every contract whose review is missing or outdated: its spec, code and tests in one document, with instructions for the reviewer and the answer format. |
+| `cage review` | The reviewer's index: every contract whose review is missing or outdated, what changed since the recorded review and which rules that touches. `--all` lists every contract. |
+| `cage review <Name>` | The material of one contract: its rules, tests, code and helpers by file and line, the previous verdict on each rule, and the lines that changed since it (`--files all` for every file whole, `--files none` for references only), with instructions for the reviewer and the answer format. |
 | `cage review --record <file>` | Saves the reviewer's verdict in `.cage/review.json`. From then on `check` wants an up-to-date one for every contract. |
 | `cage review --accept` | Takes the current spec, code and tests of every unreviewed contract as accepted, without a verdict: `check` asks for a review only when they change, and counts them apart from reviewed ones. For a person adopting Cage on an existing project; `--all` includes the reviewed contracts too. |
 | `cage lock` | Freezes the contracts marked `@final` (no changes) or `@extendable` (additions only); `check` refuses other changes. |
@@ -226,7 +227,7 @@ Run `npx cage check`. It reports, with file and line, every contract with no imp
 
 1. The agent changes the spec, the code or a test. When it says it is done, the Stop hook runs `cage gate`.
 2. Whatever is out of sync comes back to the agent: a rule with no test, code that does not fit, an outdated review. After three returns in a session the gate lets the agent stop and leaves the report, so that a check it cannot fix does not hold the session forever.
-3. For a review: the agent runs `cage review`, reads the material, judges each rule, and records the verdict with `cage review --record`. Cage checks that the verdict is complete and is for the material as it is now; the judgement itself is the reviewer's, which may be the same agent. The verdict is tied to a fingerprint of the contract, the prose of its module's spec, its implementations and the tests linked to it — each with the code of its own file it calls and its suite's setup — and the local files they import, followed a few levels deep (`reviewDependencies`). Change any of those and the review is outdated; change something else and it is not. Where the bounds stop, Cage says so instead of staying silent.
+3. For a review: the agent runs `cage review` for the list, then `cage review <Name>` for one contract, judges the rules the change touches afresh and confirms or revises the previous verdict on the others, and records the verdict with `cage review --record`. Cage checks that the verdict is complete and is for the material as it is now; the judgement itself is the reviewer's, which may be the same agent. The verdict is tied to a fingerprint of the contract, the prose of its module's spec, its implementations and the tests linked to it — each with the code of its own file it calls and its suite's setup — and the local files they import, followed a few levels deep (`reviewDependencies`). Change any of those and the review is outdated; change something else and it is not. Where the bounds stop, Cage says so instead of staying silent.
 4. `cage check` is clean; the agent stops.
 
 The rules the agent needs are in the `CLAUDE.md` / `AGENTS.md` section that `init` adds (or in the plugin), and in the two skills: `cage-design` — what deserves a contract and what goes to `.cageignore`, and the spec's structure (purpose, glossary, business rules, data, contracts, out of scope, open questions); `cage-review` — how to judge the tests against the rules and record the verdict.

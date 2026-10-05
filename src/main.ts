@@ -9,7 +9,7 @@ import { parseHookInput, runGate } from "./gate.ts";
 import { formatInitReport, runInit, type Agent } from "./init.ts";
 import { runLock } from "./lock-command.ts";
 import { acceptContracts, formatAcceptReport, formatRecordReport, recordVerdicts } from "./review-record.ts";
-import { formatReviewMarkdown, runReview } from "./review.ts";
+import { formatReviewIndexMarkdown, formatReviewMarkdown, runReview, runReviewIndex, type Included } from "./review.ts";
 import { formatCheckReport, formatLockReport, limitCheckReport } from "./report.ts";
 
 export interface CliIo {
@@ -35,8 +35,11 @@ Commands:
   check --phase design  Check only the designs: documents, contracts, tags, references and types
   check --base <rev>    Also require every lock recorded at that Git revision (for CI: --base origin/main)
   lock                  Record the declarations marked @final or @extendable in .cage/lock.json
-  review [name...]      The material of the named contracts for a reviewer: markdown (default) or json;
-                        without names, the contracts without a fresh recorded review; --all for every contract
+  review                An index for the reviewer: the contracts without a fresh recorded review, what changed since the
+                        recorded one and which invariants it touches; --all lists every contract. markdown (default) or json
+  review <name...>      The material of the named contracts, one packet each, with the instruction and the verdict format;
+                        --files changed (default): the lines that changed since the recorded review, everything when there
+                        is none; --files all: every file whole; --files none: references only
   review --record <f>   Record the verdicts in <f> (json, the shape the review asks for; relative to the current directory) in .cage/review.json
   review --accept [name...]
                         Accept the material of the contracts as it is now without a review, in .cage/review.json: check asks for none
@@ -52,7 +55,8 @@ Options:
   --max-diagnostics <n|all>
                     check, gate: show at most n diagnostics, the ones that matter most, and count the rest by code
                     (default: "maxDiagnostics" in the configuration, 50)
-  --all             review: every contract, not only those in need of a review
+  --all             review: list every contract, not only those in need of a review
+  --files <mode>    review <name...>: how much text the packet carries: changed (default), all or none
   --agent <name>    init: claude, codex or none; may be repeated (claude and codex)
   --test-adapter <name>  init: node:test or vitest (default: vitest when package.json depends on it)
   -h, --help        Show this help
@@ -97,6 +101,7 @@ function run(argv: readonly string[], io: CliIo): number {
         all: { type: "boolean" },
         record: { type: "string" },
         accept: { type: "boolean" },
+        files: { type: "string" },
         "max-diagnostics": { type: "string" },
         agent: { type: "string", multiple: true },
         "test-adapter": { type: "string" },
@@ -138,6 +143,8 @@ function run(argv: readonly string[], io: CliIo): number {
   if (values.record !== undefined && (values.all || extra.length > 0)) throw new UsageError("--record takes the verdicts file only; the contracts are those in it.");
   if (values.record !== undefined && values.record.trim() === "") throw new UsageError("--record needs the path of a verdicts file.");
   if (command !== "review" && values.accept) throw new UsageError("--accept is an option of the review command.");
+  if (values.files !== undefined && (command !== "review" || values.record !== undefined || values.accept || extra.length === 0)) throw new UsageError("--files is an option of review with the names of contracts.");
+  if (values.files !== undefined && values.files !== "all" && values.files !== "changed" && values.files !== "none") throw new UsageError(`Unknown --files mode "${values.files}"; expected changed, all or none.`);
   if (values.accept && values.record !== undefined) throw new UsageError("--accept records acceptances, --record a reviewer's verdicts; pass one of them.");
   if (command !== "check" && command !== "gate" && values["max-diagnostics"] !== undefined) throw new UsageError("--max-diagnostics is an option of the check and gate commands.");
   const maxDiagnostics = parseMaxDiagnostics(values["max-diagnostics"]);
@@ -227,9 +234,9 @@ function run(argv: readonly string[], io: CliIo): number {
       const report = acceptContracts(phaseOptions, extra.length > 0 ? extra : values.all ? "all" : "needed");
       return print(report, formatAcceptReport(report));
     }
-    const report = runReview(phaseOptions, extra.length > 0 ? extra : values.all ? "all" : "needed");
-    io.stdout(format === "json" ? `${JSON.stringify(report, null, 2)}\n` : formatReviewMarkdown(report));
-    // An export succeeds with structural errors in the material; it fails when the packets could not be made.
+    // Without names the index; with names the packets. An export succeeds with structural errors in the material; it fails when it could not be made.
+    const report = extra.length > 0 ? runReview(phaseOptions, extra, values.files as Included | undefined) : runReviewIndex(phaseOptions, values.all ? "all" : "needed");
+    io.stdout(format === "json" ? `${JSON.stringify(report, null, 2)}\n` : "included" in report ? formatReviewMarkdown(report) : formatReviewIndexMarkdown(report));
     return exitCode(report.diagnostics) === 2 ? 2 : report.ok ? 0 : 1;
   }
   throw new UsageError(`Unknown command "${command}".`);

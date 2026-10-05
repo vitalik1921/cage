@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { test, type TestContext } from "node:test";
 import type { CheckReport } from "../src/check.ts";
-import type { ReviewReport } from "../src/review.ts";
+import type { ReviewIndex, ReviewReport } from "../src/review.ts";
 import ts from "typescript";
 import { dependencyClosure } from "../src/review-material.ts";
 import { cli, contract, designFile, designProject, editFile, mdx, writeFile } from "./helpers.ts";
@@ -88,8 +88,10 @@ function check(root: string): { code: number; report: CheckReport } {
   return { code, report: JSON.parse(stdout) };
 }
 
+/** The packets of every contract: the index names them, the packets come by name. */
 function packet(root: string): ReviewReport {
-  return JSON.parse(cli(root, "review", "--all", "--format", "json").stdout);
+  const index = JSON.parse(cli(root, "review", "--all", "--format", "json").stdout) as ReviewIndex;
+  return JSON.parse(cli(root, "review", ...index.contracts.map((entry) => entry.contract), "--format", "json").stdout);
 }
 
 /** Records an adequate verdict for every invariant of every contract, for the material as it is now; by default check is then clean. */

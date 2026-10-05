@@ -159,11 +159,11 @@ try {
     assert.match(run.stdout, /E_REVIEW_VERDICT/);
     assert.deepEqual(fs.readFileSync(reviewFile), recorded);
   }
-  // As the source review sent it: every contract, reason "" and evidence null.
+  // As the source review sent it: every contract, reason "" and evidence null. The index names every contract with its invariants.
   const all = json(cage(loop, "review", "--all", "--format", "json")).contracts;
   fs.writeFileSync(
     path.join(loop, "empty.json"),
-    JSON.stringify({ version: 1, verdicts: all.map(({ contract, fingerprint, invariants }) => ({ contract, fingerprint, findings: (invariants.length > 0 ? invariants.map(({ id }) => id) : [null]).map((id) => ({ invariant: id, assessment: "adequate", reason: "", evidence: null, suggestedChange: null })) })) }),
+    JSON.stringify({ version: 1, verdicts: all.map(({ contract, fingerprint, invariants }) => ({ contract, fingerprint, findings: (invariants.length > 0 ? invariants : [null]).map((id) => ({ invariant: id, assessment: "adequate", reason: "", evidence: null, suggestedChange: null })) })) }),
   );
   const empty = cage(loop, "review", "--record", "empty.json");
   refusals.push(`all contracts with reason "" and evidence null: exit ${empty.status}\n${empty.stdout}`);
