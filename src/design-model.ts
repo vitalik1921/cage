@@ -70,6 +70,18 @@ export interface Implementation {
   location: SourceLocation;
 }
 
+/**
+ * Whether a declaration would run an assertion, as far as its text shows: `skipped` and `todo` by its own
+ * modifier or options or by an enclosing suite's, `empty` when it has no callback or one with an empty
+ * block. Structural only: an `active` test may still assert nothing, and a runner may skip it at run time.
+ */
+/**
+ * What a test declaration's text shows about whether it can run an assertion: `broken-import` when its file
+ * imports a project file that resolves to nothing, or a name that file does not export. The compiler rejects
+ * such a file and Node does not load it as an ES module; the declaration cannot be relied on to run.
+ */
+export type TestStatus = "active" | "skipped" | "todo" | "empty" | "broken-import";
+
 /** A test declaration inside a `@tests` suite. It says that a test was declared, not that it ran or passed. */
 export interface TestDeclaration {
   title: string;
@@ -80,6 +92,14 @@ export interface TestDeclaration {
   contract: string;
   /** Invariant ids of that contract named by `@covers`. */
   covers: string[];
+  status: TestStatus;
+  /** Why it is not active, in words: "skipped by its suite \"Quota\"", "has an empty body". Absent when active. */
+  inactiveBecause?: string;
+  /**
+   * The runner hooks that set the test up, as statements of its file: those at the file's top level and
+   * those of its enclosing suites, recognised by their binding to the runner like declarations are.
+   */
+  setup: SourceLocation[];
   location: SourceLocation;
 }
 

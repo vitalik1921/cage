@@ -1,5 +1,5 @@
 import type ts from "typescript";
-import type { SourceLocation } from "./design-model.ts";
+import type { SourceLocation, TestStatus } from "./design-model.ts";
 import type { Diagnostic } from "./diagnostic.ts";
 import { collectDocComments, createReporter, docCommentBefore, readAllowedTags, reportUnboundTags } from "./doc-comments.ts";
 import { isBindingTag, parseInvariantIds, parseNames, type DocTag } from "./metadata.ts";
@@ -30,7 +30,17 @@ export interface FoundTest {
   suitePath: string[];
   context: TestContext;
   covers: { id: string; location: SourceLocation }[];
+  status: TestStatus;
+  inactiveBecause?: string;
+  /** The runner hooks in effect for the test: the file's top-level ones, then those of each enclosing suite. */
+  setup: SourceLocation[];
   location: SourceLocation;
+}
+
+/** A suite that disables everything in it, as its text shows: `describe.skip`, `describe.todo`, `{ skip: true }`. */
+interface Disabled {
+  status: "skipped" | "todo";
+  because: string;
 }
 
 /** The contract in effect: from the enclosing suites or the test itself; "invalid" when its `@tests` tag was rejected, so that nothing under it is reported again. */
@@ -49,16 +59,19 @@ interface AdapterRules {
   defaultIsTest: boolean;
   /** Whether the runner can also provide its functions as globals, declared by its own type definitions. */
   globals: boolean;
+  /** The exports that register setup or teardown for the tests of their suite (or of the file). */
+  hooks: ReadonlySet<string>;
 }
 
 const ADAPTERS: Readonly<Record<TestAdapter, AdapterRules>> = {
-  "node:test": { module: "node:test", modifiers: new Set(["skip", "only", "todo"]), carriers: new Set(["*", "default", "test"]), defaultIsTest: true, globals: false },
+  "node:test": { module: "node:test", modifiers: new Set(["skip", "only", "todo"]), carriers: new Set(["*", "default", "test"]), defaultIsTest: true, globals: false, hooks: new Set(["before", "after", "beforeEach", "afterEach"]) },
   vitest: {
     module: "vitest",
     modifiers: new Set(["skip", "only", "todo", "concurrent", "sequential", "fails", "shuffle"]),
     carriers: new Set(["*"]),
     defaultIsTest: false,
     globals: true,
+    hooks: new Set(["beforeAll", "afterAll", "beforeEach", "afterEach"]),
   },
 };
 
@@ -128,6 +141,137 @@ export function readTestDeclarations(
     return undefined;
   };
 
+  /**
+   * Whether the call disables its declaration: a `skip` or `todo` modifier in the callee chain, or a
+   * `skip` / `todo` option that is literally `true` or a non-empty string (node:test takes a reason).
+   * An option computed at run time is not known here and counts as enabled.
+   */
+  const disabledBy = (call: ts.CallExpression, callee: ts.Expression): Disabled | undefined => {
+    for (let target = callee; ts.isPropertyAccessExpression(target); target = target.expression) {
+      if (target.name.text === "skip" || target.name.text === "todo") return { status: target.name.text === "skip" ? "skipped" : "todo", because: `\`.${target.name.text}\`` };
+    }
+    for (const argument of call.arguments) {
+      if (!ts.isObjectLiteralExpression(argument)) continue;
+      for (const property of argument.properties) {
+        if (!ts.isPropertyAssignment(property) || !(ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))) continue;
+        const name = property.name.text;
+        if (name !== "skip" && name !== "todo") continue;
+        const value = property.initializer;
+        const on = value.kind === ts.SyntaxKind.TrueKeyword || ((ts.isStringLiteral(value) || ts.isNoSubstitutionTemplateLiteral(value)) && value.text !== "");
+        if (on) return { status: name === "skip" ? "skipped" : "todo", because: `the \`${name}\` option` };
+      }
+    }
+    return undefined;
+  };
+
+  /** Whether the test's callback has a body that could run anything: none at all, or an empty block, cannot. */
+  /**
+   * What an argument of a test call is, as a callback: a function this file shows (inline, or named and
+   * resolved by `callbackFunction`), something callable whose body the file does not show (an import, a
+   * `let`, the result of a call: its type has call signatures), something the compiler cannot type (`any`,
+   * `unknown`), or not a callback at all — a title, an options object, a timeout, any value whose type
+   * has no call signatures.
+   */
+  const asCallback = (argument: ts.Expression): { kind: "function"; fn: ts.SignatureDeclaration } | { kind: "callable" | "untyped" } | undefined => {
+    if (ts.isStringLiteralLike(argument) || ts.isTemplateExpression(argument) || ts.isNumericLiteral(argument) || ts.isObjectLiteralExpression(argument) || ts.isArrayLiteralExpression(argument)) return undefined;
+    if (argument.kind === ts.SyntaxKind.TrueKeyword || argument.kind === ts.SyntaxKind.FalseKeyword || argument.kind === ts.SyntaxKind.NullKeyword) return undefined;
+    const fn = callbackFunction(argument);
+    if (fn) return { kind: "function", fn };
+    const type = checker.getTypeAtLocation(argument);
+    if (type.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) return { kind: "untyped" };
+    const members = type.isUnion() ? type.types : [type];
+    if (members.some((member) => member.getCallSignatures().length > 0)) return { kind: "callable" };
+    if (members.some((member) => (member.flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) !== 0)) return { kind: "untyped" };
+    return undefined;
+  };
+
+  /**
+   * Whether the test's callback has a body that could run anything. The callback is the argument that is
+   * callable, whatever its position — node:test takes `(name, options, fn)`, Vitest `(name, fn, timeout)`
+   * and `(name, options, fn)` — so options and timeouts before or after it are passed over. A function the
+   * file shows is read; a callable it does not show, or an argument it cannot type, counts as active.
+   */
+  const emptiness = (call: ts.CallExpression): string | undefined => {
+    const candidates = call.arguments.map((argument) => ({ argument, callback: asCallback(argument) })).filter((candidate) => candidate.callback !== undefined);
+    if (candidates.length === 0) return "has no callback";
+    const chosen = candidates.find((candidate) => candidate.callback!.kind !== "untyped") ?? candidates[0];
+    const callback = chosen.callback!;
+    if (callback.kind !== "function") return undefined;
+    const fn = callback.fn;
+    if (!("body" in fn) || !fn.body || !ts.isBlock(fn.body) || fn.body.statements.length !== 0) return undefined;
+    if (fn === chosen.argument) return "has an empty body";
+    return `has an empty body (\`${chosen.argument.getText(sourceFile)}\`, line ${sourceFile.getLineAndCharacterOfPosition(fn.getStart(sourceFile)).line + 1})`;
+  };
+
+  /** Whether a callee is a runner hook, by its binding like `kindOf`: `beforeEach`, `setup` imported as it, `t.afterEach`, a global. */
+  const isHook = (callee: ts.Expression): boolean => {
+    if (ts.isIdentifier(callee)) {
+      const imported = importedAs(callee);
+      return imported !== undefined && rules.hooks.has(imported);
+    }
+    if (ts.isPropertyAccessExpression(callee) && ts.isIdentifier(callee.expression)) {
+      const imported = importedAs(callee.expression);
+      return imported !== undefined && rules.carriers.has(imported) && rules.hooks.has(callee.name.text);
+    }
+    return false;
+  };
+
+  /** The hook statements among `statements`, also in blocks and control flow there; never inside a function, so not in a nested suite. */
+  const hooksIn = (statements: readonly ts.Statement[]): SourceLocation[] => {
+    const found: SourceLocation[] = [];
+    const walk = (node: ts.Node): void => {
+      if (ts.isFunctionLike(node) || ts.isClassLike(node)) return;
+      if (ts.isExpressionStatement(node) && ts.isCallExpression(node.expression) && isHook(node.expression.expression)) {
+        found.push(locate(node.getStart(sourceFile)));
+        return;
+      }
+      ts.forEachChild(node, walk);
+    };
+    for (const statement of statements) walk(statement);
+    return found;
+  };
+
+  /**
+   * The function a callback argument is, when the file shows it: an inline function, or a name or a
+   * property of this file bound to one — a function declaration, a method, a `const` holding a function,
+   * or a trivial alias or object property leading to one, followed a few steps with cycle protection. An
+   * import, a `let`, a call or anything computed is not followed: undefined, and the test counts as active.
+   */
+  const callbackFunction = (expression: ts.Expression): ts.SignatureDeclaration | undefined => {
+    const seen = new Set<ts.Node>();
+    let current: ts.Node = expression;
+    for (let step = 0; step < 16; step++) {
+      if (seen.has(current)) return undefined;
+      seen.add(current);
+      if (ts.isParenthesizedExpression(current) || ts.isAsExpression(current) || ts.isSatisfiesExpression(current) || ts.isNonNullExpression(current)) {
+        current = current.expression;
+        continue;
+      }
+      if (ts.isArrowFunction(current) || ts.isFunctionExpression(current) || ts.isFunctionDeclaration(current) || ts.isMethodDeclaration(current)) return current;
+      let symbol: ts.Symbol | undefined;
+      if (ts.isIdentifier(current)) symbol = checker.getSymbolAtLocation(current);
+      else if (ts.isPropertyAccessExpression(current)) symbol = checker.getSymbolAtLocation(current.name);
+      else return undefined;
+      let declaration: ts.Declaration | undefined = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+      if (declaration && ts.isShorthandPropertyAssignment(declaration)) {
+        const value = checker.getShorthandAssignmentValueSymbol(declaration);
+        declaration = value?.valueDeclaration ?? value?.declarations?.[0];
+      }
+      // Only this file's own bindings: an import is an alias to code the file does not show.
+      if (!declaration || declaration.getSourceFile() !== sourceFile) return undefined;
+      if (ts.isFunctionDeclaration(declaration) || ts.isMethodDeclaration(declaration)) {
+        current = declaration;
+      } else if (ts.isVariableDeclaration(declaration) && declaration.initializer && ts.isVariableDeclarationList(declaration.parent) && (declaration.parent.flags & ts.NodeFlags.Const) !== 0) {
+        current = declaration.initializer;
+      } else if (ts.isPropertyAssignment(declaration)) {
+        current = declaration.initializer;
+      } else {
+        return undefined;
+      }
+    }
+    return undefined;
+  };
+
   const readTitle = (call: ts.CallExpression, managed: boolean, what: string): string => {
     const [title] = call.arguments;
     if (title && (ts.isStringLiteral(title) || ts.isNoSubstitutionTemplateLiteral(title))) return title.text;
@@ -135,7 +279,7 @@ export function readTestDeclarations(
     return "";
   };
 
-  const readSuite = (statement: ts.ExpressionStatement, call: ts.CallExpression, inherited: Scope, path: string[]) => {
+  const readSuite = (statement: ts.ExpressionStatement, call: ts.CallExpression, callee: ts.Expression, inherited: Scope, path: string[], disabled: Disabled | undefined, setup: SourceLocation[]) => {
     const comment = docCommentBefore(ts, sourceFile, statement);
     const managed = comment?.tags.some((tag) => isBindingTag(tag.name)) ?? false;
     let scope = inherited;
@@ -145,10 +289,14 @@ export function readTestDeclarations(
       scope = readContext(tags, comment.tags, "a suite", inherited);
     }
     const title = readTitle(call, managed, "suite");
+    // A disabled suite disables what it holds; the outermost reason is the one that counts.
+    const own = disabledBy(call, callee);
+    const inside = disabled ?? (own && { status: own.status, because: `${own.because} on its suite "${title}"` });
     // The callback is not always the last argument: runners also take options or a timeout after it.
     const callback = call.arguments.find((argument) => ts.isArrowFunction(argument) || ts.isFunctionExpression(argument));
     if (callback && (ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) && ts.isBlock(callback.body)) {
-      for (const inner of callback.body.statements) visit(inner, scope, [...path, title]);
+      const inner = [...setup, ...hooksIn(callback.body.statements)];
+      for (const statement of callback.body.statements) visit(statement, scope, [...path, title], inside, inner);
     } else if (managed) {
       report("E_UNSUPPORTED_DECLARATION", "An annotated suite needs an inline function with a block body as its callback: its tests are read from the statements of that block.", call.getStart(sourceFile));
     }
@@ -176,7 +324,7 @@ export function readTestDeclarations(
     return "invalid";
   };
 
-  const readTest = (statement: ts.ExpressionStatement, call: ts.CallExpression, inherited: Scope, path: string[]) => {
+  const readTest = (statement: ts.ExpressionStatement, call: ts.CallExpression, callee: ts.Expression, inherited: Scope, path: string[], disabled: Disabled | undefined, setup: SourceLocation[]) => {
     const comment = docCommentBefore(ts, sourceFile, statement);
     const managed = comment?.tags.some((tag) => isBindingTag(tag.name)) ?? false;
     let coverTags: DocTag[] = [];
@@ -196,10 +344,21 @@ export function readTestDeclarations(
       else if (!scope) report("E_TEST_CONTEXT", "`@covers` needs a contract: add `@tests Name` to this test, or put the test in a suite marked `@tests`.", tag.start);
       else for (const id of ids) if (!covers.some((other) => other.id === id)) covers.push({ id, location: locate(tag.start) });
     }
-    if (scope && scope !== "invalid") tests.push({ title, suitePath: path, context: scope, covers, location: locate(statement.getStart(sourceFile)) });
+    if (scope && scope !== "invalid") {
+      const own = disabledBy(call, callee);
+      const empty = emptiness(call);
+      const state: { status: TestStatus; inactiveBecause?: string } = disabled
+        ? { status: disabled.status, inactiveBecause: `${disabled.status} by ${disabled.because}` }
+        : own
+          ? { status: own.status, inactiveBecause: `${own.status} by ${own.because}` }
+          : empty
+            ? { status: "empty", inactiveBecause: empty }
+            : { status: "active" };
+      tests.push({ title, suitePath: path, context: scope, covers, ...state, setup, location: locate(statement.getStart(sourceFile)) });
+    }
   };
 
-  const visit = (node: ts.Node, context: Scope, path: string[]): void => {
+  const visit = (node: ts.Node, context: Scope, path: string[], disabled: Disabled | undefined, setup: SourceLocation[]): void => {
     // Functions and classes are not declaration scopes: what a helper or a test callback registers is only known at run time.
     if (ts.isFunctionLike(node) || ts.isClassLike(node)) return;
     if (ts.isExpressionStatement(node) && ts.isCallExpression(node.expression)) {
@@ -207,12 +366,13 @@ export function readTestDeclarations(
       const callee = node.expression.expression;
       const table = ts.isCallExpression(callee) && ts.isPropertyAccessExpression(callee.expression) && callee.expression.name.text === "each" ? callee.expression.expression : undefined;
       const kind = kindOf(table ?? callee);
-      if (kind === "suite") return readSuite(node, node.expression, context, path);
-      if (kind === "test") return readTest(node, node.expression, context, path);
+      if (kind === "suite") return readSuite(node, node.expression, table ?? callee, context, path, disabled, setup);
+      if (kind === "test") return readTest(node, node.expression, table ?? callee, context, path, disabled, setup);
     }
-    ts.forEachChild(node, (child) => visit(child, context, path));
+    ts.forEachChild(node, (child) => visit(child, context, path, disabled, setup));
   };
-  visit(sourceFile, undefined, []);
+  // The file's top-level hooks set up every test of the file, wherever they stand in it.
+  visit(sourceFile, undefined, [], undefined, hooksIn(sourceFile.statements));
 
   const comments = collectDocComments(ts, sourceFile);
   // Whatever was written as a link and did not become one was rejected above, wherever and however it was written:

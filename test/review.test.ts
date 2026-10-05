@@ -79,33 +79,37 @@ test("a packet holds the contract, its design, the designs it depends on, its im
   assert.deepEqual(report.files.find((file) => file.path === CALLBACK_SENDER)?.role, "helper");
   // No test file of the module is without declarations; one that is gets listed, with no claim about its content.
   assert.deepEqual(packet.untaggedTests, []);
-  writeFile(root, "src/modules/campaigns/send.e2e.test.ts", 'import { it } from "node:test";\nit("real sending", () => {});\n');
+  writeFile(root, "src/modules/campaigns/send.e2e.test.ts", 'import { it } from "node:test";\nit("real sending", () => { return; });\n');
   assert.deepEqual(review(root, "Send").report.contracts[0].untaggedTests, ["src/modules/campaigns/send.e2e.test.ts"]);
   assert.deepEqual(review(root, "Quota").report.contracts[0].untaggedTests, []);
   // The Sender warning is about a file of the packet.
   assert.deepEqual(packet.diagnostics.map(({ code }) => code), ["W_NO_INVARIANTS"]);
 });
 
-test("the fingerprint is of the contract, its implementations and the tests declared for it, and of nothing else", (t) => {
+test("the fingerprint is of the contract, its module's prose, its implementations, its tests and what they import, and of nothing else", (t) => {
   const root = copyFixture(t, "vertical");
   const fingerprint = () => review(root, "Send").report.contracts[0].fingerprint;
   const first = fingerprint();
   assert.equal(fingerprint(), first);
   const sender = review(root, "Sender").report.contracts[0].fingerprint;
 
-  // Not material: a test of another contract, a comment outside the tests of Send, the prose of a design, line endings.
+  // Not material: a test of another contract, a comment outside the tests of Send, the prose of another module's design, line endings.
   editFile(root, "src/modules/quota/quota.test.ts", (s) => `${s}// a change to a test of another contract\n`);
   editFile(root, SEND_TEST, (s) => `${s}// a comment after the tests of Send\n`);
   editFile(root, QUOTA, (s) => s.replace("# ", "# Модуль: "));
-  editFile(root, CAMPAIGNS, (s) => s.replace("# ", "# Модуль: "));
   editFile(root, SEND_TEST, (s) => s.replaceAll("\n", "\r\n"));
+  editFile(root, CAMPAIGNS, (s) => s.replaceAll("\n", "\r\n"));
   assert.equal(fingerprint(), first);
+  // Material: the prose of the contract's own module — the business rules a reviewer judges the tests against.
+  editFile(root, CAMPAIGNS, (s) => s.replace("# ", "# Модуль: "));
+  const afterProse = fingerprint();
+  assert.notEqual(afterProse, first);
   assert.equal(review(root, "Send").report.files.find((file) => file.path === SEND_TEST)?.text.includes("\r"), false);
 
   // Material: a test declared for Send, the implementation, the contract's declaration (its doc comment included).
   editFile(root, SEND_TEST, (s) => s.replace('it("не передає повідомлення без квоти"', 'it("не передає повідомлення без квоти (edited)"'));
   const afterTest = fingerprint();
-  assert.notEqual(afterTest, first);
+  assert.notEqual(afterTest, afterProse);
   editFile(root, SEND_SERVICE, (s) => s.replace('return "sent";', 'return "sent" as const;'));
   const afterImplementation = fingerprint();
   assert.notEqual(afterImplementation, afterTest);
@@ -213,7 +217,8 @@ const finding = (invariant: string | null, assessment: Finding["assessment"] = "
   invariant,
   assessment,
   reason: `${invariant ?? "the contract"} looked ${assessment}`,
-  evidence: null,
+  // Evidence is null only for insufficient-context: every other finding names what it rests on.
+  evidence: assessment === "insufficient-context" ? null : `${SEND_TEST}:9`,
   suggestedChange: null,
   ...extra,
 });
@@ -239,9 +244,9 @@ test("a recorded verdict makes check content with the contract, and the review f
   const recorded = record(root, { version: 1, verdicts: [{ contract: "Send", fingerprint, findings: SEND_INVARIANTS.map((id) => finding(id)) }] });
   assert.equal(recorded.code, 0);
   assert.deepEqual(recorded.report.recorded, [
-    { module: "src/modules/campaigns", contract: "Send", fingerprint, assessments: { adequate: 4, weak: 0, unrelated: 0, "insufficient-context": 0 }, notes: [] },
+    { module: "src/modules/campaigns", contract: "Send", fingerprint, assessments: { adequate: 4, weak: 0, unrelated: 0, "insufficient-context": 0 }, contractAssessments: { adequate: 0, weak: 0, unrelated: 0, "insufficient-context": 0 }, notes: [] },
   ]);
-  assert.equal(cli(root, "review", "--record", VERDICTS).stdout, `recorded  Send (4 adequate)\nreview --record: 1 recorded in ${REVIEW_FILE}.\n`);
+  assert.equal(cli(root, "review", "--record", VERDICTS).stdout, `✓ recorded  Send (4 adequate)\nreview --record: 1 recorded in ${REVIEW_FILE}; a reviewer's assessment, not a test run.\n`);
   // The verdicts file is named relative to the current directory, and appears as a project path in diagnostics.
   fs.mkdirSync(path.join(root, "out"));
   fs.renameSync(path.join(root, VERDICTS), path.join(root, "out", VERDICTS));
@@ -255,11 +260,14 @@ test("a recorded verdict makes check content with the contract, and the review f
   assert.deepEqual(Object.keys(file.reviews[0]), ["module", "contract", "fingerprint", "material", "findings"]);
   assert.deepEqual(Object.keys(file.reviews[0].material), [
     "contract",
+    `design ${CAMPAIGNS}`,
     `implementation ${SEND_SERVICE}#SendService`,
     `test ${SEND_TEST}:чекає на підтвердження квоти до передачі повідомлення`,
     `test ${SEND_TEST}:не передає повідомлення без квоти`,
     `test ${SEND_TEST}:передає помилку квоти без звернення до транспорту`,
     `test ${SEND_TEST}:передає помилку транспорту`,
+    // The tests of Send use the Sender implementation: what they observe depends on it.
+    `dependency ${CALLBACK_SENDER}`,
   ]);
   assert.equal(file.reviews[0].fingerprint, fingerprint);
 
@@ -351,15 +359,17 @@ test("findings other than adequate are reported where the invariant is, with the
   };
   const recorded = record(root, verdicts);
   assert.equal(recorded.code, 0);
-  // A contract-level finding is a note, not an assessment: it is counted apart and printed, first sentence first.
-  assert.deepEqual(recorded.report.recorded.map(({ contract, assessments, notes }) => ({ contract, ...assessments, notes })), [
-    { contract: "Send", adequate: 1, weak: 1, unrelated: 1, "insufficient-context": 1, notes: ["no test runs two sends at once"] },
-    { contract: "Sender", adequate: 0, weak: 0, unrelated: 0, "insufficient-context": 0, notes: [DEFAULT_REASON] },
+  // A contract-level finding is not an assessment of an invariant: it is counted apart and printed, first sentence first,
+  // led by its assessment when that is not adequate, since check reports it against the contract as a whole.
+  const none = { adequate: 0, weak: 0, unrelated: 0, "insufficient-context": 0 };
+  assert.deepEqual(recorded.report.recorded.map(({ contract, assessments, contractAssessments, notes }) => ({ contract, assessments, contractAssessments, notes })), [
+    { contract: "Send", assessments: { adequate: 1, weak: 1, unrelated: 1, "insufficient-context": 1 }, contractAssessments: { ...none, weak: 1 }, notes: ["weak: no test runs two sends at once"] },
+    { contract: "Sender", assessments: none, contractAssessments: { ...none, adequate: 1 }, notes: [DEFAULT_REASON] },
   ]);
-  assert.deepEqual(cli(root, "review", "--record", VERDICTS).stdout.split("\n").slice(0, 2), ["recorded  Send (1 adequate, 1 weak, 1 unrelated, 1 insufficient-context; 1 note)", "          note: no test runs two sends at once"]);
+  assert.deepEqual(cli(root, "review", "--record", VERDICTS).stdout.split("\n").slice(0, 2), ["! recorded  Send (1 adequate, 1 weak, 1 unrelated, 1 insufficient-context; the contract as a whole: 1 weak; 1 note)", "            note: weak: no test runs two sends at once"]);
   // The next packet of the contract repeats the note, so that an observation stays until the design's owner acts on it.
-  assert.deepEqual(review(root, "Send").report.contracts[0].priorNotes, ["no test runs two sends at once"]);
-  assert.ok(cli(root, "review", "Send").stdout.includes("### Notes of the previous review\n\n- no test runs two sends at once"));
+  assert.deepEqual(review(root, "Send").report.contracts[0].priorNotes, ["weak: no test runs two sends at once"]);
+  assert.ok(cli(root, "review", "Send").stdout.includes("### Notes of the previous review\n\n- weak: no test runs two sends at once"));
 
   const at = (needle: string) => inFixture(CAMPAIGNS, needle);
   assert.deepEqual(reviewDiagnostics(root), [
@@ -446,9 +456,9 @@ test("a review of a contract that no longer exists is reported by check and remo
   assert.deepEqual(JSON.parse(readFile(root, REVIEW_FILE)).reviews.map((entry: { module: string }) => entry.module), ["src/modules/post"]);
   writeFile(root, REVIEW_FILE, withDeadEntry);
   assert.deepEqual(cli(root, "review", "--record", VERDICTS).stdout.split("\n").slice(0, 4), [
-    "recorded  Sender (no invariants; 1 note)",
-    `          note: ${DEFAULT_REASON}`,
-    "removed   Sender (no longer in src/modules/mail)",
-    `review --record: 1 recorded, 1 removed in ${REVIEW_FILE}.`,
+    "✓ recorded  Sender (no invariants; 1 note)",
+    `            note: ${DEFAULT_REASON}`,
+    "- removed   Sender (no longer in src/modules/mail)",
+    `review --record: 1 recorded, 1 removed in ${REVIEW_FILE}; a reviewer's assessment, not a test run.`,
   ]);
 });

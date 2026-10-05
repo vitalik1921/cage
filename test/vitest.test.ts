@@ -1,44 +1,10 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
-import { checkLinking, contract, designProject, inFile, located, mdx, PROJECT_OPTIONS } from "./helpers.ts";
+import { checkLinking, contract, designProject, inFile, located, mdx, PROJECT_OPTIONS, VITEST } from "./helpers.ts";
 
 const QUOTA = contract("Quota", "take(): boolean;", "@invariant empty Порожня квота відмовляє.", "@invariant consume Списує одиницю.", "@invariant race Не перевищує залишок.");
 const IMPLEMENTATION = "/** @implements Quota */\nexport const quota = { take: () => true };\n";
 const TEST_FILE = "src/m/quota.test.ts";
-
-/** The part of Vitest's type definitions that the adapter looks at: what is exported, and what the globals are. */
-const VITEST = {
-  "node_modules/vitest/package.json": JSON.stringify({
-    name: "vitest",
-    version: "4.0.0",
-    type: "module",
-    exports: { ".": { types: "./index.d.ts" }, "./globals": { types: "./globals.d.ts" } },
-  }),
-  "node_modules/vitest/index.d.ts": [
-    "type Declare = (title: unknown, ...rest: unknown[]) => void;",
-    "type Chain = Declare & { [modifier in 'skip' | 'only' | 'todo' | 'concurrent' | 'sequential' | 'fails' | 'shuffle']: Chain } & {",
-    "  each: (cases: readonly unknown[]) => Declare;",
-    "  skipIf: (condition: unknown) => Chain;",
-    "};",
-    "export declare const describe: Chain;",
-    "export declare const suite: Chain;",
-    "export declare const it: Chain;",
-    "export declare const test: Chain;",
-    "export declare const expect: (value: unknown) => { toBe(expected: unknown): void };",
-    "",
-  ].join("\n"),
-  "node_modules/vitest/globals.d.ts": [
-    "declare global {",
-    "  let suite: typeof import('vitest')['suite']",
-    "  let test: typeof import('vitest')['test']",
-    "  let describe: typeof import('vitest')['describe']",
-    "  let it: typeof import('vitest')['it']",
-    "  let expect: typeof import('vitest')['expect']",
-    "}",
-    "export {}",
-    "",
-  ].join("\n"),
-};
 
 const lines = (...text: string[]) => `${text.join("\n")}\n`;
 
@@ -67,18 +33,22 @@ test("Vitest declarations are recognised by their import from vitest", (t) => {
       "    expect(1).toBe(1);",
       "  });",
       "  /** @covers consume */",
-      '  test.concurrent.skip("chained modifiers", () => {});',
+      '  test.concurrent.skip("chained modifiers", () => { return; });',
       "",
       '  suite("inner", { retry: 2 }, () => {',
       "    /** @covers race */",
-      '    runner.it.fails("namespace, with a timeout after the callback", () => {}, 1000);',
+      '    runner.it.fails("namespace, with a timeout after the callback", () => { return; }, 1000);',
       "    /** @covers empty */",
       '    check.todo("to do");',
       "  });",
       "});",
     ),
   );
-  assert.deepEqual(check(root).errors, []);
+  // Recognised through chained modifiers, and read for what they do: the only test of consume is skipped, the todo one runs nothing.
+  const { errors, warnings } = check(root);
+  assert.deepEqual(errors.map(({ code, invariant }) => ({ code, invariant })), [{ code: "E_TEST_INACTIVE", invariant: "consume" }]);
+  assert.match(errors[0].message, /"Quota > chained modifiers" \(src\/m\/quota\.test\.ts:\d+, skipped by `\.skip`\)/);
+  assert.deepEqual(warnings.map(({ code, message }) => ({ code, todo: message.includes("todo by `.todo`") })), [{ code: "W_TEST_INACTIVE", todo: true }]);
   assert.deepEqual(links(root), [
     "vitest: Quota > alias [Quota: empty]",
     "vitest: Quota > chained modifiers [Quota: consume]",
@@ -88,7 +58,7 @@ test("Vitest declarations are recognised by their import from vitest", (t) => {
 });
 
 test("Vitest globals are recognised when the project loads their types, and only then", (t) => {
-  const tests = lines("/** @tests Quota */", 'describe.sequential("Quota", () => {', "  /** @covers empty consume race */", '  it("all", () => {});', "});");
+  const tests = lines("/** @tests Quota */", 'describe.sequential("Quota", () => {', "  /** @covers empty consume race */", '  it("all", () => { return; });', "});");
   const withGlobals = project(t, tests, { "tsconfig.json": JSON.stringify({ compilerOptions: { ...PROJECT_OPTIONS, types: ["vitest/globals"] } }) });
   assert.deepEqual(check(withGlobals).errors, []);
   assert.deepEqual(links(withGlobals), ["vitest: Quota > all [Quota: empty consume race]"]);
@@ -105,7 +75,7 @@ test("Vitest globals are recognised when the project loads their types, and only
 });
 
 test("each adapter reads only its own runner", (t) => {
-  const vitestFile = lines('import { describe, it } from "vitest";', "/** @tests Quota */", 'describe("Quota", () => {', "  /** @covers empty consume race */", '  it("all", () => {});', "});");
+  const vitestFile = lines('import { describe, it } from "vitest";', "/** @tests Quota */", 'describe("Quota", () => {', "  /** @covers empty consume race */", '  it("all", () => { return; });', "});");
   const nodeFile = vitestFile.replace('"vitest"', '"node:test"');
 
   const vitestProject = project(t, vitestFile);
@@ -126,16 +96,16 @@ test("it.each declares one test with its template title; forms that decide at ru
       "/** @tests Quota */",
       'describe("Quota", () => {',
       "  /** @covers empty consume race */",
-      '  it("all", () => {});',
+      '  it("all", () => { return; });',
       "",
       "  /** @covers empty */",
-      '  it.each([1, 2])("a table of cases", () => {});',
+      '  it.each([1, 2])("a table of cases", () => { return; });',
       "",
       "  /** @covers consume */",
-      '  it.skipIf(process.env.CI)("conditional", () => {});',
+      '  it.skipIf(process.env.CI)("conditional", () => { return; });',
       "",
       "  /** @covers race */",
-      '  vitest("the default export is not a test function", () => {});',
+      '  vitest("the default export is not a test function", () => { return; });',
       "});",
     ),
   );

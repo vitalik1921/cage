@@ -24,11 +24,19 @@ Cage keeps the three in sync — **the spec** (what a TypeScript module promises
 
 - **The spec** is a Markdown file next to the code (`quota.cage.mdx`): TypeScript interfaces, and the rules they promise, written as plain sentences — `@invariant consume A successful take uses exactly one send.`
 - **The code** says which interface it implements (`@implements Quota`); **the tests** say which rules they check (`@covers consume`).
-- **Cage checks deterministically** — no model involved, the same answer on every run — that the code fits the interface (the TypeScript compiler decides), that every rule has a linked test, and that the review of those tests is up to date.
-- **The review** is your agent's written verdict that the tests really check the rules: the judgement is the agent's, whether it is still up to date is Cage's. Cage stores it with a hash of the code and tests it looked at; change either, and Cage asks for a new review and says what changed.
+- **Cage checks deterministically** — no model involved, the same answer on every run — that the code fits the interface (the TypeScript compiler decides), that every rule has a linked test that is not skipped, todo or empty, and that the review of those tests is up to date. **It does not run your tests**: whether they pass is your test runner's job, so CI runs both (see [In CI](#in-ci)).
+- **The review** is your agent's written verdict that the tests really check the rules: the judgement is the agent's, whether it is still up to date is Cage's. Cage stores it with a hash of what it looked at — the contract, the spec's prose, the code and tests, and the local files they import — and asks for a new review, naming what changed, when any of it changes.
 - **When the agent says it is done** (the Stop hook of Claude Code or Codex), Cage sends whatever is out of sync back to it. After three tries in one session it lets the agent stop, with the report.
 
 Cage runs locally and makes no model calls: your agent does the judging, your test runner runs the tests. Start with one module — the bundled skills can write its spec from existing code. Node ≥ 24.11, TypeScript 5 or 6.
+
+**What a green `cage check` means**, and what it does not:
+
+| Green means | It does not mean |
+| --- | --- |
+| Every contract has an implementation the TypeScript compiler accepts in its place | That the implementation behaves as the rules say |
+| Every rule (`@invariant`) has a linked test (`@covers`), and at least one of them is active: not `skip`/`todo` (its own or its suite's), not without a callback or with an empty one, not in a file whose import of a project file is broken (a missing file or export) | That the test asserts the rule, or that it passes — Cage reads tests, it never runs them; a test can also be skipped at run time |
+| With `review: "require"`, every contract has a recorded verdict for its material as it is now | That the verdict is right: it is a reviewer's attestation, often the coding agent's own |
 
 ## What it catches
 
@@ -137,7 +145,8 @@ Published on npm as [`cage-ts`](https://www.npmjs.com/package/cage-ts); the comm
 
 ```sh
 npm i -D cage-ts
-npx cage init            # .cage/config.json + Stop hook for Claude Code (--agent codex, --agent none)
+npx cage init            # .cage/config.json + the Stop hook; asks: claude, codex, both or none
+npx cage init --agent claude   # the same without the question (CI, scripts): --agent codex, --agent none
 ```
 
 In Claude Code you may use the plugin instead of the hook and skills that `init` writes into the repository: it brings the rules, the two skills and the Stop hook, and gates every project that has a `.cage/config.json`.
@@ -210,13 +219,13 @@ Run `npx cage check`. It reports, with file and line, every contract with no imp
 | `cage lock` | Freezes the contracts marked `@final` (no changes) or `@extendable` (additions only); `check` refuses other changes. |
 | `cage gate` | `check` for the agent's Stop hook: errors and missing or outdated reviews go back to the agent. `init` wires it up. |
 
-`--root <dir>` for a project inside a monorepo; `--format json` for machines. In CI, `cage check --base origin/main` also refuses a lock that was lifted on the branch.
+`--root <dir>` for a project inside a monorepo; `--format json` for machines (`check`, `lock`, `init` and `review --record` print `text` by default, the `review` packet `markdown`). In CI, `cage check --base origin/main` also refuses a lock that was lifted on the branch.
 
 ## The loop with an agent
 
 1. The agent changes the spec, the code or a test. When it says it is done, the Stop hook runs `cage gate`.
 2. Whatever is out of sync comes back to the agent: a rule with no test, code that does not fit, an outdated review. After three returns in a session the gate lets the agent stop and leaves the report, so that a check it cannot fix does not hold the session forever.
-3. For a review: the agent runs `cage review`, reads the material, judges each rule, and records the verdict with `cage review --record`. Cage checks that the verdict is complete and is for the material as it is now; the judgement itself is the reviewer's, which may be the same agent. The verdict is tied to a fingerprint of the contract, its implementations and the tests linked to it: change any of those and it is stale again; change something else in those files and it is not.
+3. For a review: the agent runs `cage review`, reads the material, judges each rule, and records the verdict with `cage review --record`. Cage checks that the verdict is complete and is for the material as it is now; the judgement itself is the reviewer's, which may be the same agent. The verdict is tied to a fingerprint of the contract, the prose of its module's spec, its implementations and the tests linked to it — each with the code of its own file it calls and its suite's setup — and the local files they import, followed a few levels deep (`reviewDependencies`). Change any of those and the review is outdated; change something else and it is not. Where the bounds stop, Cage says so instead of staying silent.
 4. `cage check` is clean; the agent stops.
 
 The rules the agent needs are in the `CLAUDE.md` / `AGENTS.md` section that `init` adds (or in the plugin), and in the two skills: `cage-design` — what deserves a contract and what goes to `.cageignore`, and the spec's structure (purpose, glossary, business rules, data, contracts, out of scope, open questions); `cage-review` — how to judge the tests against the rules and record the verdict.
@@ -240,8 +249,34 @@ The rules the agent needs are in the `CLAUDE.md` / `AGENTS.md` section that `ini
 - `testAdapter`: `node:test` or `vitest`.
 - `review`: a contract without an up-to-date review is a warning (`warn`), an error (`require`) or nothing (`off`). The Stop hook returns a missing or outdated review to the agent either way; a weak verdict only under `require`.
 - `coverage`: exported code of a module with a spec but without `@implements` is a warning, an error, or not looked at. A `.cageignore` next to the spec lists files that need none.
+- `reviewDependencies` (`{ "depth": 3, "maxFiles": 40, "exclude": [] }` by default): how far a review's fingerprint follows local imports from the implementation and test files. Type-only imports, `node_modules`, files outside the project, declaration files and `exclude` patterns are not followed. Files beyond the bounds are reported (`REVIEW_SCOPE_LIMIT`, an error under `review: "require"`). An e2e spec that boots the whole application (a NestJS `AppModule`) reaches every file: exclude that entry point, e.g. `"exclude": ["src/app.module.ts"]`, and the fingerprint keeps to what the contract's code imports.
 
 Commit `.cage/` (config, frozen contracts, reviews) and `.cageignore` with the specs.
+
+## In CI
+
+Cage does not run tests, so a CI job runs both: your tests, then `cage check` with the strict policies. In `.cage/config.json` set `"review": "require"` and `"coverage": "require"`, pin `cage-ts` in `devDependencies`, and add a job like this (GitHub Actions):
+
+```yaml
+name: check
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0              # cage check --base needs the base branch
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm test                 # your runner: the only step that executes tests
+      - run: npx cage check --base origin/${{ github.base_ref || 'main' }}
+```
+
+`cage check` exits 1 on any violation and 2 on a configuration or environment problem. Use `cage check`, not `cage gate`, in CI: the gate lets an agent stop after three attempts. Tests skipped at run time (a condition, an environment) are only visible to the runner: make it fail on them if that matters to you.
 
 ## More
 

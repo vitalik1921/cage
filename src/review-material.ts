@@ -6,7 +6,7 @@ import type { Contract, Edge, Implementation, SourceLocation, TestDeclaration } 
 import type { DesignModule } from "./design-phase.ts";
 import { compareText, type Diagnostic } from "./diagnostic.ts";
 import type { ImplementationPhaseResult } from "./implementation-phase.ts";
-import { stripBom, toProjectPath } from "./location.ts";
+import { insideRoot, stripBom, toProjectPath } from "./location.ts";
 import type { Overlay, TypeScript } from "./typescript.ts";
 
 /** A file the reviewer reads, once, whatever number of contracts it serves. Its text has `\n` line endings whatever the disk has. */
@@ -19,10 +19,14 @@ export interface PacketFile {
   digest: string;
 }
 
-/** The files a contract's review is made of, and what they were found for. */
-/** One piece of what a review of a contract is about: the contract itself, an implementation, a test. */
+/**
+ * One piece of what a review of a contract is about. `contract`: its declaration with its doc comment.
+ * `design <file>`: the prose of a document of its module, its `ts design` blocks left out. `implementation
+ * <file>#<name>` and `test <file>:<title>`: the statement, with the declarations of the same file it refers
+ * to and, for a test, the setup of its suites. `dependency <file>`: a local file that an implementation or
+ * test file imports, within the bounds of the review scope.
+ */
 export interface MaterialPart {
-  /** `contract`, `implementation <file>#<name>` or `test <file>:<title>`. */
   key: string;
   text: string;
 }
@@ -37,18 +41,36 @@ export interface Material {
   declarations: TestDeclaration[];
   testFiles: string[];
   files: PacketFile[];
-  /** What the fingerprint is made of: the contract's declaration, the text of each implementation, the text of each test declared for it. */
+  /** What the fingerprint is made of; see `MaterialPart`. */
   parts: MaterialPart[];
+  /** The local files fingerprinted as dependencies, project-relative, in the order they were reached. */
+  dependencies: string[];
+  /** Local files that the bounds of the review scope left out of the fingerprint: a change in them does not make the review outdated. */
+  beyond: { file: string; why: Beyond }[];
+  /** Dependency files that could not be read. */
+  unreadable: { file: string; message: string }[];
 }
 
 export type FileReader = (file: string, role: PacketFile["role"], text?: string) => PacketFile | undefined;
 
+/** Why a local file is left out of a fingerprint: past the depth, past the file limit, or a link out of the project. */
+export type Beyond = "depth" | "maxFiles" | "outside";
+
 /** A reader that loads each file once and reports what cannot be read. */
 export function createFileReader(root: string, diagnostics: Diagnostic[]): { read: FileReader; files: Map<string, PacketFile> } {
   const files = new Map<string, PacketFile>();
+  const outside = new Set<string>();
   const read: FileReader = (file, role, text) => {
     const known = files.get(file);
     if (known) return known;
+    // A link out of the project is not followed: what lies outside is not the project's to hand to a reviewer.
+    if (text === undefined && !insideRoot(root, file)) {
+      if (!outside.has(file)) {
+        outside.add(file);
+        diagnostics.push({ code: "W_OUTSIDE_ROOT", severity: "warning", message: `${file} is a symbolic link to a file outside the project: cage does not read it into the review or its fingerprint. A change there does not make a review outdated.`, file });
+      }
+      return undefined;
+    }
     try {
       const normalized = (text ?? stripBom(fs.readFileSync(path.join(root, file), "utf8"))).replace(/\r\n?/g, "\n");
       const loaded = { path: file, role, text: normalized, digest: digestOf(normalized) };
@@ -103,39 +125,256 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
   const testFiles = [...new Set(declarations.map((test) => test.location.file))].sort(compareText);
   for (const file of testFiles) include(read(file, "test"));
 
-  // A review is about the contract, its implementations and the tests declared for it: a change elsewhere in those files is not a change of the material.
+  // A review is about the contract, the rules its module states in prose, its implementations, the tests declared for it,
+  // and the local code they rely on. A change elsewhere in those files is not a change of the material.
   const parts: MaterialPart[] = [{ key: "contract", text: contract.source }];
+  for (const document of own.documents) parts.push({ key: `design ${document.file}`, text: proseOf(document.source, document.blocks) });
   const textOf = (file: string) => files.find((candidate) => candidate.path === file)?.text;
+  const parsed = new Map<string, ts.SourceFile>();
+  const parse = (file: string, text: string) => {
+    if (!compiler) return undefined;
+    if (!parsed.has(file)) parsed.set(file, compiler.ts.createSourceFile(file, text, compiler.ts.ScriptTarget.Latest, true));
+    return parsed.get(file)!;
+  };
   for (const implementation of implementations.slice().sort((a, b) => compareText(a.location.file, b.location.file) || compareText(a.name, b.name))) {
     const text = textOf(implementation.location.file);
-    const statement = compiler && text !== undefined ? statementAt(compiler.ts, text, implementation.location, false) : undefined;
-    parts.push({ key: `implementation ${implementation.location.file}#${implementation.name}`, text: statement ?? text ?? "" });
+    const sourceFile = text !== undefined ? parse(implementation.location.file, text) : undefined;
+    const material = compiler && sourceFile ? materialAt(compiler.ts, sourceFile, implementation.location, false) : undefined;
+    parts.push({ key: `implementation ${implementation.location.file}#${implementation.name}`, text: material ?? text ?? "" });
   }
   const titles = new Map<string, number>();
   for (const declaration of declarations.slice().sort((a, b) => compareText(a.location.file, b.location.file) || a.location.line - b.location.line)) {
     const text = textOf(declaration.location.file);
-    const statement = compiler && text !== undefined ? statementAt(compiler.ts, text, declaration.location, true) : undefined;
+    const sourceFile = text !== undefined ? parse(declaration.location.file, text) : undefined;
+    const material = compiler && sourceFile ? materialAt(compiler.ts, sourceFile, declaration.location, true, declaration.setup) : undefined;
     const title = `${declaration.location.file}:${declaration.title}`;
     const seen = titles.get(title) ?? 0;
     titles.set(title, seen + 1);
-    parts.push({ key: `test ${title}${seen > 0 ? ` (${seen + 1})` : ""}`, text: statement ?? text ?? "" });
+    parts.push({ key: `test ${title}${seen > 0 ? ` (${seen + 1})` : ""}`, text: material ?? text ?? "" });
   }
-  return { contract, own, dependencyDesigns: dependencyModules.flatMap((moduleId) => moduleOf(moduleId).documents.map((document) => document.file)), uses, usedBy, implementations, declarations, testFiles, files, parts };
+
+  // The local files the implementations and the tests import, within the bounds of the review scope.
+  const ownFiles = new Set([...implementations.map((implementation) => implementation.location.file), ...testFiles]);
+  const otherImplementations = new Set((linking?.implementations ?? []).map((implementation) => implementation.location.file).filter((file) => !ownFiles.has(file)));
+  const closure = compiler
+    ? dependencyClosure(result.root, compiler.ts, compiler.overlay, [...ownFiles].sort(compareText).map((file) => ({ file, text: textOf(file) ?? "" })), ownFiles, otherImplementations, result.reviewScope)
+    : { files: [], beyond: [], unreadable: [] };
+  for (const dependency of closure.files) parts.push({ key: `dependency ${dependency.file}`, text: dependency.text });
+  return {
+    contract,
+    own,
+    dependencyDesigns: dependencyModules.flatMap((moduleId) => moduleOf(moduleId).documents.map((document) => document.file)),
+    uses,
+    usedBy,
+    implementations,
+    declarations,
+    testFiles,
+    files,
+    parts,
+    dependencies: closure.files.map((dependency) => dependency.file),
+    beyond: closure.beyond,
+    unreadable: closure.unreadable,
+  };
 }
 
-/** The text of the statement at a location: the top-level one holding it, or, for a test, the expression statement that starts there. */
-function statementAt(ts: TypeScript, text: string, location: SourceLocation, nested: boolean): string | undefined {
-  const sourceFile = ts.createSourceFile("file.ts", text, ts.ScriptTarget.Latest, true);
+/**
+ * The prose of a design document: its text with each `ts design` block replaced by a marker. The
+ * declarations are parts of their own; the prose is the business context a reviewer judges against,
+ * and a change in it is a change of what every contract of the module promises.
+ */
+function proseOf(source: string, blocks: readonly { sourceStart: number; sourceEnd: number; order: number }[]): string {
+  let prose = "";
+  let at = 0;
+  for (const block of [...blocks].sort((a, b) => a.sourceStart - b.sourceStart)) {
+    prose += `${source.slice(at, block.sourceStart)}[ts design block ${block.order + 1}]`;
+    at = block.sourceEnd;
+  }
+  return (prose + source.slice(at)).replace(/\r\n?/g, "\n");
+}
+
+/** The names a top-level statement declares, for a lookup of what a statement refers to. Imports declare none: their files are dependencies. */
+function declaredNames(ts: TypeScript, statement: ts.Statement): string[] {
+  const names: string[] = [];
+  const bind = (name: ts.BindingName) => {
+    if (ts.isIdentifier(name)) names.push(name.text);
+    else for (const element of name.elements) if (!ts.isOmittedExpression(element)) bind(element.name);
+  };
+  if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement) || ts.isEnumDeclaration(statement)) && statement.name) names.push(statement.name.text);
+  else if (ts.isModuleDeclaration(statement) && ts.isIdentifier(statement.name)) names.push(statement.name.text);
+  else if (ts.isVariableStatement(statement)) for (const declaration of statement.declarationList.declarations) bind(declaration.name);
+  return names;
+}
+
+/** Every identifier written in a node. Over-inclusive on purpose: a property name that matches a declaration only adds that declaration. */
+function identifiersIn(ts: TypeScript, node: ts.Node, into: Set<string>): Set<string> {
+  const walk = (child: ts.Node): void => {
+    if (ts.isIdentifier(child)) into.add(child.text);
+    ts.forEachChild(child, walk);
+  };
+  walk(node);
+  return into;
+}
+
+/** The expression statement that starts at a location: a test declaration or a hook, wherever it is nested. */
+function expressionStatementAt(ts: TypeScript, sourceFile: ts.SourceFile, location: SourceLocation): ts.ExpressionStatement | undefined {
   const position = sourceFile.getPositionOfLineAndCharacter(location.line - 1, location.column - 1);
-  if (!nested) return sourceFile.statements.find((statement) => statement.getStart() <= position && position < statement.end)?.getFullText().trim();
-  let found: ts.Node | undefined;
+  let found: ts.ExpressionStatement | undefined;
   const visit = (node: ts.Node) => {
-    if (found) return;
+    if (found || position < node.pos || position >= node.end) return;
     if (ts.isExpressionStatement(node) && node.getStart() === position) found = node;
     else ts.forEachChild(node, visit);
   };
   visit(sourceFile);
-  return found?.getFullText().trim();
+  return found;
+}
+
+/**
+ * The text a review of an implementation or a test is about: its statement — the top-level one holding the
+ * implementation, or the expression statement of the test — then, for a test, its setup: the runner hooks
+ * in effect for it (`setup`, found by their binding to the runner when the declarations were read: the
+ * file's top-level ones and those of its suites, aliased, namespaced or global alike) and the variables,
+ * functions and classes its enclosing suites declare; then the top-level declarations of the same file
+ * that any of these refer to, followed transitively, in source order.
+ */
+function materialAt(ts: TypeScript, sourceFile: ts.SourceFile, location: SourceLocation, nested: boolean, hooks: readonly SourceLocation[] = []): string | undefined {
+  const position = sourceFile.getPositionOfLineAndCharacter(location.line - 1, location.column - 1);
+  const start: ts.Node | undefined = nested ? expressionStatementAt(ts, sourceFile, location) : sourceFile.statements.find((statement) => statement.getStart() <= position && position < statement.end);
+  if (!start) return undefined;
+
+  const setup: ts.Node[] = [];
+  if (nested) {
+    for (const hook of hooks) {
+      const statement = expressionStatementAt(ts, sourceFile, hook);
+      if (statement && !setup.includes(statement)) setup.push(statement);
+    }
+    // The lexical surroundings of the test: what its suites' callbacks, the plain blocks and the loop bodies around
+    // it declare, and the headers of those loops. Declarations and headers only, read as text: what a test observes
+    // through them is the reviewer's to judge, and an edit to them is a change of the test.
+    for (let node: ts.Node | undefined = start.parent; node && node !== sourceFile; node = node.parent) {
+      if (ts.isForOfStatement(node) || ts.isForInStatement(node)) setup.push(node.initializer, node.expression);
+      else if (ts.isForStatement(node)) setup.push(...[node.initializer, node.condition, node.incrementor].filter((part): part is ts.ForInitializer | ts.Expression => part !== undefined));
+      if (!ts.isBlock(node)) continue;
+      const suite = (ts.isArrowFunction(node.parent) || ts.isFunctionExpression(node.parent)) && ts.isCallExpression(node.parent.parent);
+      if (!suite && ts.isFunctionLike(node.parent)) continue;
+      for (const statement of node.statements) {
+        if (ts.isVariableStatement(statement) || ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) setup.push(statement);
+      }
+    }
+  }
+
+  const declarations = new Map<string, ts.Statement[]>();
+  for (const statement of sourceFile.statements) for (const name of declaredNames(ts, statement)) declarations.set(name, [...(declarations.get(name) ?? []), statement]);
+  const own = sourceFile.statements.find((statement) => statement.getStart() <= start!.getStart() && start!.end <= statement.end);
+  const included = new Set<ts.Statement>(own ? [own] : []);
+  const referenced: ts.Statement[] = [];
+  const queue: ts.Node[] = [start, ...setup];
+  for (let node = queue.shift(); node; node = queue.shift()) {
+    for (const name of identifiersIn(ts, node, new Set())) {
+      for (const statement of declarations.get(name) ?? []) {
+        if (included.has(statement)) continue;
+        included.add(statement);
+        referenced.push(statement);
+        queue.push(statement);
+      }
+    }
+  }
+  const text = (node: ts.Node) => node.getFullText().trim();
+  return [start, ...setup.sort((a, b) => a.pos - b.pos), ...referenced.sort((a, b) => a.pos - b.pos)].map(text).join("\n\n");
+}
+
+/** The local files a file imports for their values: type-only imports and exports, and dynamic `import()` and `require()` calls, are not followed. */
+function valueImports(ts: TypeScript, sourceFile: ts.SourceFile): string[] {
+  const specifiers: string[] = [];
+  for (const statement of sourceFile.statements) {
+    if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
+      const clause = statement.importClause;
+      const bindings = clause?.namedBindings;
+      const typesOnly = clause !== undefined && (clause.isTypeOnly || (!clause.name && bindings !== undefined && ts.isNamedImports(bindings) && bindings.elements.length > 0 && bindings.elements.every((element) => element.isTypeOnly)));
+      if (!typesOnly) specifiers.push(statement.moduleSpecifier.text);
+    } else if (ts.isExportDeclaration(statement) && statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier) && !statement.isTypeOnly) {
+      specifiers.push(statement.moduleSpecifier.text);
+    } else if (ts.isImportEqualsDeclaration(statement) && ts.isExternalModuleReference(statement.moduleReference) && ts.isStringLiteral(statement.moduleReference.expression) && !statement.isTypeOnly) {
+      specifiers.push(statement.moduleReference.expression.text);
+    }
+  }
+  return specifiers;
+}
+
+/**
+ * The local files reached from `starts` through value imports, breadth first, in a fixed order: each
+ * level sorted by path. Not followed and not fingerprinted: files outside the root, in `node_modules`,
+ * declaration files, files matching `scope.exclude`, and unresolved specifiers. Files of `own` are
+ * material already. A file of another contract's implementation is fingerprinted but not followed: what
+ * it imports is that contract's material. Files past `scope.depth` levels, past `scope.maxFiles`, or
+ * whose real path leaves the project through a symbolic link (checked before anything is read) are
+ * returned as `beyond`, so that the hole is reported rather than silent.
+ */
+export function dependencyClosure(
+  root: string,
+  ts: TypeScript,
+  overlay: Pick<Overlay, "resolveFrom">,
+  starts: readonly { file: string; text: string }[],
+  own: ReadonlySet<string>,
+  stopAt: ReadonlySet<string>,
+  scope: { depth: number; maxFiles: number; exclude: readonly string[] },
+): { files: { file: string; text: string }[]; beyond: { file: string; why: Beyond }[]; unreadable: { file: string; message: string }[] } {
+  const files: { file: string; text: string }[] = [];
+  const beyond: { file: string; why: Beyond }[] = [];
+  const unreadable: { file: string; message: string }[] = [];
+  const seen = new Set<string>(own);
+  const local = (resolved: string): string | undefined => {
+    const file = toProjectPath(root, resolved);
+    if (file.startsWith("../") || path.isAbsolute(file) || file.split("/").includes("node_modules") || /\.d\.[cm]?ts$/.test(file)) return undefined;
+    if (scope.exclude.some((pattern) => path.matchesGlob(file, pattern))) return undefined;
+    return file;
+  };
+  const importsOf = (file: string, text: string) => {
+    const fileName = path.join(root, file);
+    const sourceFile = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, false);
+    const found = new Set<string>();
+    for (const specifier of valueImports(ts, sourceFile)) {
+      const resolved = overlay.resolveFrom(specifier, fileName);
+      const reached = resolved && local(resolved);
+      if (reached) found.add(reached);
+    }
+    return [...found].sort(compareText);
+  };
+  let level = starts.map(({ file, text }) => ({ file, text }));
+  for (let depth = 1; level.length > 0; depth++) {
+    const next: { file: string; text: string }[] = [];
+    for (const { file, text } of level) {
+      for (const imported of importsOf(file, text)) {
+        if (seen.has(imported)) continue;
+        seen.add(imported);
+        if (depth > scope.depth) {
+          beyond.push({ file: imported, why: "depth" });
+          continue;
+        }
+        if (files.length >= scope.maxFiles) {
+          beyond.push({ file: imported, why: "maxFiles" });
+          continue;
+        }
+        // Checked before reading: a link out of the project is a hole in the fingerprint, said and not followed.
+        if (!insideRoot(root, imported)) {
+          beyond.push({ file: imported, why: "outside" });
+          continue;
+        }
+        let content: string;
+        try {
+          content = stripBom(fs.readFileSync(path.join(root, imported), "utf8")).replace(/\r\n?/g, "\n");
+        } catch (cause) {
+          // The system's message names the file by its full path; the report names it from the project.
+          unreadable.push({ file: imported, message: (cause as Error).message.replaceAll(path.join(root, imported), imported) });
+          continue;
+        }
+        files.push({ file: imported, text: content });
+        if (!stopAt.has(imported)) next.push({ file: imported, text: content });
+      }
+    }
+    // Past the depth only the next level is looked at, to name what the bound leaves out.
+    level = depth > scope.depth ? [] : next;
+  }
+  return { files, beyond, unreadable };
 }
 
 /** A file outside the module that imports an implementation of the contract: who depends on the contract from the code's side. */

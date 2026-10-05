@@ -18,12 +18,19 @@ export interface CliIo {
   stdin?: string;
   stdout: (text: string) => void;
   stderr: (text: string) => void;
+  /**
+   * Asks the person at the terminal: writes the question to stderr and
+   * returns the line typed, or null at the end of input. Undefined when
+   * nobody can answer, such as in a pipe or in CI.
+   */
+  ask?: (question: string) => string | null;
 }
 
 const USAGE = `Usage: cage <command> [options]
 
 Commands:
-  init                  Write .cage/config.json and set the Stop gate up: --agent claude (default), codex, or none
+  init                  Write .cage/config.json and set the Stop gate up: --agent claude, codex, or none;
+                        without --agent it asks in a terminal and fails elsewhere
   check                 Check the designs, the implementations, the test links, the locks and the reviews
   check --phase design  Check only the designs: documents, contracts, tags, references and types
   check --base <rev>    Also require every lock recorded at that Git revision (for CI: --base origin/main)
@@ -39,12 +46,13 @@ Options:
   --config <path>   Configuration file, relative to the project root (default: .cage/config.json if present)
   --format <format> Report format: text (default) or json; for review markdown (default) or json
   --all             review: every contract, not only those in need of a review
-  --agent <name>    init: claude, codex or none; may be repeated
+  --agent <name>    init: claude, codex or none; may be repeated (claude and codex)
   --test-adapter <name>  init: node:test or vitest (default: vitest when package.json depends on it)
   -h, --help        Show this help
   --version         Show the version
 
-Exit codes: 0 success; 1 rule violations; 2 invalid arguments, configuration or environment.
+Exit codes: 0 success; 1 rule violations; 2 invalid arguments, configuration or environment;
+130 init cancelled at its question.
 For gate: 0 the agent may stop, 2 it may not (the hook protocol).
 `;
 
@@ -107,7 +115,7 @@ function run(argv: readonly string[], io: CliIo): number {
   if (!COMMANDS.includes(command)) throw new UsageError(`Unknown command "${command}".`);
   if (command !== "init" && (values.agent !== undefined || values["test-adapter"] !== undefined)) throw new UsageError("--agent and --test-adapter are options of the init command.");
   const agents = new Set<Agent>();
-  for (const agent of values.agent ?? ["claude"]) {
+  for (const agent of values.agent ?? []) {
     if (agent === "claude" || agent === "codex") agents.add(agent);
     else if (agent !== "none") throw new UsageError(`Unknown agent "${agent}"; expected claude, codex or none.`);
   }
@@ -124,6 +132,8 @@ function run(argv: readonly string[], io: CliIo): number {
   if (command !== "check" && command !== "gate" && values.base !== undefined) throw new UsageError("--base is an option of the check and gate commands.");
   if (command === "gate" && values.format !== undefined) throw new UsageError("gate has no --format: its report goes to the agent as text.");
   if (values.base !== undefined && values.base.trim() === "") throw new UsageError("--base needs a Git revision, such as origin/main.");
+  if (values.root !== undefined && values.root.trim() === "") throw new UsageError("--root needs the path of the project directory.");
+  if (values.config !== undefined && values.config.trim() === "") throw new UsageError("--config needs the path of a configuration file.");
   if (command === "check") {
     if (values.phase !== undefined && values.phase !== "design" && values.phase !== "implementation") {
       throw new UsageError(`Unknown phase "${values.phase}"; expected design or implementation.`);
@@ -132,14 +142,27 @@ function run(argv: readonly string[], io: CliIo): number {
 
   const formats = command === "review" && values.record === undefined ? ["markdown", "json"] : ["text", "json"];
   const format = values.format ?? formats[0];
-  if (!formats.includes(format)) throw new UsageError(`Unknown format "${format}"; expected ${formats.join(" or ")}.`);
+  if (!formats.includes(format)) {
+    const what = command === "review" ? (values.record === undefined ? "the review packet" : "review --record") : command;
+    throw new UsageError(`Unknown format "${format}" for ${what}; expected ${formats.join(" or ")}.`);
+  }
 
   const root = path.resolve(io.cwd, values.root ?? ".");
   if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) throw new UsageError(`The project root "${root}" is not a directory.`);
 
   if (command === "init") {
     if (values.config !== undefined) throw new UsageError("init writes the default configuration file; --config does not apply.");
-    const report = runInit({ root, agents: [...agents], testAdapter });
+    let chosen: Agent[] = [...agents];
+    if (values.agent === undefined) {
+      if (!io.ask) throw new UsageError("init sets the Stop gate up for an agent and asks which one only in a terminal; pass --agent claude, --agent codex (both may be given) or --agent none.");
+      const answer = askAgents(io, io.ask);
+      if (answer === null) {
+        io.stderr("cage: init cancelled; nothing was written.\n");
+        return CANCELLED;
+      }
+      chosen = answer;
+    }
+    const report = runInit({ root, agents: chosen, testAdapter });
     io.stdout(format === "json" ? `${JSON.stringify(report, null, 2)}\n` : formatInitReport(report));
     return exitCode(report.diagnostics);
   }
@@ -153,6 +176,8 @@ function run(argv: readonly string[], io: CliIo): number {
     designPatterns: config.designs,
     problems: diagnostics,
   };
+  // Review fingerprints skip what the project excludes from its scope, and what it excludes from them on top.
+  const reviewScope = { ...config.reviewDependencies, exclude: [...config.exclude, ...config.reviewDependencies.exclude] };
   const print = (report: { diagnostics: Diagnostic[] }, text: string) => {
     io.stdout(format === "json" ? `${JSON.stringify(report, null, 2)}\n` : text);
     return exitCode(report.diagnostics);
@@ -162,7 +187,7 @@ function run(argv: readonly string[], io: CliIo): number {
     const phase = values.phase === "design" ? "design" : "implementation";
     // The design phase does not look at source files, so it does not search for them either.
     const sources = phase === "design" || diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
-    const report = runCheck({ ...scope, sources, testAdapter: config.testAdapter, coverage: config.coverage }, phase, { lockBase: values.base, review: config.review });
+    const report = runCheck({ ...scope, sources, testAdapter: config.testAdapter, coverage: config.coverage, reviewScope }, phase, { lockBase: values.base, review: config.review });
     return print(report, formatCheckReport(report));
   }
   if (command === "lock") {
@@ -171,13 +196,13 @@ function run(argv: readonly string[], io: CliIo): number {
   }
   if (command === "gate") {
     const sources = diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
-    const { exitCode, feedback } = runGate({ ...scope, sources, testAdapter: config.testAdapter, coverage: config.coverage }, { lockBase: values.base, review: config.review }, parseHookInput(io.stdin));
+    const { exitCode, feedback } = runGate({ ...scope, sources, testAdapter: config.testAdapter, coverage: config.coverage, reviewScope }, { lockBase: values.base, review: config.review }, parseHookInput(io.stdin));
     if (feedback !== "") io.stderr(feedback);
     return exitCode;
   }
   if (command === "review") {
     const sources = diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
-    const phaseOptions = { ...scope, sources, testAdapter: config.testAdapter, coverage: config.coverage };
+    const phaseOptions = { ...scope, sources, testAdapter: config.testAdapter, coverage: config.coverage, reviewScope };
     if (values.record !== undefined) {
       const report = recordVerdicts(phaseOptions, path.resolve(io.cwd, values.record));
       return print(report, formatRecordReport(report));
@@ -188,6 +213,34 @@ function run(argv: readonly string[], io: CliIo): number {
     return exitCode(report.diagnostics) === 2 ? 2 : report.ok ? 0 : 1;
   }
   throw new UsageError(`Unknown command "${command}".`);
+}
+
+/** The exit code of an init whose question was left unanswered: the shell's code for an interrupted command. */
+const CANCELLED = 130;
+/** Answers to the question of `init`; there is no default, a person picks one. */
+const AGENT_CHOICES: Record<string, Agent[]> = { "1": ["claude"], claude: ["claude"], "2": ["codex"], codex: ["codex"], "3": ["claude", "codex"], both: ["claude", "codex"], "4": [], none: [] };
+const AGENT_QUESTION = `Which agent should cage hold to the designs here? Its Stop gate, rules and skills go to the Git repository of the project.
+  1) claude  Claude Code: .claude/settings.json, CLAUDE.md, .claude/skills/
+  2) codex   Codex: .codex/config.toml, AGENTS.md, .agents/skills/
+  3) both
+  4) none    no Stop gate: .cage/config.json only
+Files that are already there are kept or added to; nothing is overwritten.
+`;
+/** Answers that pick nothing before `init` gives up: a person who means none says none. */
+const MAX_ANSWERS = 5;
+
+/** The agents a person picks at the terminal; null when the input ends first. */
+function askAgents(io: CliIo, ask: (question: string) => string | null): Agent[] | null {
+  io.stderr(AGENT_QUESTION);
+  for (let attempt = 1; ; attempt++) {
+    const answer = ask("Choose 1-4 or a name (claude, codex, both, none): ");
+    if (answer === null) return null;
+    const key = answer.trim().toLowerCase();
+    if (Object.hasOwn(AGENT_CHOICES, key)) return [...AGENT_CHOICES[key]];
+    if (attempt === MAX_ANSWERS) throw new UsageError(`No agent chosen after ${MAX_ANSWERS} answers; nothing was written. Pass --agent claude, --agent codex or --agent none.`);
+    // What was typed is shown escaped: a stray control sequence does not reach the terminal.
+    io.stderr(key === "" ? "There is no default; type one of the choices.\n" : `${JSON.stringify(answer.trim().slice(0, 40))} is not one of the choices.\n`);
+  }
 }
 
 /** 2 when the configuration or environment is unusable, 1 for any other error, 0 otherwise. */

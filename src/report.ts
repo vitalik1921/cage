@@ -38,15 +38,18 @@ export function formatCheckReport(report: CheckReport): string {
       if (counts.implementations === null || counts.testDeclarations === null || counts.linkedInvariants === null) {
         facts.push("implementations and tests not checked");
       } else {
-        // A link is a tag. What it proves is what the review says, so the two are never one number.
-        const reviewed = counts.reviewedInvariants === null || counts.weakInvariants === null ? "" : ` (${counts.reviewedInvariants} confirmed by review, ${counts.weakInvariants} found weak, ${counts.invariants - counts.reviewedInvariants - counts.weakInvariants} unreviewed)`;
+        facts.push(plural(counts.implementations, "implementation"));
+        // Four different things, never one number: a link is a tag; active is what the test's text shows; whether the
+        // test passes is the runner's to say; what a test proves is the review's attestation.
         // Invariants behind a rejected tag are not "missing a test" yet; saying so keeps a half-fixed file from looking nearly done.
         const unchecked = counts.uncheckedInvariants ? `, ${counts.uncheckedInvariants} not checked while a rejected tag names their contract` : "";
-        facts.push(
-          plural(counts.implementations, "implementation"),
-          plural(counts.testDeclarations, "test declaration"),
-          `${counts.linkedInvariants} of ${plural(counts.invariants, "invariant")} linked to a test declaration${reviewed}${unchecked}`,
-        );
+        const tests = `tests: ${plural(counts.testDeclarations, "declaration")} (${counts.activeTestDeclarations} active), ${counts.linkedInvariants} of ${plural(counts.invariants, "invariant")} linked, ${counts.activeInvariants} to an active test${unchecked}, not run by cage`;
+        const reviews =
+          counts.reviewedInvariants === null || counts.weakInvariants === null
+            ? "reviews: not checked"
+            : `reviews: ${counts.reviewedInvariants} attested adequate, ${counts.weakInvariants} found weak, ${counts.invariants - counts.reviewedInvariants - counts.weakInvariants} unreviewed${counts.weakContracts ? `, ${plural(counts.weakContracts, "contract")} found weak as a whole` : ""}`;
+        lines.push(`check: ${facts.join(", ")}; ${tests}; ${reviews}; ${plural(errors, "error")}, ${plural(warnings, "warning")}. ${compiler}.${scope.lockBase === null ? "" : ` Locks compared with ${scope.lockBase}.`}`);
+        return `${lines.join("\n")}\n`;
       }
     }
   }

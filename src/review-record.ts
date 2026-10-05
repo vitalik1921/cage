@@ -5,7 +5,7 @@ import { checkImplementationPhase, type ImplementationPhaseOptions, type Impleme
 import { toProjectPath } from "./location.ts";
 import { isText, parseRecordText, readRecordFile, writeRecordFile } from "./record-file.ts";
 import { formatDiagnostic, plural } from "./report.ts";
-import { collectMaterial, createFileReader, externalUses, fingerprintOf } from "./review-material.ts";
+import { collectMaterial, createFileReader, externalUses, fingerprintOf, type Material } from "./review-material.ts";
 
 /** Relative to the project root. */
 export const REVIEW_FILE = ".cage/review.json";
@@ -38,10 +38,14 @@ export const VERDICTS_SCHEMA = {
               properties: {
                 invariant: { type: ["string", "null"] },
                 assessment: { enum: [...ASSESSMENTS] },
-                reason: { type: "string" },
-                evidence: { type: ["string", "null"] },
+                // Not blank: every finding says why, and on what.
+                reason: { type: "string", pattern: "\\S" },
+                evidence: { type: ["string", "null"], pattern: "\\S" },
                 suggestedChange: { type: ["string", "null"] },
               },
+              // Evidence is null only for insufficient-context.
+              if: { properties: { assessment: { not: { const: "insufficient-context" } } } },
+              then: { properties: { evidence: { type: "string" } } },
             },
           },
         },
@@ -100,11 +104,53 @@ const keyOf = ({ module, contract }: Pick<ReviewEntry, "module" | "contract">) =
 /** A part of the material, for a message: `the contract`, `implementation Name (file)`, `test "title" (file)`. */
 function describePart(key: string): string {
   if (key === "contract") return "the contract declaration";
+  const design = /^design (.+)$/.exec(key);
+  if (design) return `the prose of ${design[1]}`;
+  const dependency = /^dependency (.+)$/.exec(key);
+  if (dependency) return `dependency ${dependency[1]}`;
   const implementation = /^implementation (.+)#([^#]+)$/.exec(key);
   if (implementation) return `implementation ${implementation[2]} (${implementation[1]})`;
   const test = /^test ([^:]+):(.*)$/.exec(key);
   if (test) return `test "${test[2]}" (${test[1]})`;
   return key;
+}
+
+/**
+ * What the bounds of the review scope left out of a contract's fingerprint, and what could not be read:
+ * a change there would not make the review outdated, so it is said, never left silent. The level is the
+ * review level's: under "require" a fingerprint with holes is an error.
+ */
+export function scopeDiagnostics(material: Material, level: "warn" | "require"): Diagnostic[] {
+  // A dependency that cannot be read is a hole of unknown size: the material cannot be established.
+  const diagnostics: Diagnostic[] = material.unreadable.map(({ file, message }) => ({ code: "E_ENVIRONMENT", severity: "error" as const, message: `Cannot read a dependency of the review of "${material.contract.name}": ${message}`, file, contract: material.contract.name }));
+  const listed = (entries: Material["beyond"], why: (entry: Material["beyond"][number]) => string) => {
+    const shown = entries.slice(0, 5).map((entry) => `${entry.file} (${why(entry)})`);
+    return `${shown.join(", ")}${entries.length > shown.length ? ` and ${entries.length - shown.length} more` : ""}`;
+  };
+  const limit = (message: string): Diagnostic => ({
+    code: `${level === "require" ? "E" : "W"}_REVIEW_SCOPE_LIMIT`,
+    severity: level === "require" ? "error" : "warning",
+    message,
+    ...material.contract.location,
+    contract: material.contract.name,
+  });
+  const bounded = material.beyond.filter(({ why }) => why !== "outside");
+  if (bounded.length > 0) {
+    diagnostics.push(
+      limit(
+        `The fingerprint of the review of contract "${material.contract.name}" stops at the bounds of \`reviewDependencies\` (${material.dependencies.length} dependency files fingerprinted): a change in ${listed(bounded, ({ why }) => (why === "depth" ? "past the depth" : "past the file limit"))} would not make the review outdated. Raise "depth" or "maxFiles", or list files the contract does not depend on in "exclude", in .cage/config.json.`,
+      ),
+    );
+  }
+  const outside = material.beyond.filter(({ why }) => why === "outside");
+  if (outside.length > 0) {
+    diagnostics.push(
+      limit(
+        `The fingerprint of the review of contract "${material.contract.name}" leaves out what lies outside the project: a change in ${listed(outside, () => "a link out of the project")} would not make the review outdated. cage does not read files outside the project; move the file into it, or list it in "exclude" of \`reviewDependencies\` if the contract does not depend on it.`,
+      ),
+    );
+  }
+  return diagnostics;
 }
 
 /** What is recorded about a contract, as `check` sees it: a fresh verdict with its findings, or none. */
@@ -153,6 +199,7 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
       continue;
     }
     const material = collectMaterial(result, contract.name, read);
+    diagnostics.push(...scopeDiagnostics(material, level));
     const { fingerprint, digests } = fingerprintOf(material.parts);
     if (fingerprint !== entry.fingerprint) {
       const changed = Object.keys(digests).filter((key) => entry.material[key] !== digests[key]);
@@ -206,8 +253,11 @@ export interface RecordReport {
   command: "review";
   ok: boolean;
   file: string;
-  /** `assessments` count the findings about invariants; `notes` are the contract-level findings, first sentence each. */
-  recorded: { module: string; contract: string; fingerprint: string; assessments: Record<Assessment, number>; notes: string[] }[];
+  /**
+   * `assessments` count the findings about invariants, `contractAssessments` those about the contract as a whole;
+   * `notes` are the contract-level findings, first sentence each, led by the assessment when it is not adequate.
+   */
+  recorded: { module: string; contract: string; fingerprint: string; assessments: Record<Assessment, number>; contractAssessments: Record<Assessment, number>; notes: string[] }[];
   /** Entries of contracts that no longer exist, taken out of the file. */
   removed: { module: string; contract: string }[];
   diagnostics: Diagnostic[];
@@ -287,7 +337,13 @@ export function recordVerdicts(options: ImplementationPhaseOptions, verdictsFile
       problem(`There is more than one verdict for "${contract.name}"; one contract gets one verdict.`);
       continue;
     }
-    const { fingerprint, digests } = fingerprintOf(collectMaterial(result, contract.name, read).parts);
+    const material = collectMaterial(result, contract.name, read);
+    // A fingerprint with a dependency that could not be read is not the material: nothing is recorded against it.
+    if (material.unreadable.length > 0) {
+      diagnostics.push(...scopeDiagnostics(material, "warn").filter((diagnostic) => diagnostic.code === "E_ENVIRONMENT").map((diagnostic) => ({ ...diagnostic, message: `${diagnostic.message}. The verdict cannot be recorded against material that is not all there.` })));
+      continue;
+    }
+    const { fingerprint, digests } = fingerprintOf(material.parts);
     if (verdict.fingerprint !== fingerprint) {
       problem(`The verdict for "${contract.name}" is for fingerprint ${verdict.fingerprint}, but the material is now ${fingerprint}: it changed since the review. Review it again.`);
       continue;
@@ -298,15 +354,23 @@ export function recordVerdicts(options: ImplementationPhaseOptions, verdictsFile
     if (unknown.length > 0) problem(`The verdict for "${contract.name}" assesses invariants it does not have: ${unknown.map((id) => `\`${id}\``).join(", ")}.`);
     if (unassessed.length > 0) problem(`The verdict for "${contract.name}" leaves invariants unassessed: ${unassessed.map((id) => `\`${id}\``).join(", ")}.`);
     if (invariants.length === 0 && verdict.findings.length === 0) problem(`The verdict for "${contract.name}" has no finding; a contract without invariants gets one about the contract as a whole.`);
-    if (unknown.length > 0 || unassessed.length > 0 || (invariants.length === 0 && verdict.findings.length === 0)) continue;
+    // A finding says why, and on what: a file and line, except one that says the context was not enough.
+    const blank = (text: string | null) => text === null || text.trim() === "";
+    const about = (finding: Finding) => (finding.invariant === null ? "the contract as a whole" : `\`${finding.invariant}\``);
+    const named = (findings: Finding[]) => [...new Set(findings.map(about))].join(", ");
+    const unreasoned = verdict.findings.filter((finding) => blank(finding.reason));
+    const unevidenced = verdict.findings.filter((finding) => (finding.assessment === "insufficient-context" ? finding.evidence !== null && blank(finding.evidence) : blank(finding.evidence)));
+    if (unreasoned.length > 0) problem(`The verdict for "${contract.name}" has findings without a reason: ${named(unreasoned)}. Every finding says why.`);
+    if (unevidenced.length > 0) {
+      problem(`The verdict for "${contract.name}" has findings without evidence: ${named(unevidenced)}. Every finding names the file and line it rests on; only an insufficient-context one may have null instead.`);
+    }
+    if (unknown.length > 0 || unassessed.length > 0 || (invariants.length === 0 && verdict.findings.length === 0) || unreasoned.length > 0 || unevidenced.length > 0) continue;
 
     const entry: ReviewEntry = { module: contract.module, contract: contract.name, fingerprint, material: digests, findings: verdict.findings };
     entries.set(keyOf(entry), entry);
-    // A contract-level finding is an observation, not an assessment of an invariant: it is not an "adequate" in the count.
-    const about = verdict.findings.filter((finding) => finding.invariant !== null);
-    const assessments = Object.fromEntries(ASSESSMENTS.map((assessment) => [assessment, about.filter((finding) => finding.assessment === assessment).length])) as Record<Assessment, number>;
-    const notes = verdict.findings.filter((finding) => finding.invariant === null).map((finding) => firstSentence(finding.reason));
-    recorded.push({ module: contract.module, contract: contract.name, fingerprint, assessments, notes });
+    // A contract-level finding is not an assessment of an invariant: it is counted apart, and `check` reports one that is not adequate.
+    const { assessments, contractAssessments } = countAssessments(verdict.findings);
+    recorded.push({ module: contract.module, contract: contract.name, fingerprint, assessments, contractAssessments, notes: notesOf(verdict.findings) });
   }
   if (hasErrors(diagnostics)) return report([]);
   for (const [key, entry] of entries) {
@@ -324,6 +388,23 @@ export function recordVerdicts(options: ImplementationPhaseOptions, verdictsFile
   return report(recorded);
 }
 
+/** The assessments of a verdict, counted over the invariants and over the contract as a whole apart. */
+export function countAssessments(findings: readonly Finding[]): { assessments: Record<Assessment, number>; contractAssessments: Record<Assessment, number> } {
+  const count = (about: readonly Finding[]) => Object.fromEntries(ASSESSMENTS.map((assessment) => [assessment, about.filter((finding) => finding.assessment === assessment).length])) as Record<Assessment, number>;
+  return { assessments: count(findings.filter((finding) => finding.invariant !== null)), contractAssessments: count(findings.filter((finding) => finding.invariant === null)) };
+}
+
+/** Whether any count is of an assessment other than adequate. */
+export const findsFault = (counts: Record<Assessment, number>) => ASSESSMENTS.some((assessment) => assessment !== "adequate" && counts[assessment] > 0);
+
+/**
+ * The contract-level findings as notes, first sentence each. An adequate one is an observation; one that is not
+ * says so first, since `check` reports it as a finding against the contract as a whole.
+ */
+export function notesOf(findings: readonly Finding[]): string[] {
+  return findings.filter((finding) => finding.invariant === null).map((finding) => `${finding.assessment === "adequate" ? "" : `${finding.assessment}: `}${firstSentence(finding.reason)}`);
+}
+
 /** The first sentence of a reason: what `check` and `--record` print of it. */
 export function firstSentence(text: string): string {
   return /^.*?[.!?](?=\s|$)/s.exec(text)?.[0] ?? text;
@@ -331,14 +412,18 @@ export function firstSentence(text: string): string {
 
 export function formatRecordReport(report: RecordReport): string {
   const lines = report.recorded.flatMap((entry) => {
-    const counts = ASSESSMENTS.filter((assessment) => entry.assessments[assessment] > 0).map((assessment) => `${entry.assessments[assessment]} ${assessment}`);
+    const listed = (counts: Record<Assessment, number>) => ASSESSMENTS.filter((assessment) => counts[assessment] > 0).map((assessment) => `${counts[assessment]} ${assessment}`).join(", ");
+    const counts = listed(entry.assessments);
+    const whole = findsFault(entry.contractAssessments) ? `; the contract as a whole: ${listed(entry.contractAssessments)}` : "";
     const notes = entry.notes.length === 0 ? "" : `; ${plural(entry.notes.length, "note")}`;
-    return [`recorded  ${entry.contract} (${counts.length === 0 ? "no invariants" : counts.join(", ")}${notes})`, ...entry.notes.map((note) => `          note: ${note}`)];
+    // ✓ when every finding, about an invariant or the contract as a whole, is adequate; ! when the verdict found something. Either way it is what the reviewer said.
+    const mark = findsFault(entry.assessments) || findsFault(entry.contractAssessments) ? "!" : "✓";
+    return [`${mark} recorded  ${entry.contract} (${counts === "" ? "no invariants" : counts}${whole}${notes})`, ...entry.notes.map((note) => `            note: ${note}`)];
   });
-  lines.push(...report.removed.map((entry) => `removed   ${entry.contract} (no longer in ${entry.module})`));
+  lines.push(...report.removed.map((entry) => `- removed   ${entry.contract} (no longer in ${entry.module})`));
   lines.push(...report.diagnostics.map(formatDiagnostic));
   const errors = report.diagnostics.filter((diagnostic) => diagnostic.severity === "error").length;
   const removed = report.removed.length > 0 ? `, ${report.removed.length} removed` : "";
-  lines.push(errors > 0 ? `review --record: ${plural(errors, "error")}, nothing recorded.` : `review --record: ${report.recorded.length} recorded${removed} in ${report.file}.`);
+  lines.push(errors > 0 ? `review --record: ${plural(errors, "error")}, nothing recorded.` : `review --record: ${report.recorded.length} recorded${removed} in ${report.file}; a reviewer's assessment, not a test run.`);
   return `${lines.join("\n")}\n`;
 }

@@ -153,12 +153,13 @@ export const at = (root: string, module: string, needle: string, offset = 0) => 
 export function checkLinking(
   root: string,
   testAdapter: Config["testAdapter"] = defaultConfig.testAdapter,
-): Omit<ImplementationPhaseResult, "linking"> & { linking: NonNullable<ImplementationPhaseResult["linking"]>; errors: Diagnostic[] } {
+): Omit<ImplementationPhaseResult, "linking"> & { linking: NonNullable<ImplementationPhaseResult["linking"]>; errors: Diagnostic[]; warnings: Diagnostic[] } {
   const scope = { root, tsconfig: defaultConfig.tsconfig, designs: discoverDesigns(root, defaultConfig) };
   const result = checkImplementationPhase({ ...scope, sources: discoverSources(root, defaultConfig), testAdapter });
   return {
     ...result,
     errors: result.diagnostics.filter(isError),
+    warnings: result.diagnostics.filter((diagnostic) => diagnostic.severity === "warning"),
     get linking() {
       assert.ok(result.linking, "the implementation phase stopped at the designs");
       return result.linking;
@@ -184,3 +185,45 @@ export function cliWithStdin(root: string, stdin: string | undefined, ...args: s
   const code = runCli(args, { cwd: root, stdin, stdout: (text) => (stdout += text), stderr: (text) => (stderr += text) });
   return { code, stdout, stderr };
 }
+
+/** The part of Vitest's type definitions that the adapter looks at: what is exported, and what the globals are. */
+export const VITEST: Record<string, string> = {
+  "node_modules/vitest/package.json": JSON.stringify({
+    name: "vitest",
+    version: "4.0.0",
+    type: "module",
+    exports: { ".": { types: "./index.d.ts" }, "./globals": { types: "./globals.d.ts" } },
+  }),
+  "node_modules/vitest/index.d.ts": [
+    "type Declare = (title: unknown, ...rest: unknown[]) => void;",
+    "type Chain = Declare & { [modifier in 'skip' | 'only' | 'todo' | 'concurrent' | 'sequential' | 'fails' | 'shuffle']: Chain } & {",
+    "  each: (cases: readonly unknown[]) => Declare;",
+    "  skipIf: (condition: unknown) => Chain;",
+    "};",
+    "export declare const describe: Chain;",
+    "export declare const suite: Chain;",
+    "export declare const it: Chain;",
+    "export declare const test: Chain;",
+    "export declare const expect: (value: unknown) => { toBe(expected: unknown): void };",
+    "export declare const beforeAll: (fn: () => unknown) => void;",
+    "export declare const afterAll: (fn: () => unknown) => void;",
+    "export declare const beforeEach: (fn: () => unknown) => void;",
+    "export declare const afterEach: (fn: () => unknown) => void;",
+    "",
+  ].join("\n"),
+  "node_modules/vitest/globals.d.ts": [
+    "declare global {",
+    "  let suite: typeof import('vitest')['suite']",
+    "  let test: typeof import('vitest')['test']",
+    "  let describe: typeof import('vitest')['describe']",
+    "  let it: typeof import('vitest')['it']",
+    "  let expect: typeof import('vitest')['expect']",
+    "  let beforeAll: typeof import('vitest')['beforeAll']",
+    "  let afterAll: typeof import('vitest')['afterAll']",
+    "  let beforeEach: typeof import('vitest')['beforeEach']",
+    "  let afterEach: typeof import('vitest')['afterEach']",
+    "}",
+    "export {}",
+    "",
+  ].join("\n"),
+};

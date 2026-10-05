@@ -2,7 +2,7 @@ import path from "node:path";
 import { checkDesignPhase } from "./design-phase.ts";
 import type { Edge, LockLevel, SourceLocation } from "./design-model.ts";
 import { compareDiagnostics, hasErrors, type Diagnostic } from "./diagnostic.ts";
-import { checkImplementationPhase, testsLinkedTo, type ImplementationPhaseOptions, type ImplementationPhaseResult } from "./implementation-phase.ts";
+import { DEFAULT_REVIEW_SCOPE, checkImplementationPhase, testsLinkedTo, type ImplementationPhaseOptions, type ImplementationPhaseResult } from "./implementation-phase.ts";
 import { toProjectPath } from "./location.ts";
 import { compareLocks, compareWithBase, readBaseLocks, readLockFile } from "./locks.ts";
 import { checkReviews, type ReviewStatus } from "./review-record.ts";
@@ -34,19 +34,27 @@ export interface CheckReport {
     invariants: number | null;
     implementations: number | null;
     testDeclarations: number | null;
+    /** Declarations that, as their text shows, would run: not skipped or todo (themselves or by a suite), not empty. */
+    activeTestDeclarations: number | null;
     linkedInvariants: number | null;
+    /** Invariants with at least one active linked declaration. */
+    activeInvariants: number | null;
+    /** Always null: cage reads tests and never runs them; whether they pass is the test runner's to say. */
+    executedTests: null;
     /** Invariants not checked for a test because a rejected tag names their contract. */
     uncheckedInvariants: number | null;
     /** Invariants whose contract has a fresh recorded review that finds them adequate. Null when reviews are not checked. */
     reviewedInvariants: number | null;
     /** Invariants a fresh review finds weak, unrelated or lacking context. */
     weakInvariants: number | null;
+    /** Contracts whose fresh review has a finding about the contract as a whole that is not adequate. */
+    weakContracts: number | null;
   };
   /**
    * `review`: what a fresh recorded review says about the invariant — `adequate`, `weak`, `unrelated`, `insufficient-context` —
    * or null when there is no fresh review of its contract (or reviews are not checked).
    */
-  invariants: { contract: string; id: string; member: string | null; linkedTestCount: number | null; review: string | null }[] | null;
+  invariants: { contract: string; id: string; member: string | null; linkedTestCount: number | null; activeTestCount: number | null; review: string | null }[] | null;
   /**
    * What the designs declare, for a tool or an agent that needs the index
    * rather than the documents: contracts with their members, locks and
@@ -81,7 +89,7 @@ export interface CheckOptions {
 export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lockBase, review = "off" }: CheckOptions = {}): CheckReport {
   const root = path.resolve(options.root);
   const design = phase === "design" ? checkDesignPhase(options) : undefined;
-  const result: ImplementationPhaseResult = design ? { ...design, designSound: !hasErrors(design.diagnostics), linking: null } : checkImplementationPhase(options);
+  const result: ImplementationPhaseResult = design ? { ...design, root, reviewScope: options.reviewScope ?? DEFAULT_REVIEW_SCOPE, designSound: !hasErrors(design.diagnostics), linking: null } : checkImplementationPhase(options);
   const { index, linking, typescript, compiler, diagnostics } = result;
   // Locks are compared with designs that are sound: a rejected declaration would look like a lock that was lifted.
   const designsAreSound = index !== null && result.designSound;
@@ -115,7 +123,9 @@ export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lo
     const about = findings.filter((finding) => finding.invariant === id).map((finding) => finding.assessment);
     return about.find((assessment) => assessment !== "adequate") ?? about[0] ?? null;
   };
-  const invariants = index?.invariants.map(({ contract, id, member }) => ({ contract, id, member, linkedTestCount: linkedTestCount(contract, id), review: reviewOf(contract, id) })) ?? null;
+  const activeTestCount = (contract: string, id: string) => (linking ? testsLinkedTo(linking.tests, contract, id).filter((test) => test.status === "active").length : null);
+  const invariants = index?.invariants.map(({ contract, id, member }) => ({ contract, id, member, linkedTestCount: linkedTestCount(contract, id), activeTestCount: activeTestCount(contract, id), review: reviewOf(contract, id) })) ?? null;
+  const declarationKey = (test: { location: { file: string; line: number; column: number } }) => `${test.location.file}:${test.location.line}:${test.location.column}`;
   return {
     schemaVersion: 1,
     command: "check",
@@ -134,12 +144,16 @@ export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lo
       invariants: index?.invariants.length ?? null,
       implementations: linking?.implementations.length ?? null,
       // One `it` tagged for two contracts is one declaration.
-      testDeclarations: linking ? new Set(linking.tests.map((test) => `${test.location.file}:${test.location.line}:${test.location.column}`)).size : null,
+      testDeclarations: linking ? new Set(linking.tests.map(declarationKey)).size : null,
+      activeTestDeclarations: linking ? new Set(linking.tests.filter((test) => test.status === "active").map(declarationKey)).size : null,
       linkedInvariants: linking && invariants ? invariants.filter((invariant) => invariant.linkedTestCount !== 0).length : null,
+      activeInvariants: linking && invariants ? invariants.filter((invariant) => invariant.activeTestCount !== 0).length : null,
+      executedTests: null,
       uncheckedInvariants: linking?.uncheckedInvariants ?? null,
       // A linked test is a tag; whether it proves anything is what the review says. Null when reviews are not checked.
       reviewedInvariants: reviewStatus && invariants ? invariants.filter((invariant) => invariant.review === "adequate").length : null,
       weakInvariants: reviewStatus && invariants ? invariants.filter((invariant) => invariant.review !== null && invariant.review !== "adequate").length : null,
+      weakContracts: reviewStatus ? [...reviewStatus.values()].filter(({ findings }) => findings?.some((finding) => finding.invariant === null && finding.assessment !== "adequate")).length : null,
     },
     invariants,
     index: index

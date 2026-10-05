@@ -21,12 +21,12 @@ const COMPLETE = lines(
   "/** @tests Quota */",
   'describe("Quota", () => {',
   "  /** @covers empty consume race */",
-  '  it("all", () => {});',
+  '  it("all", () => { return; });',
   "});",
   "/** @tests Sender */",
   'describe("Sender", () => {',
   "  /** @covers once */",
-  '  it("once", () => {});',
+  '  it("once", () => { return; });',
   "});",
 );
 
@@ -60,23 +60,23 @@ test("declarations are recognised by their import from node:test, under any loca
       "/** @tests Quota */",
       'group("aliases", () => {',
       "  /** @covers empty */",
-      '  check("named alias", () => {});',
+      '  check("named alias", () => { return; });',
       "  /** @covers consume */",
-      '  test("default import", () => {});',
+      '  test("default import", () => { return; });',
       "  /** @covers race */",
-      '  runner.it("namespace", () => {});',
+      '  runner.it("namespace", () => { return; });',
       "});",
       "",
       "/** @tests Sender */",
       'suite("suite", () => {',
       "  /** @covers once */",
-      "  runner.test(`template title`, () => {});",
+      "  runner.test(`template title`, () => { return; });",
       "});",
       "",
       "/** @tests Sender */",
       'runner.describe("namespace suite", () => {',
       "  /** @covers once */",
-      '  test.it("member of the default export", () => {});',
+      '  test.it("member of the default export", () => { return; });',
       "});",
     ),
   );
@@ -101,14 +101,14 @@ test("a function that is merely named like a test function declares nothing", (t
       "",
       "/** @tests Quota */",
       'describe("local it", () => {',
-      '  it("not a test", () => {});',
-      '  vitestIt("another runner", () => {});',
+      '  it("not a test", () => { return; });',
+      '  vitestIt("another runner", () => { return; });',
       "});",
       "",
       "function register(describe: (title: string, run: () => void) => void): void {",
-      '  describe("a parameter", () => {});',
+      '  describe("a parameter", () => { return; });',
       "}",
-      "register(() => {});",
+      "register(() => { return; });",
     ),
   });
   assert.deepEqual(checkLinking(root).errors, []);
@@ -125,22 +125,22 @@ test("nested suites inherit the contract; a nested @tests replaces it for its ow
       'describe("outer", () => {',
       '  describe("inherits", () => {',
       "    /** @covers empty */",
-      '    it("a", () => {});',
+      '    it("a", () => { return; });',
       "",
       "    /** @tests Sender */",
       '    describe("replaces", () => {',
       "      /** @covers once */",
-      '      it("b", () => {});',
+      '      it("b", () => { return; });',
       "    });",
       "",
       "    /** @covers consume, race */",
-      '    it("c", () => {});',
+      '    it("c", () => { return; });',
       "  });",
-      '  it("in context, without @covers", () => {});',
+      '  it("in context, without @covers", () => { return; });',
       "});",
       "",
       'describe("no contract", () => {',
-      '  it("an ordinary test", () => {});',
+      '  it("an ordinary test", () => { return; });',
       "});",
     ),
   );
@@ -167,14 +167,14 @@ test("a test may cover several invariants, and an invariant may have several tes
       "   * @covers empty consume",
       "   * @covers consume, race empty",
       "   */",
-      '  it("many", () => {});',
+      '  it("many", () => { return; });',
       "  /** @covers empty */",
-      '  it("again", () => {});',
+      '  it("again", () => { return; });',
       "});",
       "/** @tests Sender */",
       'describe("Sender", () => {',
       "  /** @covers once */",
-      '  it("once", () => {});',
+      '  it("once", () => { return; });',
       "});",
     ),
   );
@@ -182,7 +182,7 @@ test("a test may cover several invariants, and an invariant may have several tes
   assert.deepEqual(links(root), ["Quota > many [Quota: empty consume race]", "Quota > again [Quota: empty]", "Sender > once [Sender: once]"]);
 });
 
-test("a declaration counts whether or not the test would run: skip, todo, only, options, empty bodies", (t) => {
+test("a declaration is linked whether or not it would run; an invariant linked only to tests that cannot run is an error", (t) => {
   const root = project(
     t,
     lines(
@@ -209,13 +209,117 @@ test("a declaration counts whether or not the test would run: skip, todo, only, 
       "});",
     ),
   );
-  assert.deepEqual(checkLinking(root).errors, []);
+  // Still declarations, still linked: the tags are where they belong.
   assert.deepEqual(links(root), [
     "skipped suite > skipped [Quota: empty]",
     "skipped suite > no callback at all [Quota: consume]",
     "skipped suite > options [Quota: race]",
     "focused > asserts nothing [Sender: once]",
   ]);
+  assert.deepEqual(
+    checkLinking(root).linking.tests.map(({ title, status, inactiveBecause }) => ({ title, status, inactiveBecause })),
+    [
+      // The suite disables what it holds, whatever their own modifiers say: the outermost reason counts.
+      { title: "skipped", status: "skipped", inactiveBecause: 'skipped by `.skip` on its suite "skipped suite"' },
+      { title: "no callback at all", status: "skipped", inactiveBecause: 'skipped by `.skip` on its suite "skipped suite"' },
+      { title: "options", status: "skipped", inactiveBecause: 'skipped by `.skip` on its suite "skipped suite"' },
+      // `only` and options that do not disable leave a test active; that it asserts something trivial is the review's to judge.
+      { title: "asserts nothing", status: "active", inactiveBecause: undefined },
+    ],
+  );
+  const { errors, warnings } = checkLinking(root);
+  assert.deepEqual(errors.map(({ code, invariant }) => ({ code, invariant })), ["empty", "consume", "race"].map((invariant) => ({ code: "E_TEST_INACTIVE", invariant })));
+  assert.match(errors[0].message, /^Invariant Quota: empty is linked only to tests that cannot run an assertion: "skipped suite > skipped" \(src\/m\/contracts\.test\.ts:8, skipped by `\.skip` on its suite "skipped suite"\)\. Enable one, or give it a body\. Cage reads tests and does not run them/);
+  assert.deepEqual(warnings.filter(({ code }) => code === "W_TEST_INACTIVE"), []);
+});
+
+test("skip and todo by modifier or option, an empty body and a missing callback make a test inactive; a run-time option does not", (t) => {
+  const root = project(
+    t,
+    lines(
+      'import assert from "node:assert/strict";',
+      'import { describe, it } from "node:test";',
+      "const flaky = process.env.FLAKY === '1';",
+      "const named = () => assert.ok(true);",
+      "",
+      "/** @tests Quota */",
+      'describe("Quota", () => {',
+      "  /** @covers empty */",
+      '  it("skip option with a reason", { skip: "not on CI" }, () => { assert.ok(true); });',
+      "  /** @covers empty */",
+      '  it("todo option", { todo: true }, () => { assert.ok(true); });',
+      "  /** @covers consume */",
+      '  it("empty body", () => {});',
+      "  /** @covers consume */",
+      '  it("no callback");',
+      "  /** @covers race */",
+      '  it("skip decided at run time", { skip: flaky }, () => { assert.ok(true); });',
+      "  /** @covers race */",
+      '  it("skip turned off", { skip: false }, named);',
+      "});",
+      COMPLETE.split("\n").slice(6).join("\n"),
+    ),
+  );
+  const statuses = checkLinking(root).linking.tests.filter((test) => test.contract === "Quota").map(({ title, status }) => `${title}: ${status}`);
+  assert.deepEqual(statuses, [
+    "skip option with a reason: skipped",
+    "todo option: todo",
+    "empty body: empty",
+    "no callback: empty",
+    "skip decided at run time: active",
+    "skip turned off: active",
+  ]);
+  const { errors } = checkLinking(root);
+  assert.deepEqual(errors.map(({ code, invariant, message }) => ({ code, invariant, why: /\(([^)]*)\)\.[^"]*$/.exec(message.split("; ").at(-1) ?? "")?.[1] })), [
+    { code: "E_TEST_INACTIVE", invariant: "empty", why: "src/m/contracts.test.ts:11, todo by the `todo` option" },
+    { code: "E_TEST_INACTIVE", invariant: "consume", why: "src/m/contracts.test.ts:15, has no callback" },
+  ]);
+});
+
+test("beside an active test, an inactive one is a warning at the test, and the invariant stays linked", (t) => {
+  const root = project(
+    t,
+    lines(
+      'import assert from "node:assert/strict";',
+      'import { describe, it } from "node:test";',
+      "/** @tests Quota */",
+      'describe("Quota", () => {',
+      "  /** @covers empty consume race */",
+      '  it("active", () => { assert.ok(true); });',
+      "  /** @covers empty */",
+      '  it.skip("skipped too", () => { assert.ok(true); });',
+      "  /** @tests Sender",
+      "   * @covers once */",
+      '  it("empty for Sender", () => {});',
+      "  /** @tests Sender",
+      "   * @covers once */",
+      '  it("active for Sender", () => { assert.ok(true); });',
+      "});",
+      "/** @tests Quota */",
+      'describe.todo("later", () => {',
+      "  /** @covers race */",
+      '  it("planned", () => { assert.ok(true); });',
+      "});",
+    ),
+  );
+  const { errors, warnings } = checkLinking(root);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(
+    warnings.map(({ code, line, message }) => ({ code, line, message })),
+    [
+      { code: "W_TEST_INACTIVE", line: 8, message: 'Test "Quota > skipped too" (src/m/contracts.test.ts:8, skipped by `.skip`) is linked to Quota: empty but cannot run an assertion; that invariant relies on its other, active tests.' },
+      { code: "W_TEST_INACTIVE", line: 11, message: 'Test "Quota > empty for Sender" (src/m/contracts.test.ts:11, has an empty body) is linked to Sender: once but cannot run an assertion; that invariant relies on its other, active tests.' },
+      { code: "W_TEST_INACTIVE", line: 19, message: 'Test "later > planned" (src/m/contracts.test.ts:19, todo by `.todo` on its suite "later") is linked to Quota: race but cannot run an assertion; that invariant relies on its other, active tests.' },
+    ],
+  );
+  // The counts tell linked from active.
+  const report = JSON.parse(cli(root, "check", "--format", "json").stdout);
+  assert.equal(report.counts.testDeclarations, 5);
+  assert.equal(report.counts.activeTestDeclarations, 2);
+  assert.equal(report.counts.linkedInvariants, 4);
+  assert.equal(report.counts.activeInvariants, 4);
+  assert.equal(report.counts.executedTests, null);
+  assert.deepEqual(report.invariants.map(({ id, linkedTestCount, activeTestCount }: { id: string; linkedTestCount: number; activeTestCount: number }) => `${id}: ${activeTestCount}/${linkedTestCount}`), ["empty: 1/2", "consume: 1/1", "race: 1/2", "once: 1/2"]);
 });
 
 test("a declaration in a block or a loop is one declaration", (t) => {
@@ -227,7 +331,7 @@ test("a declaration in a block or a loop is one declaration", (t) => {
       'describe("Quota", () => {',
       "  if (process.env.CI) {",
       "    /** @covers empty */",
-      '    it("conditional", () => {});',
+      '    it("conditional", () => { return; });',
       "  }",
       "  for (const round of [1, 2, 3]) {",
       "    /** @covers consume race */",
@@ -237,7 +341,7 @@ test("a declaration in a block or a loop is one declaration", (t) => {
       "/** @tests Sender */",
       'describe("Sender", () => {',
       "  /** @covers once */",
-      '  it("once", () => {});',
+      '  it("once", () => { return; });',
       "});",
     ),
   );
@@ -255,7 +359,7 @@ test("tests may live in another module or in the tests directory", (t) => {
 test("an invariant without a test declaration is an error of the implementation phase", (t) => {
   const root = project(
     t,
-    lines('import { describe, it } from "node:test";', "/** @tests Quota */", 'describe("Quota", () => {', "  /** @covers empty */", '  it("empty", () => {});', "});"),
+    lines('import { describe, it } from "node:test";', "/** @tests Quota */", 'describe("Quota", () => {', "  /** @covers empty */", '  it("empty", () => { return; });', "});"),
   );
   const { diagnostics } = checkLinking(root);
   assert.deepEqual(
@@ -274,14 +378,14 @@ test("@tests and @covers must name what exists; an unknown contract is reported 
       "/** @tests Quot */",
       'describe("typo in the contract", () => {',
       "  /** @covers empty consume */",
-      '  it("a", () => {});',
+      '  it("a", () => { return; });',
       "  /** @covers race */",
-      '  it("b", () => {});',
+      '  it("b", () => { return; });',
       "});",
       "/** @tests Quota */",
       'describe("typo in the invariant", () => {',
       "  /** @covers empty emtpy once */",
-      '  it("c", () => {});',
+      '  it("c", () => { return; });',
       "});",
     ),
   });
@@ -313,23 +417,23 @@ test("a test may name its own contract with @tests: outside any suite, or in a s
       " * @tests Sender",
       " * @covers once",
       " */",
-      'it("a lone test", () => {});',
+      'it("a lone test", () => { return; });',
       "",
       'describe("one file, two contracts", () => {',
 "  /**",
       "   * @tests Quota",
       "   * @covers empty consume",
       "   */",
-      '  it("quota", () => {});',
+      '  it("quota", () => { return; });',
       "",
       "  /**",
       "   * @tests Sender",
       "   * @covers once",
       "   */",
-      '  it("sender", () => {});',
+      '  it("sender", () => { return; });',
       "",
       "  /** @covers race */",
-      '  it("still no contract here", () => {});',
+      '  it("still no contract here", () => { return; });',
       "});",
       "",
       "/** @tests Sender */",
@@ -338,13 +442,13 @@ test("a test may name its own contract with @tests: outside any suite, or in a s
       "   * @tests Quota",
       "   * @covers race",
       "   */",
-      '  it("but this test is about Quota", () => {});',
+      '  it("but this test is about Quota", () => { return; });',
       "",
       "  /** @tests Sender */",
-      '  it("about the contract of the suite, covering nothing", () => {});',
+      '  it("about the contract of the suite, covering nothing", () => { return; });',
       "",
       "  /** @covers once */",
-      '  it("the suite still says Sender", () => {});',
+      '  it("the suite still says Sender", () => { return; });',
       "});",
     ),
   );
@@ -365,10 +469,10 @@ test("two tags on one line are one format error that names the tag to move, with
     lines(
       'import { it } from "node:test";',
       "/** @tests Quota @covers empty consume race */",
-      'it("one line", () => {});',
+      'it("one line", () => { return; });',
       "/** @tests Sender",
       " * @covers once */",
-      'it("fine", () => {});',
+      'it("fine", () => { return; });',
     ),
   );
   const { errors } = checkLinking(root);
@@ -384,14 +488,14 @@ test("a test may name several contracts: each @covers id goes to the named contr
       "/** @tests Quota Sender */",
       'describe("through the port", () => {',
       "  /** @covers empty once */",
-      '  it("both", () => {});',
+      '  it("both", () => { return; });',
       "  /** @covers consume */",
-      '  it("only the quota", () => {});',
+      '  it("only the quota", () => { return; });',
       "  /** @covers nobody */",
-      '  it("neither", () => {});',
+      '  it("neither", () => { return; });',
       "  /** @tests Sender",
       "   * @covers empty */",
-      '  it("narrowed to one", () => {});',
+      '  it("narrowed to one", () => { return; });',
       "});",
     ),
   });
@@ -418,7 +522,7 @@ test("an id two named contracts share is ambiguous; the test names one", (t) => 
     {
       "src/a/alpha.ts": "/** @implements Alpha */\nexport class AlphaService {\n  run(): void {}\n}\n",
       "src/b/beta.ts": "/** @implements Beta */\nexport class BetaService {\n  run(): void {}\n}\n",
-      [TEST_FILE]: lines('import { it } from "node:test";', "/** @tests Alpha Beta", " * @covers same */", 'it("which", () => {});'),
+      [TEST_FILE]: lines('import { it } from "node:test";', "/** @tests Alpha Beta", " * @covers same */", 'it("which", () => { return; });'),
     },
   );
   const { errors } = checkLinking(root);
@@ -436,23 +540,23 @@ test("a rejected @tests on a test is one error, whatever its @covers names", (t)
       " * @tests",
       " * @covers empty",
       " */",
-      'it("no name", () => {});',
+      'it("no name", () => { return; });',
       "/**",
       " * @tests Quota",
       " * @tests Sender, the second one",
       " * @covers consume",
       " */",
-      'it("twice", () => {});',
+      'it("twice", () => { return; });',
       "/**",
       " * @tests Nobody",
       " * @covers race",
       " */",
-      'it("unknown", () => {});',
+      'it("unknown", () => { return; });',
       "/**",
       " * @tests Sender",
       " * @covers once",
       " */",
-      'it("fine", () => {});',
+      'it("fine", () => { return; });',
     ),
   );
   const result = checkLinking(root);
@@ -474,7 +578,7 @@ test("tags in the wrong place of a test file are errors", (t) => {
       'import { describe, it, before } from "node:test";',
       "",
       "/** @covers empty */",
-      'it("no suite, so no contract", () => {});',
+      'it("no suite, so no contract", () => { return; });',
       "",
       "/**",
       " * @tests Quota",
@@ -482,7 +586,7 @@ test("tags in the wrong place of a test file are errors", (t) => {
       " */",
       'describe("covers on a suite", () => {',
       "  /** @covers race */",
-      "  before(() => {});",
+      "  before(() => { return; });",
       "",
       "  /** @covers empty consume */",
       "  function helper(): void {}",
@@ -490,12 +594,12 @@ test("tags in the wrong place of a test file are errors", (t) => {
       "",
       '  it("subtests are not declarations", async (t) => {',
       "    /** @covers consume race */",
-      '    await t.test("subtest", () => {});',
+      '    await t.test("subtest", () => { return; });',
       "  });",
       "});",
       "",
       "/** @implements Quota */",
-      'describe("an implementation tag", () => {});',
+      'describe("an implementation tag", () => { return; });',
     ),
   });
   assert.deepEqual(checkLinking(root).errors.map(located), [
@@ -519,7 +623,7 @@ test("annotated declarations in a form that cannot be read statically are reject
       "/** @tests Quota */",
       "describe(`suite ${name}`, () => {",
       "  /** @covers empty */",
-      "  it(name, () => {});",
+      "  it(name, () => { return; });",
       "});",
       "",
       "/** @tests Quota */",
@@ -529,7 +633,7 @@ test("annotated declarations in a form that cannot be read statically are reject
       "  /** @tests Sender */",
       "  describe(title, () => {",
       "    /** @covers once */",
-      '    it("generated", () => {});',
+      '    it("generated", () => { return; });',
       "  });",
       "}",
       'defineSuite("dynamic");',
@@ -538,10 +642,10 @@ test("annotated declarations in a form that cannot be read statically are reject
       " * An awaited call is an expression, not a declaration.",
       " * @tests Quota",
       " */",
-      'await describe("awaited", () => {});',
+      'await describe("awaited", () => { return; });',
       "",
       "/** @tests Quota */",
-      'describe("expression body", () => it("not read", () => {}));',
+      'describe("expression body", () => it("not read", () => { return; }));',
       "",
       "// Without tags, the same forms are none of the harness's business.",
       "describe(`plain ${name}`, body);",
@@ -550,7 +654,7 @@ test("annotated declarations in a form that cannot be read statically are reject
   });
   assert.deepEqual(checkLinking(root).errors.map(located), [
     { code: "E_UNSUPPORTED_DECLARATION", file: TEST_FILE, ...position(root, "`suite ${name}`") },
-    { code: "E_UNSUPPORTED_DECLARATION", file: TEST_FILE, ...position(root, "name, () => {});") },
+    { code: "E_UNSUPPORTED_DECLARATION", file: TEST_FILE, ...position(root, "name, () => { return; });") },
     { code: "E_UNSUPPORTED_DECLARATION", file: TEST_FILE, ...position(root, 'describe("callback by reference"') },
     { code: "E_TAG_LOCATION", file: TEST_FILE, ...position(root, "@tests Sender") },
     { code: "E_TAG_LOCATION", file: TEST_FILE, ...position(root, "@covers once") },
@@ -568,22 +672,22 @@ test("malformed @tests and @covers are format errors, without follow-up errors",
       " * @tests Quota",
       " * @tests Sender",
       " */",
-      'describe("twice", () => {});',
+      'describe("twice", () => { return; });',
       "/** @tests */",
-      'describe("nothing", () => {});',
+      'describe("nothing", () => { return; });',
       "/** @tests Quota */",
       'describe("covers", () => {',
       "  /** @covers */",
-      '  it("none", () => {});',
+      '  it("none", () => { return; });',
       "  /** @covers Empty */",
-      '  it("not an id", () => {});',
+      '  it("not an id", () => { return; });',
       "  /** @covers: empty */",
-      '  it("punctuation", () => {});',
+      '  it("punctuation", () => { return; });',
       "  /**",
       "   * @covers empty",
       "   * @bogus",
       "   */",
-      '  it("unknown tag in a managed comment", () => {});',
+      '  it("unknown tag in a managed comment", () => { return; });',
       "});",
     ),
   });
@@ -606,11 +710,11 @@ test("a misplaced @covers is one error: the invariant it names is not also repor
       'describe("Sender", () => {',
       '  it("outer", async (t) => {',
       "    /** @covers once */",
-      '    await t.test("a subtest is not a declaration", () => {});',
+      '    await t.test("a subtest is not a declaration", () => { return; });',
       "  });",
       "});",
       "/** @covers empty consume race */",
-      'it("outside any suite", () => {});',
+      'it("outside any suite", () => { return; });',
     ),
   );
   assert.deepEqual(checkLinking(root).errors.map(located), [
@@ -628,7 +732,7 @@ test("a link that was written but rejected is not also reported as missing", (t)
       "/** @tests Quota */",
       'describe("Quota", () => {',
       "  /** @covers: empty consume */",
-      '  it("glued punctuation", () => {});',
+      '  it("glued punctuation", () => { return; });',
       "});",
       "/**",
       " * @tests Sender",
@@ -636,7 +740,7 @@ test("a link that was written but rejected is not also reported as missing", (t)
       " */",
       'describe("two tags", () => {',
       "  /** @covers once */",
-      '  it("under a rejected suite", () => {});',
+      '  it("under a rejected suite", () => { return; });',
       "});",
     ),
   );
@@ -648,7 +752,7 @@ test("a link that was written but rejected is not also reported as missing", (t)
 
   const partial = project(
     t,
-    lines('import { describe, it } from "node:test";', "/** @tests Quota */", 'describe("Quota", () => {', "  /** @covers: empty */", '  it("glued punctuation", () => {});', "});"),
+    lines('import { describe, it } from "node:test";', "/** @tests Quota */", 'describe("Quota", () => {', "  /** @covers: empty */", '  it("glued punctuation", () => { return; });', "});"),
   );
   assert.deepEqual(
     checkLinking(partial).errors.map(({ code, invariant }) => ({ code, invariant })),

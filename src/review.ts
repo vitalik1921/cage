@@ -1,11 +1,11 @@
 import path from "node:path";
-import type { Contract, LockLevel, SourceLocation } from "./design-model.ts";
+import type { Contract, LockLevel, SourceLocation, TestStatus } from "./design-model.ts";
 import type { DesignModule } from "./design-phase.ts";
 import { compareDiagnostics, compareText, hasErrors, type Diagnostic } from "./diagnostic.ts";
 import { checkImplementationPhase, type ImplementationPhaseOptions, type ImplementationPhaseResult } from "./implementation-phase.ts";
 import { toProjectPath } from "./location.ts";
 import { collectMaterial, createFileReader, externalUses, fingerprintOf, type ExternalUse, type FileReader, type Material, type PacketFile } from "./review-material.ts";
-import { firstSentence, readReviewFile, VERDICTS_SCHEMA } from "./review-record.ts";
+import { ASSESSMENTS, countAssessments, findsFault, notesOf, readReviewFile, scopeDiagnostics, VERDICTS_SCHEMA, type Assessment, type ReviewEntry } from "./review-record.ts";
 import type { Overlay, TypeScript } from "./typescript.ts";
 
 export type { PacketFile } from "./review-material.ts";
@@ -34,19 +34,37 @@ export interface ContractPacket {
     designs: string[];
   };
   implementations: { name: string; kind: "class" | "function" | "const"; compatible: boolean; location: SourceLocation }[];
-  tests: { file: string; declarations: { title: string; suitePath: string[]; covers: string[]; line: number; column: number }[] }[];
+  tests: {
+    file: string;
+    /** `status` is what the test's text says (a skip, a todo, an empty body); cage does not run it. */
+    declarations: { title: string; suitePath: string[]; covers: string[]; status: TestStatus; inactiveBecause?: string; line: number; column: number }[];
+  }[];
   /** Files outside the module that import an implementation of the contract: they rely on its promises; with the members they call, where that is visible. */
   usedBy: ExternalUse[];
-  /** The contract-level findings of the recorded review, first sentence each: observations that stay until the design's owner acts on them. */
+  /** The contract-level findings of the recorded review, first sentence each, led by the assessment when it is not adequate: observations that stay until the design's owner acts on them. */
   priorNotes: string[];
   /** Project files the test files import, loaded into `files` as helpers: a stub or a fixture decides what a test observes. */
   helpers: string[];
+  /** Local files whose content is part of the fingerprint, loaded or not: a change in any of them makes this review outdated. */
+  fingerprinted: string[];
   /** Project files that the packet's files import but that are not in the packet, with who imports what: the reviewer opens them in the repository. */
   unloaded: { file: string; importedBy: { file: string; names: string[] }[] }[];
   /** Test files of the module that the `tests` patterns match but that declare nothing for any contract: proof may be waiting there for a tag. */
   untaggedTests: string[];
   /** What the check found about this contract or in its files. */
   diagnostics: Diagnostic[];
+  /**
+   * What `.cage/review.json` holds for the contract: no verdict, a verdict for
+   * other material, one for this material with the count of each assessment
+   * (of the invariants, and of the contract as a whole apart), or "unknown"
+   * when the file cannot be used. A verdict is a reviewer's assessment, not a
+   * proof and not a test run.
+   */
+  recordedReview: {
+    status: "none" | "outdated" | "current" | "unknown";
+    assessments: Record<Assessment, number> | null;
+    contractAssessments: Record<Assessment, number> | null;
+  };
 }
 
 export interface ReviewReport {
@@ -91,7 +109,8 @@ export const INSTRUCTION = [
   "evidence is null only for insufficient-context, and may cite a file the packet does not hold when you opened it in the repository. An observation",
   "about the design or the code that is not a test weakness goes in a contract-level finding (invariant null, assessment adequate): several may",
   "stand next to the per-invariant findings; `cage review --record` prints them, the next packet of the contract repeats them, and they are not",
-  "counted as assessments. Files used outside the module rely on the contract's promises: a change to an invariant reaches them, and they may",
+  "counted as assessments of invariants. A contract-level finding assessed otherwise is a finding against the contract as a whole: `cage check`",
+  "reports it like a weak invariant. Files used outside the module rely on the contract's promises: a change to an invariant reaches them, and they may",
   "assume the old one — say so in a contract-level finding.",
   "This is an assessment, not a proof and not a test run. A contract without invariants gets one contract-level finding (invariant null).",
   "When you are the agent that wrote the code or the tests under review, judge them as a stranger would: the verdict is recorded and read by others.",
@@ -132,7 +151,7 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
   const root = path.resolve(options.root);
   const result = checkImplementationPhase(options);
   const diagnostics = [...result.diagnostics];
-  const complete = !hasErrors(diagnostics);
+  let complete = !hasErrors(diagnostics);
   const report = (ok: boolean, contracts: ContractPacket[], files: PacketFile[]): ReviewReport => ({
     schemaVersion: 1,
     command: "review",
@@ -179,22 +198,36 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
   }
   selected.sort((a, b) => compareText(a.module, b.module) || compareText(a.name, b.name));
 
-  const packets = selected.map((contract) => packetOf(root, result, materialOf(contract.name), options.sources.tests, options.sources.implementations, read));
+  const packets = selected.map((contract) => packetOf(root, result, diagnostics, materialOf(contract.name), options.sources.tests, options.sources.implementations, read));
+  // A file of the material that could not be read leaves a packet with a hole: the export is not complete.
+  if (packets.some((packet) => packet.diagnostics.some((diagnostic) => diagnostic.code === "E_ENVIRONMENT"))) complete = false;
   const used = new Set(packets.flatMap((packet) => [...packet.designs, ...packet.dependencies.designs, ...packet.implementations.map((i) => i.location.file), ...packet.tests.map((t) => t.file), ...packet.helpers]));
   // A file another packet of this report holds is in the document; it is not "not loaded" for anyone.
   for (const packet of packets) packet.unloaded = packet.unloaded.filter((entry) => !used.has(entry.file));
   return report(ok, packets, [...files.values()].filter((file) => used.has(file.path)).sort((a, b) => compareText(a.path, b.path)));
 }
 
-function packetOf(root: string, result: ImplementationPhaseResult, material: Material, testFiles_: readonly string[], sourceFiles: readonly string[], read: FileReader): ContractPacket {
-  const { compiler, diagnostics } = result;
+function packetOf(
+  root: string,
+  result: ImplementationPhaseResult,
+  diagnostics: Diagnostic[],
+  material: Material,
+  testFiles_: readonly string[],
+  sourceFiles: readonly string[],
+  read: FileReader,
+): ContractPacket {
+  const { compiler } = result;
   const { contract, own, dependencyDesigns, uses, usedBy, implementations, declarations, testFiles, files } = material;
+  // What the bounds of the fingerprint leave out is the reviewer's business too: those files may change without notice.
+  diagnostics.push(...scopeDiagnostics(material, "warn").filter((diagnostic) => !diagnostics.some((known) => known.code === diagnostic.code && known.contract === diagnostic.contract && known.file === diagnostic.file)));
   const name = contract.name;
   // What the tests import from the project is part of what they prove: a stub decides whether a test observes anything.
   // Loaded one level deep, test files only; what the implementations import stays listed, not loaded.
+  const attempted = new Set<string>();
   if (compiler) {
     for (const file of files.filter((candidate) => candidate.role === "test")) {
       for (const helper of projectImports(root, compiler.ts, compiler.overlay, file).filter((imported) => !files.some((loadedFile) => loadedFile.path === imported))) {
+        attempted.add(helper);
         const loadedHelper = read(helper, "helper");
         if (loadedHelper) files.push(loadedHelper);
       }
@@ -202,8 +235,10 @@ function packetOf(root: string, result: ImplementationPhaseResult, material: Mat
   }
   const loaded = new Set(files.map((file) => file.path));
   const unloaded = compiler ? importsOutside(root, compiler.ts, compiler.overlay, files, loaded) : [];
-  const prior = readReviewFile(root).entries.find((entry) => entry.module === contract.module && entry.contract === name);
-  const priorNotes = prior ? prior.findings.filter((finding) => finding.invariant === null).map((finding) => firstSentence(finding.reason)) : [];
+  const reviews = readReviewFile(root);
+  const prior = reviews.entries.find((entry) => entry.module === contract.module && entry.contract === name);
+  const fingerprint = fingerprintOf(material.parts).fingerprint;
+  const priorNotes = prior ? notesOf(prior.findings) : [];
   const declaring = new Set((result.linking?.tests ?? []).map((test) => test.location.file));
   const inModule = (file: string) => contract.module === "." || file.startsWith(`${contract.module}/`);
   const untaggedTests = testFiles_.filter((file) => inModule(file) && !declaring.has(file)).sort(compareText);
@@ -215,7 +250,7 @@ function packetOf(root: string, result: ImplementationPhaseResult, material: Mat
   return {
     contract: name,
     module: contract.module,
-    fingerprint: fingerprintOf(material.parts).fingerprint,
+    fingerprint,
     designs: own.documents.map((document) => document.file),
     description: contract.description,
     lock: contract.lock,
@@ -227,15 +262,27 @@ function packetOf(root: string, result: ImplementationPhaseResult, material: Mat
       file,
       declarations: declarations
         .filter((test) => test.location.file === file)
-        .map(({ title, suitePath, covers, location }) => ({ title, suitePath, covers, line: location.line, column: location.column })),
+        .map(({ title, suitePath, covers, status, inactiveBecause, location }) => ({ title, suitePath, covers, status, ...(inactiveBecause === undefined ? {} : { inactiveBecause }), line: location.line, column: location.column })),
     })),
     usedBy: compiler ? externalUses(root, compiler.ts, compiler.overlay, implementations, contract.module, contract.members.map((member) => member.name), sourceFiles) : [],
     priorNotes,
     helpers: files.filter((file) => file.role === "helper").map((file) => file.path).sort(compareText),
+    fingerprinted: material.dependencies,
     unloaded,
     untaggedTests,
-    diagnostics: diagnostics.filter((diagnostic) => diagnostic.contract === name || (diagnostic.file !== undefined && loaded.has(diagnostic.file))).sort(compareDiagnostics),
+    // What the checks say about the files a reviewer reads belongs here; what is said about another contract's review does not.
+    diagnostics: diagnostics
+      .filter((diagnostic) => diagnostic.contract === name || (diagnostic.file !== undefined && (loaded.has(diagnostic.file) || attempted.has(diagnostic.file)) && !(diagnostic.contract !== undefined && diagnostic.code.includes("REVIEW_"))))
+      .sort(compareDiagnostics),
+    recordedReview: recordedReviewOf(reviews.diagnostics.length > 0, prior, fingerprint),
   };
+}
+
+function recordedReviewOf(unusable: boolean, prior: ReviewEntry | undefined, fingerprint: string): ContractPacket["recordedReview"] {
+  if (unusable) return { status: "unknown", assessments: null, contractAssessments: null };
+  if (!prior) return { status: "none", assessments: null, contractAssessments: null };
+  if (prior.fingerprint !== fingerprint) return { status: "outdated", assessments: null, contractAssessments: null };
+  return { status: "current", ...countAssessments(prior.findings) };
 }
 
 /** The project files a file imports, resolved the way the project does; nothing outside the root or in node_modules. */
@@ -304,6 +351,41 @@ function importsOutside(
 }
 
 /** The review as one Markdown document: the instruction, each contract, every file once, and the verdict format. */
+/** The marks of the status lines; the same in a terminal and in a pipe, and no colour: the packet is read by people and by models. */
+const STATUS = { ok: "✓", attention: "!", problem: "✗", unknown: "○" } as const;
+
+/** What cage knows about a packet, one fact a line: what it collected, what its text says, and what is recorded, kept apart. */
+function statusLines(packet: ContractPacket): string[] {
+  const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+  const declarations = packet.tests.flatMap((file) => file.declarations);
+  const inactive = declarations.filter((test) => test.status !== "active").length;
+  const collected = [count(packet.designs.length, "design"), count(packet.implementations.length, "implementation"), count(declarations.length, "test declaration"), count(packet.helpers.length, "test helper"), `${packet.fingerprinted.length} fingerprinted ${packet.fingerprinted.length === 1 ? "dependency" : "dependencies"}`];
+  const errors = packet.diagnostics.filter((diagnostic) => diagnostic.severity === "error").length;
+  const warnings = packet.diagnostics.length - errors;
+  const lines = [`- ${STATUS.ok} Material collected: ${collected.join(", ")} — gathered for the reviewer, not judged by cage`];
+  if (declarations.length === 0) lines.push(packet.invariants.length === 0 ? `- ${STATUS.attention} Tests: none tagged, and no invariant to link one to` : `- ${STATUS.problem} Tests: no test declaration is tagged for this contract`);
+  else if (inactive > 0) lines.push(`- ${STATUS.attention} Tests: ${inactive} of ${count(declarations.length, "declaration")} inactive in the source (skipped, todo, empty, or a broken import in their file); see Tests`);
+  else lines.push(`- ${STATUS.ok} Tests: ${declarations.length === 1 ? "the declaration is" : `all ${declarations.length} declarations are`} active in the source (not skipped, todo or empty; their files import nothing broken)`);
+  lines.push(`- ${STATUS.unknown} Test results: not known — cage reads the tests, it does not run them`);
+  if (errors > 0) lines.push(`- ${STATUS.problem} Structural check: ${count(errors, "error")}${warnings > 0 ? `, ${count(warnings, "warning")}` : ""} about this material; see Diagnostics`);
+  else if (warnings > 0) lines.push(`- ${STATUS.attention} Structural check: ${count(warnings, "warning")} about this material; see Diagnostics`);
+  else lines.push(`- ${STATUS.ok} Structural check: nothing found about this material (the recorded review is the next line)`);
+  const { status, assessments } = packet.recordedReview;
+  if (status === "none") lines.push(`- ${STATUS.unknown} Recorded review: none — adequacy is not attested; record a verdict with \`cage review --record\``);
+  else if (status === "outdated") lines.push(`- ${STATUS.problem} Recorded review: outdated — it is for other material; the adequacy of this material is not attested`);
+  else if (status === "unknown") lines.push(`- ${STATUS.unknown} Recorded review: not known — the review file cannot be used; see Diagnostics`);
+  else {
+    const listed = (counts: Record<Assessment, number>) => ASSESSMENTS.filter((assessment) => counts[assessment] > 0).map((assessment) => `${counts[assessment]} ${assessment}`).join(", ");
+    const invariants = assessments ? listed(assessments) : "";
+    const contract = packet.recordedReview.contractAssessments;
+    // The contract as a whole is named when the reviewer found fault with it, or when it is all there is.
+    const whole = contract && (findsFault(contract) || invariants === "") ? `the contract as a whole: ${listed(contract) || "no finding"}` : "";
+    const fault = (assessments !== null && findsFault(assessments)) || (contract !== null && findsFault(contract));
+    lines.push(`- ${fault ? STATUS.attention : STATUS.ok} Recorded review: current — a reviewer's verdict on this material: ${[invariants, whole].filter((part) => part !== "").join("; ")}; an assessment, not a proof`);
+  }
+  return lines;
+}
+
 export function formatReviewMarkdown(report: ReviewReport): string {
   const texts = [...report.files.map((file) => file.text), JSON.stringify(report.resultFormat, null, 2)];
   const longest = Math.max(2, ...texts.flatMap((text) => [...text.matchAll(/`+/g)].map((run) => run[0].length)));
@@ -311,7 +393,11 @@ export function formatReviewMarkdown(report: ReviewReport): string {
   const at = ({ file, line, column }: Partial<SourceLocation>) => [file, line, column].filter((part) => part !== undefined).join(":");
   const lines: string[] = ["# Design review", "", report.instruction, ""];
   if (!report.complete) lines.push("> The check found errors; they are listed with each contract. Part of the material below has been rejected by the harness.", "");
-  if (report.contracts.length === 0) lines.push("No contract to review.", "");
+  if (report.contracts.length === 0) {
+    lines.push(report.selection === "needed" && report.ok ? `${STATUS.ok} No contract needs a review: none is without a recorded review of its current material. \`cage review --all\` exports every contract.` : "No contract to review.", "");
+  } else {
+    lines.push(`Status: ${STATUS.ok} known and in order · ${STATUS.attention} needs a look · ${STATUS.problem} missing, outdated or an error · ${STATUS.unknown} not done or not known by cage.`, "Collected material is not judged material: adequacy comes only from a recorded verdict, and no line here says that a test passed.", "");
+  }
 
   for (const packet of report.contracts) {
     lines.push(`## Contract ${packet.contract} (${packet.module})`, "");
@@ -319,6 +405,7 @@ export function formatReviewMarkdown(report: ReviewReport): string {
     lines.push(`- Fingerprint: ${packet.fingerprint}`);
     lines.push(`- Lock: ${packet.lock === null ? "none (open)" : `@${packet.lock}`}`);
     lines.push(`- Description: ${packet.description ?? "none"}`, "");
+    lines.push("### Status", "", ...statusLines(packet), "");
     lines.push("### Members", "");
     if (packet.members.length === 0) lines.push("- (a callable contract: one call signature)");
     for (const member of packet.members) lines.push(`- \`${member.name}\` (${at(member.location)})${member.description ? `: ${member.description}` : ""}`);
@@ -338,7 +425,8 @@ export function formatReviewMarkdown(report: ReviewReport): string {
     for (const file of packet.tests) {
       lines.push(`- ${file.file}`);
       for (const test of file.declarations) {
-        lines.push(`  - line ${test.line}: "${[...test.suitePath, test.title].join(" > ")}" covers ${test.covers.length === 0 ? "nothing" : test.covers.map((id) => `\`${id}\``).join(", ")}`);
+        const inactive = test.status === "active" ? "" : ` (inactive: ${test.inactiveBecause ?? test.status})`;
+        lines.push(`  - line ${test.line}: "${[...test.suitePath, test.title].join(" > ")}" covers ${test.covers.length === 0 ? "nothing" : test.covers.map((id) => `\`${id}\``).join(", ")}${inactive}`);
       }
     }
     lines.push("", "### Dependencies", "");
@@ -350,6 +438,9 @@ export function formatReviewMarkdown(report: ReviewReport): string {
     lines.push("", "### Notes of the previous review", "");
     if (packet.priorNotes.length === 0) lines.push("- none recorded");
     for (const note of packet.priorNotes) lines.push(`- ${note}`);
+    lines.push("", "### Fingerprinted dependencies", "");
+    if (packet.fingerprinted.length === 0) lines.push("- none: the implementations and tests import no other local file");
+    else lines.push(`- ${packet.fingerprinted.join(", ")} — a change in any of these makes the recorded review outdated`);
     lines.push("", "### Helpers loaded with the tests", "");
     if (packet.helpers.length === 0) lines.push("- none: the tests import nothing else from the project");
     for (const file of packet.helpers) lines.push(`- ${file}`);

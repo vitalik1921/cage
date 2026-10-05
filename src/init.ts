@@ -107,13 +107,17 @@ export function runInit(options: InitOptions): InitReport {
   }
   const binPath = bin ?? "node_modules/.bin/cage";
   const projectPath = toProjectPath(repository, root) || ".";
-  const claudeCommand = `"$CLAUDE_PROJECT_DIR/${binPath}" gate --root "$CLAUDE_PROJECT_DIR/${projectPath}"`;
-  const codexCommand = `"${binPath}" gate --root "${projectPath}"`;
-  /** Whether a hook command already gates this project, however it quotes its paths and wherever its `cage` is. */
-  const gatesProject = (command: string, prefix: string) => {
-    const plain = command.replaceAll('"', "").replaceAll("'", "").trim();
-    const target = `${prefix}${projectPath}`;
-    return /\bcage gate\b/.test(plain) && (plain.endsWith(`--root ${target}`) || (projectPath === "." && plain.endsWith(`--root ${prefix.replace(/\/$/, "")}`)));
+  // The paths are data: single-quoted for the shell, so that no `$`, backtick or quote in a directory name is
+  // expanded or ends the word. The project directory of Claude Code is the one variable, double-quoted.
+  const claudeCommand = `"$CLAUDE_PROJECT_DIR"/${shellWord(binPath)} gate --root "$CLAUDE_PROJECT_DIR"/${shellWord(projectPath)}`;
+  const codexCommand = `${shellWord(binPath)} gate --root ${shellWord(projectPath)}`;
+  /** Whether a hook command runs `cage gate` for this project: parsed as the shell would, never by its mere text. */
+  const gatesProject = (command: string, base: "$CLAUDE_PROJECT_DIR" | "") => runsGate(command, base, projectPath);
+  /** A hook that is not the gate but looks like one: kept as it is, and said, since it may be a gate gone wrong. */
+  const nearMiss = (file: string, command: string, under: "$CLAUDE_PROJECT_DIR" | "") => {
+    // Another project's gate in the same repository is a gate: nothing to say about it.
+    if (!/\bcage\b/.test(command) || !/\bgate\b/.test(command) || runsGate(command, under, undefined)) return;
+    problem("W_GATE_COMMAND", "warning", file, `The Stop hook command ${JSON.stringify(command)} mentions \`cage gate\` but is not recognised as the gate of this project (${projectPath}): it is kept as it is, and the gate is added beside it. If it was meant as this gate — an earlier init wrote paths into double quotes, where a shell expands \`$\` and backticks — remove it.`);
   };
 
   let instructions: string;
@@ -136,17 +140,21 @@ export function runInit(options: InitOptions): InitReport {
       put(path.join(directory, skill, "SKILL.md"), text, () => undefined, false);
     }
   };
+  // The rules go in once, behind a marker that says whose they are; a file an earlier init wrote has their heading.
+  // A mention of `cage check` elsewhere in the file is the project's prose, not the rules.
+  const hasRules = (text: string) => text.includes(RULES_MARKER) || /^#{1,2} Contract harness\b/m.test(text);
   const addInstructions = (file: string) =>
-    put(file, instructions, (current) => {
-      if (current.includes("cage check")) return undefined;
+    put(file, `${RULES_MARKER}\n${instructions}`, (current) => {
+      if (hasRules(current)) return undefined;
       const eol = current.includes("\r\n") ? "\r\n" : "\n";
-      const section = instructions.replace(/^# /, "## ").replaceAll("\n", eol);
+      const section = `${RULES_MARKER}\n${instructions.replace(/^# /, "## ")}`.replaceAll("\n", eol);
       return `${current.replace(/(\r?\n)*$/, "")}${eol}${eol}${section}`;
     });
 
   if (options.agents.includes("claude")) {
     const entry = { hooks: [{ type: "command", command: claudeCommand, timeout: GATE_TIMEOUT }] };
-    put(path.join(repository, ".claude", "settings.json"), `${JSON.stringify({ hooks: { Stop: [entry] } }, null, 2)}\n`, (current) => {
+    const settingsFile = path.join(repository, ".claude", "settings.json");
+    put(settingsFile, `${JSON.stringify({ hooks: { Stop: [entry] } }, null, 2)}\n`, (current) => {
       try {
         const settings = asObject(JSON.parse(stripBom(current)), "the file");
         const hooks = settings.hooks === undefined ? (settings.hooks = {}) : settings.hooks;
@@ -159,8 +167,9 @@ export function runInit(options: InitOptions): InitReport {
           if (!Array.isArray(handlers)) throw new Error('"hooks" of a "hooks.Stop" entry is not an array');
           return handlers.map((handler: unknown) => (isObject(handler) ? handler.command : undefined));
         });
-        // The same project is gated once; another project of the repository gets its own entry.
-        if (commands.some((command) => typeof command === "string" && gatesProject(command, "$CLAUDE_PROJECT_DIR/"))) return undefined;
+        // The same project is gated once; another project of the repository gets its own entry. Other hooks stay.
+        if (commands.some((command) => typeof command === "string" && gatesProject(command, "$CLAUDE_PROJECT_DIR"))) return undefined;
+        for (const command of commands) if (typeof command === "string") nearMiss(settingsFile, command, "$CLAUDE_PROJECT_DIR");
         stop.push(entry);
         return `${JSON.stringify(settings, null, 2)}\n`;
       } catch (cause) {
@@ -178,12 +187,18 @@ export function runInit(options: InitOptions): InitReport {
       "[[hooks.Stop]]",
       "[[hooks.Stop.hooks]]",
       'type = "command"',
-      `command = '${codexCommand}'`,
+      `command = ${tomlString(codexCommand)}`,
       `timeout = ${GATE_TIMEOUT}`,
       "",
     ].join("\n");
-    put(path.join(repository, ".codex", "config.toml"), block, (current) => {
-      if (current.split(/\r?\n/).some((line) => /^\s*command\s*=/.test(line) && gatesProject(line.replace(/^\s*command\s*=\s*/, ""), ""))) return undefined;
+    const codexFile = path.join(repository, ".codex", "config.toml");
+    put(codexFile, block, (current) => {
+      const commands = current.split(/\r?\n/).flatMap((line) => {
+        const value = /^\s*command\s*=\s*(.*)$/.exec(line)?.[1];
+        return value === undefined ? [] : [tomlStringValue(value) ?? value];
+      });
+      if (commands.some((command) => gatesProject(command, ""))) return undefined;
+      for (const command of commands) nearMiss(codexFile, command, "");
       // A `[hooks]` table, or hooks given inline, cannot take an array-of-tables entry after it.
       if (/^\s*\[hooks\]|^\s*hooks\s*=/m.test(current)) return new Error(`it defines "hooks" in a form this command cannot add to; add the Stop hook by hand:\n${block}`);
       const eol = current.includes("\r\n") ? "\r\n" : "\n";
@@ -195,6 +210,154 @@ export function runInit(options: InitOptions): InitReport {
     addSkills(path.join(repository, ".agents", "skills"));
   }
   return report();
+}
+
+/** What starts the rules in CLAUDE.md or AGENTS.md: how a later init knows they are there, whatever was edited around and in them. */
+const RULES_MARKER = "<!-- cage:rules -->";
+
+/** A word for a POSIX shell that is data whatever it holds: single-quoted, each `'` closed, escaped and reopened. */
+const shellWord = (text: string) => `'${text.replaceAll("'", "'\\''")}'`;
+
+/** A TOML basic string: the quote, the backslash and control characters escaped, everything else as it is. */
+function tomlString(text: string): string {
+  const escaped = [...text].map((character) => {
+    const code = character.codePointAt(0)!;
+    if (character === '"' || character === "\\") return `\\${character}`;
+    return code < 0x20 || code === 0x7f ? `\\u${code.toString(16).padStart(4, "0")}` : character;
+  });
+  return `"${escaped.join("")}"`;
+}
+
+/** The value of a one-line TOML string, literal or basic, with a comment after it allowed; undefined for anything else. */
+function tomlStringValue(raw: string): string | undefined {
+  const text = raw.trim();
+  const rest = (end: number) => /^\s*(#.*)?$/.test(text.slice(end));
+  if (text.startsWith("'''") || text.startsWith('"""')) return undefined;
+  if (text.startsWith("'")) {
+    const end = text.indexOf("'", 1);
+    return end > 0 && rest(end + 1) ? text.slice(1, end) : undefined;
+  }
+  if (!text.startsWith('"')) return undefined;
+  const simple: Record<string, string> = { b: "\b", t: "\t", n: "\n", f: "\f", r: "\r", e: "\u001b", '"': '"', "\\": "\\" };
+  let value = "";
+  for (let index = 1; index < text.length; index++) {
+    const character = text[index];
+    if (character === '"') return rest(index + 1) ? value : undefined;
+    if (character !== "\\") {
+      value += character;
+      continue;
+    }
+    const next = text[++index];
+    if (next !== undefined && Object.hasOwn(simple, next)) value += simple[next];
+    else if (next === "u" || next === "U") {
+      const digits = text.slice(index + 1, index + (next === "u" ? 5 : 9));
+      if (!/^[0-9a-fA-F]+$/.test(digits) || digits.length !== (next === "u" ? 4 : 8)) return undefined;
+      value += String.fromCodePoint(Number.parseInt(digits, 16));
+      index += digits.length;
+    } else return undefined;
+  }
+  return undefined;
+}
+
+/** Where `$CLAUDE_PROJECT_DIR` stood in a parsed command: a character no path holds, so a `$` written in quotes stays data. */
+const PROJECT_DIR = "\u0000";
+
+/**
+ * The words of a shell command with its quotes removed, `$CLAUDE_PROJECT_DIR` as `PROJECT_DIR`. Undefined for
+ * anything else a shell would act on — another expansion, a substitution, a separator, a redirection, a glob, a
+ * comment — since what such a command does is not what its words say.
+ */
+function shellWords(command: string): string[] | undefined {
+  const words: string[] = [];
+  let word: string | undefined;
+  let index = 0;
+  const add = (text: string) => (word = (word ?? "") + text);
+  const variable = () => {
+    const found = /^\$(?:CLAUDE_PROJECT_DIR(?![A-Za-z0-9_])|\{CLAUDE_PROJECT_DIR\})/.exec(command.slice(index));
+    if (!found) return false;
+    add(PROJECT_DIR);
+    index += found[0].length;
+    return true;
+  };
+  while (index < command.length) {
+    const character = command[index];
+    if (/\s/.test(character)) {
+      if (word !== undefined) words.push(word);
+      word = undefined;
+      index++;
+    } else if (character === "'") {
+      const end = command.indexOf("'", index + 1);
+      if (end < 0) return undefined;
+      add(command.slice(index + 1, end));
+      index = end + 1;
+    } else if (character === '"') {
+      add("");
+      for (index++; ; ) {
+        if (index >= command.length) return undefined;
+        const inner = command[index];
+        if (inner === '"') {
+          index++;
+          break;
+        }
+        if (inner === "`") return undefined;
+        if (inner === "$") {
+          if (!variable()) return undefined;
+          continue;
+        }
+        if (inner === "\\" && index + 1 < command.length && '$`"\\\n'.includes(command[index + 1])) {
+          add(command[index + 1]);
+          index += 2;
+          continue;
+        }
+        add(inner);
+        index++;
+      }
+    } else if (character === "\\") {
+      if (index + 1 >= command.length) return undefined;
+      add(command[index + 1]);
+      index += 2;
+    } else if (character === "$") {
+      if (!variable()) return undefined;
+    } else if (/[;&|<>()`#*?[\]{}~!]/.test(character)) {
+      return undefined;
+    } else {
+      add(character);
+      index++;
+    }
+  }
+  if (word !== undefined) words.push(word);
+  return words;
+}
+
+/**
+ * Whether a hook command runs `cage gate` for the project at `projectPath`: an installed `cage` as the command,
+ * `gate`, the options of gate, and `--root` naming the project — under `base` (`$CLAUDE_PROJECT_DIR`) or, for
+ * Codex, relative to the repository; any project of the repository when `projectPath` is undefined. A command that
+ * only mentions `cage gate` is not one.
+ */
+function runsGate(command: string, under: "$CLAUDE_PROJECT_DIR" | "", projectPath: string | undefined): boolean {
+  const base = under === "" ? "" : PROJECT_DIR;
+  const words = shellWords(command);
+  if (!words || words.length < 2 || !/(^|\/)cage(\.cmd)?$/.test(words[0]) || words[1] !== "gate") return false;
+  let root: string | undefined;
+  for (let index = 2; index < words.length; index++) {
+    const word = words[index];
+    if (word.startsWith("--root=")) root = word.slice("--root=".length);
+    else if ((word === "--root" || word === "--base" || word === "--config") && index + 1 < words.length) {
+      if (word === "--root") root = words[index + 1];
+      index++;
+    } else return false;
+  }
+  if (root === undefined) return false;
+  let relative: string;
+  if (base === "") {
+    if (root.includes(PROJECT_DIR) || path.posix.isAbsolute(root)) return false;
+    relative = root;
+  } else {
+    if (!root.startsWith(base) || (root.length > base.length && root[base.length] !== "/")) return false;
+    relative = root.slice(base.length + 1);
+  }
+  return projectPath === undefined || path.posix.normalize(relative || ".") === path.posix.normalize(projectPath);
 }
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);

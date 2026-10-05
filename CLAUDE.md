@@ -11,6 +11,7 @@ Work in steps: a concrete task → implementation → `npm run verify` → code 
 - `npm run build` — compile to `dist/`
 - `npm run verify` — all of the above and a run of the built CLI; run before handing a step over
 - `npm run smoke` — `npm pack`, install the tarball into an empty project and run `cage` there; CI and `prepublishOnly` do the same
+- `npm run e2e` — build, pack and drive the installed `cage` through hook quoting, links out of the project, review holes, verdict rules and type-only imports in scratch projects outside the repository; evidence in `test/.tmp/e2e-evidence/`
 - Release: `npm version <minor|patch>` → `git push --follow-tags` → the `Publish` workflow puts the package on npm (needs the `NPM_TOKEN` secret)
 - `node src/cli.ts check --root <project>` — run the CLI without a build
 

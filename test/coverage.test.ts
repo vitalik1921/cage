@@ -6,7 +6,7 @@ import { checkDesigns, checkLinking, cli, contract, designProject, inFile, mdx, 
 
 const STORE = contract("Store", "get(key: string): string;", "@invariant hit Повертає значення.");
 const IMPLEMENTATION = "/** @implements Store */\nexport class MemoryStore {\n  get(key: string): string {\n    return key;\n  }\n}\n";
-const TESTS = ['import { describe, it } from "node:test";', "/** @tests Store */", 'describe("Store", () => {', "  /** @covers hit */", '  it("hit", () => {});', "});", ""].join("\n");
+const TESTS = ['import { describe, it } from "node:test";', "/** @tests Store */", 'describe("Store", () => {', "  /** @covers hit */", '  it("hit", () => { return; });', "});", ""].join("\n");
 
 /** A module `src/m` with the Store contract, its implementation and test, and the given extra files. */
 function project(t: TestContext, files: Record<string, string>, designs: Record<string, string> = {}): string {

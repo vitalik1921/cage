@@ -16,6 +16,20 @@ export interface Config {
   review: "off" | "warn" | "require";
   /** How `check` treats exported code of a designed module that nothing marks `@implements`: not at all, as a warning, or as an error. */
   coverage: "off" | "warn" | "require";
+  /** How far a review's fingerprint follows the local files that implementations and tests import. */
+  reviewDependencies: ReviewDependencies;
+}
+
+/**
+ * The bounds of the dependency part of a review's fingerprint. `depth`: import levels followed from an
+ * implementation or test file (1 = its direct imports). `maxFiles`: dependency files fingerprinted per
+ * contract. `exclude`: glob patterns of files neither fingerprinted nor followed, on top of `exclude`.
+ * Whatever lies beyond the bounds is reported, never silently dropped.
+ */
+export interface ReviewDependencies {
+  depth: number;
+  maxFiles: number;
+  exclude: string[];
 }
 
 export const DEFAULT_CONFIG_FILE = ".cage/config.json";
@@ -30,6 +44,7 @@ export const defaultConfig: Config = {
   testAdapter: "node:test",
   review: "warn",
   coverage: "warn",
+  reviewDependencies: { depth: 3, maxFiles: 40, exclude: [] },
 };
 
 export interface LoadedConfig {
@@ -63,7 +78,9 @@ export function loadConfig(root: string, configPath?: string): LoadedConfig {
 
   const problems = validate(value);
   if (problems.length > 0) return { config: defaultConfig, diagnostics: problems.map(error) };
-  return { config: { ...defaultConfig, ...(value as Partial<Config>) }, diagnostics: [] };
+  const given = value as Partial<Config>;
+  // The bounds are merged field by field: a configuration may raise one and keep the others.
+  return { config: { ...defaultConfig, ...given, reviewDependencies: { ...defaultConfig.reviewDependencies, ...given.reviewDependencies } }, diagnostics: [] };
 }
 
 const isText = (value: unknown) => typeof value === "string" && value.trim() !== "";
@@ -79,6 +96,15 @@ const fields: Record<keyof Config, { expected: string; valid: (value: unknown) =
   testAdapter: { expected: '"node:test" or "vitest"', valid: (value) => value === "node:test" || value === "vitest" },
   review: { expected: '"off", "warn" or "require"', valid: (value) => value === "off" || value === "warn" || value === "require" },
   coverage: { expected: '"off", "warn" or "require"', valid: (value) => value === "off" || value === "warn" || value === "require" },
+  reviewDependencies: {
+    expected: 'an object with "depth" (0–10), "maxFiles" (0–1000) and "exclude" (an array of non-empty strings), each optional',
+    valid: (value) => {
+      if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+      const { depth, maxFiles, exclude, ...rest } = value as Record<string, unknown>;
+      const whole = (number: unknown, max: number) => number === undefined || (Number.isInteger(number) && (number as number) >= 0 && (number as number) <= max);
+      return Object.keys(rest).length === 0 && whole(depth, 10) && whole(maxFiles, 1000) && (exclude === undefined || isTextList(exclude));
+    },
+  },
 };
 
 function validate(value: unknown): string[] {

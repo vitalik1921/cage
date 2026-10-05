@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 
 export interface Position {
@@ -55,6 +56,25 @@ export function positionAt(starts: readonly number[], offset: number): Position 
 
 export function toProjectPath(root: string, file: string): string {
   return path.relative(root, file).split(path.sep).join("/");
+}
+
+/**
+ * Whether a project file really lies inside the project: its real path, with every symbolic link on the way
+ * resolved, is under the real path of the root. Only links are followed, nothing is read: a file a link takes
+ * out of the project is never opened. A file that does not exist counts as inside, so that reading it reports
+ * the usual error.
+ */
+export function insideRoot(root: string, file: string): boolean {
+  let real: string;
+  let realRoot: string;
+  try {
+    realRoot = fs.realpathSync(root);
+    real = fs.realpathSync(path.resolve(root, file));
+  } catch {
+    return true;
+  }
+  const relative = path.relative(realRoot, real);
+  return relative === "" || (!relative.startsWith(`..${path.sep}`) && relative !== ".." && !path.isAbsolute(relative));
 }
 
 /** Drops a leading byte order mark, so offsets match what parsers and editors count. */

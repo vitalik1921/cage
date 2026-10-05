@@ -19,7 +19,18 @@ export interface ImplementationPhaseOptions extends DesignPhaseOptions {
   testAdapter: TestAdapter;
   /** Exported code of a designed module without `@implements`: not looked at, a warning, or an error. Default: a warning. */
   coverage?: "off" | "warn" | "require";
+  /** The bounds of the dependency part of review fingerprints; `exclude` already holds the configuration's `exclude` too. */
+  reviewScope?: ReviewScope;
 }
+
+/** How far review fingerprints follow local imports; see `ReviewDependencies` in the configuration. */
+export interface ReviewScope {
+  depth: number;
+  maxFiles: number;
+  exclude: string[];
+}
+
+export const DEFAULT_REVIEW_SCOPE: ReviewScope = { depth: 3, maxFiles: 40, exclude: ["**/node_modules/**", "**/dist/**", "**/build/**", "**/coverage/**"] };
 
 /** The test declarations that link an invariant: inside a `@tests` suite of its contract, with its id in `@covers`. */
 export function testsLinkedTo(tests: readonly TestDeclaration[], contract: string, invariant: string): TestDeclaration[] {
@@ -27,6 +38,9 @@ export function testsLinkedTo(tests: readonly TestDeclaration[], contract: strin
 }
 
 export interface ImplementationPhaseResult extends DesignPhaseResult {
+  /** The project root, absolute, and the bounds review fingerprints are taken with. */
+  root: string;
+  reviewScope: ReviewScope;
   /** Whether the design phase ended without errors: only then are implementations and tests looked at. */
   designSound: boolean;
   /**
@@ -65,7 +79,8 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
   const root = path.resolve(options.root);
   const design = checkDesignPhase(options);
   const { modules, index, compiler, diagnostics } = design;
-  if (hasErrors(diagnostics) || !index || !compiler) return { ...design, designSound: false, linking: null };
+  const reviewScope = options.reviewScope ?? DEFAULT_REVIEW_SCOPE;
+  if (hasErrors(diagnostics) || !index || !compiler) return { ...design, root, reviewScope, designSound: false, linking: null };
   const { ts, overlay } = compiler;
   const tsconfig = toProjectPath(root, path.resolve(root, options.tsconfig));
 
@@ -143,7 +158,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
   if (setupProblems.length > 0) {
     diagnostics.push(...environmentDiagnostics(convert, tsconfig, setupProblems));
     diagnostics.sort(compareDiagnostics);
-    return { ...design, designSound: true, linking: null };
+    return { ...design, root, reviewScope, designSound: true, linking: null };
   }
 
   // A file the harness makes a claim about must itself be sound: a type error in it makes its types unreliable.
@@ -182,7 +197,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
     return { contract: contract.name, name, kind, compatible: mismatches.length === 0, location };
   });
 
-  const { tests, rejected } = readTests(ts, program, convert, options.testAdapter, testFiles, contracts, index.invariants, diagnostics);
+  const { tests, rejected } = readTests(ts, program, overlay, root, convert, options.testAdapter, testFiles, contracts, index.invariants, diagnostics);
 
   for (const contract of contracts.values()) {
     // A rejected `@implements`, or one in a file that could not be read, is already reported; "no implementation" would be its consequence.
@@ -196,8 +211,33 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
     });
   }
   let uncheckedInvariants = 0;
+  // Links to tests that cannot run an assertion, as their text shows. Structural, not semantic: an active test may
+  // still assert nothing, and a runner may skip a test at run time; only running the tests shows that.
+  // Per inactive declaration, the invariants it is linked to that do have an active test: only those are warned
+  // about at the test; an invariant with no active test at all is an error at the invariant instead.
+  const warned = new Map<string, { test: TestDeclaration; invariants: string[] }>();
+  const keyOf = (test: TestDeclaration) => `${test.location.file}:${test.location.line}:${test.location.column}`;
+  const describeTest = (test: TestDeclaration) => `"${[...test.suitePath, test.title].join(" > ")}" (${test.location.file}:${test.location.line}, ${test.inactiveBecause})`;
   for (const invariant of index.invariants) {
-    if (testsLinkedTo(tests, invariant.contract, invariant.id).length > 0) continue;
+    const linked = testsLinkedTo(tests, invariant.contract, invariant.id);
+    const inactive = linked.filter((test) => test.status !== "active");
+    if (linked.length > 0 && inactive.length === linked.length) {
+      diagnostics.push({
+        code: "E_TEST_INACTIVE",
+        severity: "error",
+        message: `Invariant ${invariant.contract}: ${invariant.id} is linked only to tests that cannot run an assertion: ${inactive.map(describeTest).join("; ")}. ${inactive.some((test) => test.status === "broken-import") ? "Fix the broken import of the test file, enable a test, or give it a body." : "Enable one, or give it a body."} Cage reads tests and does not run them: this is what their text shows, not proof that an active test checks the rule.`,
+        ...invariant.location,
+        contract: invariant.contract,
+        invariant: invariant.id,
+      });
+    } else {
+      for (const test of inactive) {
+        const entry = warned.get(keyOf(test)) ?? { test, invariants: [] };
+        entry.invariants.push(invariant.id);
+        warned.set(keyOf(test), entry);
+      }
+    }
+    if (linked.length > 0) continue;
     // Likewise for a link that was written but rejected; the summary says how many invariants wait on such a tag.
     const about = (link: RejectedLink) => link.contract === null || link.contract === invariant.contract;
     if (rejected.some((link) => about(link) && (link.invariants === "all" || link.invariants.includes(invariant.id)))) {
@@ -214,8 +254,18 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
     });
   }
 
+  for (const { test, invariants } of warned.values()) {
+    diagnostics.push({
+      code: "W_TEST_INACTIVE",
+      severity: "warning",
+      message: `Test ${describeTest(test)} is linked to ${invariants.map((id) => `${test.contract}: ${id}`).join(", ")} but cannot run an assertion; ${invariants.length === 1 ? "that invariant relies on its" : "those invariants rely on their"} other, active tests.`,
+      ...test.location,
+      contract: test.contract,
+    });
+  }
+
   diagnostics.sort(compareDiagnostics);
-  return { ...design, designSound: true, linking: { implementations, tests, uncheckedInvariants } };
+  return { ...design, root, reviewScope, designSound: true, linking: { implementations, tests, uncheckedInvariants } };
 }
 
 const unknownContract = (tag: string, name: string, location: SourceLocation): Diagnostic => ({
@@ -224,6 +274,146 @@ const unknownContract = (tag: string, name: string, location: SourceLocation): D
   message: `\`@${tag} ${name}\`: there is no contract with this name.`,
   ...location,
 });
+
+/** Script files a relative import may name: what else it names (JSON, styles, assets) is the runner's or a bundler's to load. */
+const SCRIPT_FILE = /\.(?:[cm]?[jt]s|[jt]sx)$/;
+
+/**
+ * What is broken in a test file's imports, as the compiler sees them without running anything: a relative import of a
+ * script that resolves to no file, or a value import of a name that the project file it resolves to does not
+ * export, or exports only as a type. Type-only imports (`import type`, `{ type X }`) are erased and do not count;
+ * packages, files outside the project, declaration files, files that are not scripts (JSON, styles) and CommonJS
+ * `export =` modules are the runner's to resolve. Undefined when every import is in order.
+ *
+ * A value import of a name that has no value at run time — an interface, a type alias, a class exported with
+ * `export type`, followed through aliases and re-exports — stays in the file wherever imports are kept as written:
+ * Node's own type stripping, which runs node:test files, and `verbatimModuleSyntax`. Vitest's transform drops an
+ * import used only as a type, so there it is broken only under `verbatimModuleSyntax` or when the name is used as
+ * a value.
+ */
+function brokenImport(ts: TypeScript, program: ts.Program, checker: ts.TypeChecker, overlay: Pick<Overlay, "resolveFrom">, root: string, sourceFile: ts.SourceFile, file: string, adapter: TestAdapter): string | undefined {
+  const keptAsWritten = adapter === "node:test" || program.getCompilerOptions().verbatimModuleSyntax === true;
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || statement.importClause?.isTypeOnly) continue;
+    const specifier = statement.moduleSpecifier.text;
+    const at = `${file}:${sourceFile.getLineAndCharacterOfPosition(statement.getStart(sourceFile)).line + 1}`;
+    const resolved = overlay.resolveFrom(specifier, sourceFile.fileName);
+    if (!resolved) {
+      if (/^\.\.?\//.test(specifier) && (SCRIPT_FILE.test(specifier) || path.posix.extname(specifier) === "")) return `"${specifier}" (${at}) resolves to no file`;
+      continue;
+    }
+    const target = program.getSourceFile(resolved);
+    const projectPath = toProjectPath(root, resolved);
+    if (!target || target.isDeclarationFile || !SCRIPT_FILE.test(resolved) || projectPath.startsWith("../") || path.isAbsolute(projectPath) || projectPath.split("/").includes("node_modules")) continue;
+    if (target.statements.some((candidate) => ts.isExportAssignment(candidate) && candidate.isExportEquals)) continue;
+    const clause = statement.importClause;
+    const wanted: { name: string; local: ts.Identifier }[] = clause?.name ? [{ name: "default", local: clause.name }] : [];
+    if (clause?.namedBindings && ts.isNamedImports(clause.namedBindings)) {
+      for (const element of clause.namedBindings.elements) if (!element.isTypeOnly) wanted.push({ name: (element.propertyName ?? element.name).text, local: element.name });
+    }
+    if (wanted.length === 0) continue;
+    // A file without imports or exports is no module: it exports nothing.
+    const module = checker.getSymbolAtLocation(statement.moduleSpecifier);
+    const exports = new Map((module ? checker.getExportsOfModule(module) : []).map((symbol) => [symbol.name, symbol]));
+    const missing = wanted.filter(({ name }) => !exports.has(name)).map(({ name }) => name);
+    if (missing.length > 0) return `"${specifier}" (${at}) does not export ${missing.map((name) => `"${name}"`).join(", ")}`;
+    const typesOnly = wanted.filter(({ name, local }) => !exportsValue(ts, checker, module!, name) && (keptAsWritten || usedAsValue(ts, checker, sourceFile, local)));
+    if (typesOnly.length > 0) return `"${specifier}" (${at}) exports ${typesOnly.map(({ name }) => `"${name}"`).join(", ")} only as a type; import ${typesOnly.length === 1 ? "it" : "them"} with \`import type\``;
+  }
+  return undefined;
+}
+
+/**
+ * Whether a module provides `name` at run time, followed the way the module's own statements pass it on:
+ * a local declaration must be a value; `export { x } from`, `import { x }` and their defaults lead to the other
+ * module's export of that name; `export * from` provides what its module provides as a value, and `export type *`
+ * (with or without `as`) provides nothing at run time. Any `type`-only step on the way makes it a type. What the
+ * compiler cannot follow, or a cycle, is not ours to call broken.
+ */
+function exportsValue(ts: TypeScript, checker: ts.TypeChecker, module: ts.Symbol, name: string, seen = new Set<string>()): boolean {
+  const moduleFile = [module.valueDeclaration, ...(module.declarations ?? [])].find((declaration): declaration is ts.SourceFile => declaration !== undefined && ts.isSourceFile(declaration));
+  const key = `${moduleFile?.fileName ?? module.name}\n${name}`;
+  if (seen.has(key)) return true;
+  seen.add(key);
+  const exported = checker.getExportsOfModule(module).find((symbol) => symbol.name === name);
+  if (!exported) return false;
+  if (!moduleFile) return aliasValue(ts, checker, exported, seen);
+  // Declared or passed on by name in this file: that declaration decides.
+  if ((exported.declarations ?? []).some((declaration) => declaration.getSourceFile() === moduleFile)) return aliasValue(ts, checker, exported, seen, moduleFile);
+  // Reached through a star: a value only if a star that is not `type`-only leads to a value of that name.
+  for (const statement of moduleFile.statements) {
+    if (!ts.isExportDeclaration(statement) || statement.exportClause || !statement.moduleSpecifier || statement.isTypeOnly) continue;
+    const target = checker.getSymbolAtLocation(statement.moduleSpecifier);
+    if (target && exportsValue(ts, checker, target, name, seen)) return true;
+  }
+  return false;
+}
+
+/** Whether a symbol a module exports is a value at run time: a local declaration by its flags, an alias by where it leads. */
+function aliasValue(ts: TypeScript, checker: ts.TypeChecker, symbol: ts.Symbol, seen: Set<string>, inFile?: ts.SourceFile): boolean {
+  if (!(symbol.flags & ts.SymbolFlags.Alias)) return (symbol.flags & ts.SymbolFlags.Value) !== 0;
+  const moduleOf = (specifier: ts.Expression | undefined) => (specifier ? checker.getSymbolAtLocation(specifier) : undefined);
+  const nameOf = (specifier: ts.ExportSpecifier | ts.ImportSpecifier) => (specifier.propertyName ?? specifier.name).text;
+  for (const declaration of (symbol.declarations ?? []).filter((candidate) => inFile === undefined || candidate.getSourceFile() === inFile)) {
+    if (ts.isExportSpecifier(declaration)) {
+      const exportDeclaration = declaration.parent.parent;
+      if (declaration.isTypeOnly || exportDeclaration.isTypeOnly) return false;
+      const from = moduleOf(exportDeclaration.moduleSpecifier);
+      if (from) return exportsValue(ts, checker, from, nameOf(declaration), seen);
+      // `export { x }` of a local name or of an import: that name decides.
+      const local = checker.getExportSpecifierLocalTargetSymbol(declaration);
+      return local === undefined || aliasValue(ts, checker, local, seen);
+    }
+    if (ts.isImportSpecifier(declaration)) {
+      if (declaration.isTypeOnly || declaration.parent.parent.isTypeOnly) return false;
+      const from = moduleOf(declaration.parent.parent.parent.moduleSpecifier);
+      return from === undefined || exportsValue(ts, checker, from, nameOf(declaration), seen);
+    }
+    if (ts.isImportClause(declaration)) {
+      if (declaration.isTypeOnly) return false;
+      const from = moduleOf(declaration.parent.moduleSpecifier);
+      return from === undefined || exportsValue(ts, checker, from, "default", seen);
+    }
+    // A namespace is an object at run time, unless it is brought in or passed on as a type.
+    if (ts.isNamespaceImport(declaration)) return !declaration.parent.isTypeOnly;
+    if (ts.isNamespaceExport(declaration)) return !declaration.parent.isTypeOnly;
+    if (ts.isImportEqualsDeclaration(declaration) && declaration.isTypeOnly) return false;
+  }
+  const next = checker.getImmediateAliasedSymbol(symbol);
+  return next === undefined || aliasValue(ts, checker, next, seen);
+}
+
+/** Whether a name a file imports is used anywhere in it as a value, not only in types. */
+function usedAsValue(ts: TypeScript, checker: ts.TypeChecker, sourceFile: ts.SourceFile, local: ts.Identifier): boolean {
+  // For a type used as a value the compiler may resolve the name to the import, to what the import aliases, or to
+  // nothing: each of these is the import. A name declared nearer (a parameter, a local const) resolves to its own symbol.
+  const target = checker.getSymbolAtLocation(local);
+  const binding = new Set<ts.Symbol | undefined>([undefined]);
+  for (let symbol = target; symbol && !binding.has(symbol); symbol = symbol.flags & ts.SymbolFlags.Alias ? checker.getImmediateAliasedSymbol(symbol) : undefined) binding.add(symbol);
+  let found = false;
+  const inType = (node: ts.Node) => {
+    for (let current: ts.Node | undefined = node.parent; current && !ts.isStatement(current); current = current.parent) {
+      if (ts.isTypeNode(current) || (ts.isExpressionWithTypeArguments(current) && ts.isHeritageClause(current.parent) && current.parent.token === ts.SyntaxKind.ImplementsKeyword)) return true;
+    }
+    return false;
+  };
+  // A property's or a member's name, or a label, is not a reference to a binding, whatever it resolves to.
+  const isMemberName = (node: ts.Identifier) => {
+    const parent = node.parent;
+    return (
+      ((ts.isPropertyAccessExpression(parent) || ts.isPropertyAssignment(parent) || ts.isPropertyDeclaration(parent) || ts.isMethodDeclaration(parent) || ts.isGetAccessor(parent) || ts.isSetAccessor(parent) || ts.isEnumMember(parent)) && parent.name === node) ||
+      (ts.isBindingElement(parent) && parent.propertyName === node) ||
+      ((ts.isLabeledStatement(parent) || ts.isBreakOrContinueStatement(parent)) && parent.label === node)
+    );
+  };
+  const visit = (node: ts.Node): void => {
+    if (found || ts.isImportDeclaration(node)) return;
+    if (ts.isIdentifier(node) && node.text === local.text && !inType(node) && !isMemberName(node) && binding.has(checker.getSymbolAtLocation(node))) found = true;
+    else ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
+}
 
 /** The names that follow a tag anywhere in a text: what a file that cannot be parsed was, by the look of it, trying to link. */
 function namesAfterTag(text: string, tag: string): string[] {
@@ -313,6 +503,8 @@ function specifierFor(overlay: Overlay, fromFile: string, target: string): strin
 function readTests(
   ts: TypeScript,
   program: ts.Program,
+  overlay: Pick<Overlay, "resolveFrom">,
+  root: string,
   convert: Converter,
   adapter: TestAdapter,
   files: readonly TaggedFile[],
@@ -334,6 +526,8 @@ function readTests(
     }
     const read = readTestDeclarations(ts, checker, sourceFile, file, adapter);
     diagnostics.push(...read.diagnostics);
+    // A file with a broken import cannot be relied on to run any of its tests, whatever each one's own text says.
+    const broken = read.tests.length > 0 ? brokenImport(ts, program, checker, overlay, root, sourceFile, file, adapter) : undefined;
     rejected.push(...read.rejected);
     // An unknown contract is reported once, at its `@tests`; what the tests under it cover is then not looked at.
     for (const context of read.contexts) for (const name of context.contracts) if (!contracts.has(name)) diagnostics.push(unknownContract("tests", name, context.location));
@@ -373,7 +567,8 @@ function readTests(
       // A test that covers nothing of a named contract is still its declaration when it is the only one named: it is counted, and reviewed, there.
       for (const [name, ids] of covers) {
         if (ids.length === 0 && named.length > 1) continue;
-        tests.push({ title: test.title, suitePath: test.suitePath, adapter, contract: name, covers: ids, location: test.location });
+        const state = broken ? { status: "broken-import" as const, inactiveBecause: `its file has a broken import: ${broken}` } : { status: test.status, ...(test.inactiveBecause ? { inactiveBecause: test.inactiveBecause } : {}) };
+        tests.push({ title: test.title, suitePath: test.suitePath, adapter, contract: name, covers: ids, ...state, setup: test.setup, location: test.location });
       }
     }
   }
