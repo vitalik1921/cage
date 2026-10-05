@@ -49,10 +49,15 @@ export interface CheckReport {
     weakInvariants: number | null;
     /** Contracts whose fresh review has a finding about the contract as a whole that is not adequate. */
     weakContracts: number | null;
+    /** Invariants of contracts whose material as it is now was accepted without a review (`cage review --accept`): nothing attests them. */
+    acceptedInvariants: number | null;
+    /** Contracts accepted without a review for their material as it is now. */
+    acceptedContracts: number | null;
   };
   /**
    * `review`: what a fresh recorded review says about the invariant — `adequate`, `weak`, `unrelated`, `insufficient-context` —
-   * or null when there is no fresh review of its contract (or reviews are not checked).
+   * `accepted` when its contract's material was accepted without a review, or null when there is no fresh record of its
+   * contract (or reviews are not checked).
    */
   invariants: { contract: string; id: string; member: string | null; linkedTestCount: number | null; activeTestCount: number | null; review: string | null }[] | null;
   /**
@@ -76,6 +81,11 @@ export interface CheckReport {
     data: { name: string; module: string; description: string | null; lock: LockLevel | null; location: SourceLocation }[];
     edges: Edge[];
   } | null;
+  /**
+   * What `maxDiagnostics` left out of `diagnostics`: how many, of which severity and of which code. `limit` is null when
+   * no limit was applied, and then nothing is left out. The counts and `ok` are of every diagnostic, shown or not.
+   */
+  omitted: { limit: number | null; count: number; errors: number; warnings: number; byCode: Record<string, number> };
   diagnostics: Diagnostic[];
 }
 
@@ -117,7 +127,9 @@ export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lo
   }
   const linkedTestCount = (contract: string, id: string) => (linking ? testsLinkedTo(linking.tests, contract, id).length : null);
   const reviewOf = (contract: string, id: string): string | null => {
-    const findings = reviewStatus?.get(contract)?.findings ?? null;
+    const status = reviewStatus?.get(contract);
+    if (status?.accepted) return "accepted";
+    const findings = status?.findings ?? null;
     if (!findings) return null;
     // The worst finding about the invariant counts; a finding about the contract as a whole does not stand in for one.
     const about = findings.filter((finding) => finding.invariant === id).map((finding) => finding.assessment);
@@ -152,8 +164,11 @@ export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lo
       uncheckedInvariants: linking?.uncheckedInvariants ?? null,
       // A linked test is a tag; whether it proves anything is what the review says. Null when reviews are not checked.
       reviewedInvariants: reviewStatus && invariants ? invariants.filter((invariant) => invariant.review === "adequate").length : null,
-      weakInvariants: reviewStatus && invariants ? invariants.filter((invariant) => invariant.review !== null && invariant.review !== "adequate").length : null,
+      weakInvariants: reviewStatus && invariants ? invariants.filter((invariant) => invariant.review !== null && invariant.review !== "adequate" && invariant.review !== "accepted").length : null,
       weakContracts: reviewStatus ? [...reviewStatus.values()].filter(({ findings }) => findings?.some((finding) => finding.invariant === null && finding.assessment !== "adequate")).length : null,
+      // An acceptance is a record, not an attestation: it is counted apart from what a reviewer found adequate.
+      acceptedInvariants: reviewStatus && invariants ? invariants.filter((invariant) => invariant.review === "accepted").length : null,
+      acceptedContracts: reviewStatus ? [...reviewStatus.values()].filter(({ accepted }) => accepted).length : null,
     },
     invariants,
     index: index
@@ -172,6 +187,7 @@ export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lo
           edges: index.edges,
         }
       : null,
+    omitted: { limit: null, count: 0, errors: 0, warnings: 0, byCode: {} },
     diagnostics,
   };
 }

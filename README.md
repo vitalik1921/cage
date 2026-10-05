@@ -216,10 +216,11 @@ Run `npx cage check`. It reports, with file and line, every contract with no imp
 | `cage check --phase design` | Specs only — while you write them. |
 | `cage review` | For every contract whose review is missing or outdated: its spec, code and tests in one document, with instructions for the reviewer and the answer format. |
 | `cage review --record <file>` | Saves the reviewer's verdict in `.cage/review.json`. From then on `check` wants an up-to-date one for every contract. |
+| `cage review --accept` | Takes the current spec, code and tests of every unreviewed contract as accepted, without a verdict: `check` asks for a review only when they change, and counts them apart from reviewed ones. For a person adopting Cage on an existing project; `--all` includes the reviewed contracts too. |
 | `cage lock` | Freezes the contracts marked `@final` (no changes) or `@extendable` (additions only); `check` refuses other changes. |
 | `cage gate` | `check` for the agent's Stop hook: errors and missing or outdated reviews go back to the agent. `init` wires it up. |
 
-`--root <dir>` for a project inside a monorepo; `--format json` for machines (`check`, `lock`, `init` and `review --record` print `text` by default, the `review` packet `markdown`). In CI, `cage check --base origin/main` also refuses a lock that was lifted on the branch.
+`--root <dir>` for a project inside a monorepo; `--format json` for machines (`check`, `lock`, `init`, `review --record` and `review --accept` print `text` by default, the `review` packet `markdown`). In CI, `cage check --base origin/main` also refuses a lock that was lifted on the branch. `check` and `gate` show the 50 diagnostics that matter most and count the rest by code, so that a long report does not drown an agent: `--max-diagnostics <n|all>`, or `maxDiagnostics` in the configuration.
 
 ## The loop with an agent
 
@@ -242,13 +243,15 @@ The rules the agent needs are in the `CLAUDE.md` / `AGENTS.md` section that `ini
   "tests": ["src/**/*.test.ts", "tests/**/*.test.ts"],
   "testAdapter": "node:test",
   "review": "warn",
-  "coverage": "warn"
+  "coverage": "warn",
+  "maxDiagnostics": 50
 }
 ```
 
 - `testAdapter`: `node:test` or `vitest`.
 - `review`: a contract without an up-to-date review is a warning (`warn`), an error (`require`) or nothing (`off`). The Stop hook returns a missing or outdated review to the agent either way; a weak verdict only under `require`.
 - `coverage`: exported code of a module with a spec but without `@implements` is a warning, an error, or not looked at. A `.cageignore` next to the spec lists files that need none.
+- `maxDiagnostics`: how many diagnostics `check` and `gate` show at most (`50`, or `"all"`); errors come before warnings, missing or outdated reviews before the rest, and what is left out is counted by code. The exit code and the summary are of everything found.
 - `reviewDependencies` (`{ "depth": 3, "maxFiles": 40, "exclude": [] }` by default): how far a review's fingerprint follows local imports from the implementation and test files. Type-only imports, `node_modules`, files outside the project, declaration files and `exclude` patterns are not followed. Files beyond the bounds are reported (`REVIEW_SCOPE_LIMIT`, an error under `review: "require"`). An e2e spec that boots the whole application (a NestJS `AppModule`) reaches every file: exclude that entry point, e.g. `"exclude": ["src/app.module.ts"]`, and the fingerprint keeps to what the contract's code imports.
 
 Commit `.cage/` (config, frozen contracts, reviews) and `.cageignore` with the specs.

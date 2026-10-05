@@ -60,6 +60,7 @@ test("init writes the configuration with the detected runner and the Claude Code
     testAdapter: "vitest",
     review: "warn",
     coverage: "warn",
+    maxDiagnostics: 50,
   });
   assert.deepEqual(settings(root), { hooks: { Stop: [{ hooks: [{ type: "command", command: GATE, timeout: 180 }] }] } });
   assert.ok(readFile(root, "CLAUDE.md").startsWith("<!-- cage:rules -->\n# Contract harness\n"));

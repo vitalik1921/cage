@@ -18,6 +18,12 @@ export interface Config {
   coverage: "off" | "warn" | "require";
   /** How far a review's fingerprint follows the local files that implementations and tests import. */
   reviewDependencies: ReviewDependencies;
+  /**
+   * How many diagnostics the report of `check` and the feedback of `gate` show at most; the rest is counted by code. What
+   * matters most is kept: configuration and environment errors, then errors, then missing or outdated reviews. `"all"`
+   * shows every one.
+   */
+  maxDiagnostics: number | "all";
 }
 
 /**
@@ -45,7 +51,14 @@ export const defaultConfig: Config = {
   review: "warn",
   coverage: "warn",
   reviewDependencies: { depth: 3, maxFiles: 40, exclude: [] },
+  maxDiagnostics: 50,
 };
+
+/** The bound of `maxDiagnostics`: a report longer than this is for a machine, which reads the JSON with `"all"`. */
+export const MAX_DIAGNOSTICS_LIMIT = 10000;
+
+/** `maxDiagnostics` as written in the configuration or on the command line: a whole number from 0 to the bound, or "all". */
+export const isMaxDiagnostics = (value: unknown): value is Config["maxDiagnostics"] => value === "all" || (Number.isInteger(value) && (value as number) >= 0 && (value as number) <= MAX_DIAGNOSTICS_LIMIT);
 
 export interface LoadedConfig {
   config: Config;
@@ -105,6 +118,7 @@ const fields: Record<keyof Config, { expected: string; valid: (value: unknown) =
       return Object.keys(rest).length === 0 && whole(depth, 10) && whole(maxFiles, 1000) && (exclude === undefined || isTextList(exclude));
     },
   },
+  maxDiagnostics: { expected: `a whole number from 0 to ${MAX_DIAGNOSTICS_LIMIT}, or "all"`, valid: isMaxDiagnostics },
 };
 
 function validate(value: unknown): string[] {

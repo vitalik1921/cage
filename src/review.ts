@@ -56,12 +56,13 @@ export interface ContractPacket {
   /**
    * What `.cage/review.json` holds for the contract: no verdict, a verdict for
    * other material, one for this material with the count of each assessment
-   * (of the invariants, and of the contract as a whole apart), or "unknown"
+   * (of the invariants, and of the contract as a whole apart), an acceptance
+   * of this material without a review (`cage review --accept`), or "unknown"
    * when the file cannot be used. A verdict is a reviewer's assessment, not a
-   * proof and not a test run.
+   * proof and not a test run; an acceptance is not even that.
    */
   recordedReview: {
-    status: "none" | "outdated" | "current" | "unknown";
+    status: "none" | "outdated" | "current" | "accepted" | "unknown";
     assessments: Record<Assessment, number> | null;
     contractAssessments: Record<Assessment, number> | null;
   };
@@ -282,6 +283,7 @@ function recordedReviewOf(unusable: boolean, prior: ReviewEntry | undefined, fin
   if (unusable) return { status: "unknown", assessments: null, contractAssessments: null };
   if (!prior) return { status: "none", assessments: null, contractAssessments: null };
   if (prior.fingerprint !== fingerprint) return { status: "outdated", assessments: null, contractAssessments: null };
+  if (prior.accepted) return { status: "accepted", assessments: null, contractAssessments: null };
   return { status: "current", ...countAssessments(prior.findings) };
 }
 
@@ -374,6 +376,7 @@ function statusLines(packet: ContractPacket): string[] {
   if (status === "none") lines.push(`- ${STATUS.unknown} Recorded review: none — adequacy is not attested; record a verdict with \`cage review --record\``);
   else if (status === "outdated") lines.push(`- ${STATUS.problem} Recorded review: outdated — it is for other material; the adequacy of this material is not attested`);
   else if (status === "unknown") lines.push(`- ${STATUS.unknown} Recorded review: not known — the review file cannot be used; see Diagnostics`);
+  else if (status === "accepted") lines.push(`- ${STATUS.unknown} Recorded review: none — this material was accepted without a review (\`cage review --accept\`); adequacy is not attested; record a verdict with \`cage review --record\``);
   else {
     const listed = (counts: Record<Assessment, number>) => ASSESSMENTS.filter((assessment) => counts[assessment] > 0).map((assessment) => `${counts[assessment]} ${assessment}`).join(", ");
     const invariants = assessments ? listed(assessments) : "";
@@ -394,7 +397,7 @@ export function formatReviewMarkdown(report: ReviewReport): string {
   const lines: string[] = ["# Design review", "", report.instruction, ""];
   if (!report.complete) lines.push("> The check found errors; they are listed with each contract. Part of the material below has been rejected by the harness.", "");
   if (report.contracts.length === 0) {
-    lines.push(report.selection === "needed" && report.ok ? `${STATUS.ok} No contract needs a review: none is without a recorded review of its current material. \`cage review --all\` exports every contract.` : "No contract to review.", "");
+    lines.push(report.selection === "needed" && report.ok ? `${STATUS.ok} No contract needs a review: each has a recorded verdict, or an acceptance without a review, of its material as it is now. \`cage review --all\` exports every contract.` : "No contract to review.", "");
   } else {
     lines.push(`Status: ${STATUS.ok} known and in order · ${STATUS.attention} needs a look · ${STATUS.problem} missing, outdated or an error · ${STATUS.unknown} not done or not known by cage.`, "Collected material is not judged material: adequacy comes only from a recorded verdict, and no line here says that a test passed.", "");
   }

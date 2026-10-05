@@ -159,7 +159,7 @@ test("with every contract reviewed, the default packet says so instead of an emp
   }));
   writeFile(vertical, "verdicts.json", JSON.stringify({ version: 1, verdicts }));
   assert.equal(cli(vertical, "review", "--record", "verdicts.json").code, 0);
-  assert.match(cli(vertical, "review").stdout, /^✓ No contract needs a review: none is without a recorded review of its current material\. `cage review --all` exports every contract\.$/m);
+  assert.match(cli(vertical, "review").stdout, /^✓ No contract needs a review: each has a recorded verdict, or an acceptance without a review, of its material as it is now\. `cage review --all` exports every contract\.$/m);
 });
 
 test("format and path options are checked against the command they are given to", (t) => {

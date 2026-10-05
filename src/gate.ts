@@ -5,7 +5,7 @@ import path from "node:path";
 import { runCheck, type CheckOptions } from "./check.ts";
 import { isError } from "./diagnostic.ts";
 import type { ImplementationPhaseOptions } from "./implementation-phase.ts";
-import { formatCheckReport } from "./report.ts";
+import { formatCheckReport, limitCheckReport } from "./report.ts";
 
 /** How many times in one session the gate blocks before it lets the agent stop with the report. */
 export const MAX_BLOCKS = 3;
@@ -54,9 +54,12 @@ export interface GateResult {
  * the report and the way out go to the agent as feedback. A check that
  * still fails after `MAX_BLOCKS` blocks in one session lets the agent stop,
  * with the report: a check the agent cannot fix must not hold the session
- * forever. Blocks are counted in a file of the temporary directory.
+ * forever. Blocks are counted in a file of the temporary directory. The
+ * feedback shows at most `maxDiagnostics`, the ones that matter most, so
+ * that a long report does not drown the agent; what blocks is counted
+ * over all of them.
  */
-export function runGate(options: ImplementationPhaseOptions, checkOptions: CheckOptions, input: HookInput): GateResult {
+export function runGate(options: ImplementationPhaseOptions, checkOptions: CheckOptions, input: HookInput, maxDiagnostics: number | "all" = "all"): GateResult {
   const report = runCheck(options, "implementation", checkOptions);
   // A missing or stale review blocks at any level: a change needs a fresh second look. A weak finding is a recorded judgement;
   // it blocks only where the project requires reviews to be adequate, and then it is an error like any other.
@@ -76,7 +79,7 @@ export function runGate(options: ImplementationPhaseOptions, checkOptions: Check
     return { exitCode: 0, feedback: "cage gate: no *.cage.mdx design yet, nothing to check.\n" };
   }
 
-  const text = formatCheckReport(report);
+  const text = formatCheckReport(limitCheckReport(report, maxDiagnostics));
   let blocks = 0;
   try {
     blocks = Number(fs.readFileSync(counter, "utf8")) || 0;

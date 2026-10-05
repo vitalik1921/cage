@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **`check` and `gate` show at most 50 diagnostics** — the ones that matter most: configuration and environment errors, then errors, then missing or outdated reviews, then the rest, in the report's order — and count what is left out by code in one line (`7 more not shown (4 W_REVIEW_MISSING, 3 W_NO_INVARIANTS): …`), so that a long report does not drown an agent. The exit code, the counts and the summary are of everything found. `"maxDiagnostics"` in `.cage/config.json` (a whole number or `"all"`; `init` writes 50, which an older `cage-ts` rejects as an unknown field: pin the version that ran `init`) and `--max-diagnostics <n|all>` for one run; the JSON report has `omitted`.
+- **`cage review --accept`** takes the material of every contract without a fresh record as accepted without a review: an entry in `.cage/review.json` with the fingerprint, `"accepted": true` and no findings. `check` asks for no review of it until the material changes, then reports the acceptance as outdated and asks for a review; it counts acceptances apart from what a reviewer attested (`counts.acceptedInvariants`, `counts.acceptedContracts`, `review: "accepted"` per invariant, `N contracts accepted without review (M invariants)` in the summary), and the packet's status says that adequacy is not attested. Names and `--all` replace recorded verdicts too; without names a fresh verdict is kept. For a person adopting cage on an existing project; the rules for the agent say not to run it on its own.
+
 ## 0.2.6
 
 What the audits of 0.2.5 found: a required review stayed fresh while behaviour changed, and invariants linked only to tests that never run passed.

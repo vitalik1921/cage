@@ -63,7 +63,10 @@ export interface Finding {
   suggestedChange: string | null;
 }
 
-/** A recorded verdict: what was reviewed, by digest, and what the reviewer found. */
+/**
+ * A recorded verdict: what was reviewed, by digest, and what the reviewer found. Or, with `accepted`, an acceptance:
+ * the material as it was, taken as reviewed without a verdict (`cage review --accept`), with no findings.
+ */
 export interface ReviewEntry {
   module: string;
   contract: string;
@@ -71,6 +74,8 @@ export interface ReviewEntry {
   /** Digest of each part of the material, by key: `contract`, `implementation <file>#<name>`, `test <file>:<title>`. */
   material: Record<string, string>;
   findings: Finding[];
+  /** Present and true only for an acceptance: nobody judged the material, and nothing attests the tests. */
+  accepted?: true;
 }
 
 const isTextOrNull = (value: unknown): value is string | null => value === null || isText(value);
@@ -83,9 +88,11 @@ function isFinding(value: unknown): value is Finding {
 
 function isEntry(value: unknown): value is ReviewEntry {
   if (typeof value !== "object" || value === null) return false;
-  const { module, contract, fingerprint, material, findings } = value as Record<string, unknown>;
+  const { module, contract, fingerprint, material, findings, accepted } = value as Record<string, unknown>;
   const isMaterial = typeof material === "object" && material !== null && Object.values(material).every(isText);
-  return isText(module) && isText(contract) && isText(fingerprint) && isMaterial && Array.isArray(findings) && findings.every(isFinding);
+  // An acceptance has no findings: a finding is a judgement, and nobody made one.
+  const isAcceptance = accepted === undefined || (accepted === true && Array.isArray(findings) && findings.length === 0);
+  return isText(module) && isText(contract) && isText(fingerprint) && isMaterial && Array.isArray(findings) && findings.every(isFinding) && isAcceptance;
 }
 
 /** The recorded reviews; none when there is no review file yet. */
@@ -153,10 +160,12 @@ export function scopeDiagnostics(material: Material, level: "warn" | "require"):
   return diagnostics;
 }
 
-/** What is recorded about a contract, as `check` sees it: a fresh verdict with its findings, or none. */
+/** What is recorded about a contract, as `check` sees it: a fresh verdict with its findings, a fresh acceptance, or none. */
 export interface ReviewStatus {
   /** A recorded verdict for the material as it is now. Null when there is none, or it is for other material. */
   findings: Finding[] | null;
+  /** The material as it is now was accepted without a review: `check` asks for none, and nothing attests the tests. */
+  accepted: boolean;
 }
 
 export interface ReviewCheck {
@@ -187,7 +196,7 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
   for (const contract of index.contracts) {
     const subject = `contract "${contract.name}"`;
     const entry = reviews.entries.find((candidate) => candidate.module === contract.module && candidate.contract === contract.name);
-    status.set(contract.name, { findings: null });
+    status.set(contract.name, { findings: null, accepted: false });
     if (!entry) {
       diagnostics.push({
         code: code("MISSING"),
@@ -210,16 +219,18 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
       // A changed declaration is a changed promise: whoever imports its implementation from outside the module relies on the old one.
       const users = changed.includes("contract") && result.compiler ? externalUses(root, result.compiler.ts, result.compiler.overlay, material.implementations, contract.module, contract.members.map((member) => member.name), sourceFiles) : [];
       const outside = users.length > 0 ? ` The contract changed and is used outside its module by ${users.map((use) => `${use.file}:${use.line}${use.members.length > 0 ? ` (${use.members.join(", ")})` : ""}`).join(", ")}: they rely on the old promise.` : "";
+      // An acceptance was never a review: what is asked for is a review, not another acceptance.
+      const record = entry.accepted ? `The acceptance of ${subject} (recorded without a review) is for other material; ${since}. Review it.` : `The recorded review of ${subject} is for other material; ${since}. Review it again.`;
       diagnostics.push({
         code: code("STALE"),
         severity,
-        message: `The recorded review of ${subject} is for other material; ${since}. Review it again.${outside}`,
+        message: `${record}${outside}`,
         ...contract.location,
         contract: contract.name,
       });
       continue;
     }
-    status.set(contract.name, { findings: entry.findings });
+    status.set(contract.name, { findings: entry.accepted ? null : entry.findings, accepted: entry.accepted === true });
     for (const finding of entry.findings) {
       if (finding.assessment === "adequate") continue;
       const invariant = finding.invariant === null ? undefined : index.invariants.find((candidate) => candidate.contract === contract.name && candidate.id === finding.invariant);
@@ -386,6 +397,135 @@ export function recordVerdicts(options: ImplementationPhaseOptions, verdictsFile
     return report([]);
   }
   return report(recorded);
+}
+
+export interface AcceptReport {
+  schemaVersion: 1;
+  command: "review";
+  ok: boolean;
+  file: string;
+  /** "needed": the contracts without a record of their current material; the default. */
+  selection: "all" | "named" | "needed";
+  /** `replaced`: what the acceptance took the place of — a verdict or an acceptance, for this material (`current`) or for other material. */
+  accepted: { module: string; contract: string; fingerprint: string; invariants: number; replaced: { kind: "verdict" | "acceptance"; current: boolean } | null }[];
+  /** Contracts left with their record: a verdict or an acceptance for the material as it is now that the selection did not replace. */
+  kept: { module: string; contract: string; record: "verdict" | "acceptance" }[];
+  /** Entries of contracts that no longer exist, taken out of the file. */
+  removed: { module: string; contract: string }[];
+  diagnostics: Diagnostic[];
+}
+
+/**
+ * `cage review --accept`: records, for each selected contract, that its
+ * material as it is now is taken as reviewed without a verdict. `check`
+ * then asks for no review of it until the material changes, and counts it
+ * apart from what a reviewer attested. Without names the contracts without
+ * a fresh record are selected and a fresh verdict is kept; a named contract
+ * and `--all` replace a verdict too. An acceptance already recorded for the
+ * same material is kept as it is. Nothing is recorded when a contract is
+ * unknown or the material of one cannot be established.
+ */
+export function acceptContracts(options: ImplementationPhaseOptions, names: readonly string[] | "all" | "needed"): AcceptReport {
+  const root = path.resolve(options.root);
+  const diagnostics: Diagnostic[] = [];
+  const selection = typeof names === "string" ? names : "named";
+  const removed: AcceptReport["removed"] = [];
+  const kept: AcceptReport["kept"] = [];
+  const report = (accepted: AcceptReport["accepted"]): AcceptReport => ({
+    schemaVersion: 1,
+    command: "review",
+    ok: !hasErrors(diagnostics),
+    file: REVIEW_FILE,
+    selection,
+    accepted,
+    kept: hasErrors(diagnostics) ? [] : kept,
+    removed: hasErrors(diagnostics) ? [] : removed,
+    diagnostics: diagnostics.sort(compareDiagnostics),
+  });
+
+  const result = checkImplementationPhase(options);
+  if (!result.index || !result.linking) {
+    diagnostics.push(...result.diagnostics.filter((diagnostic) => diagnostic.severity === "error"));
+    if (!hasErrors(diagnostics)) diagnostics.push({ code: "E_ENVIRONMENT", severity: "error", message: "The implementations and tests could not be read, so the material of a review cannot be established." });
+    return report([]);
+  }
+  const existing = readReviewFile(root);
+  diagnostics.push(...existing.diagnostics);
+  if (existing.diagnostics.length > 0) return report([]);
+
+  const { index } = result;
+  let selected: typeof index.contracts;
+  if (names === "needed" || names === "all") {
+    selected = [...index.contracts];
+  } else {
+    selected = [];
+    for (const name of names) {
+      const contract = index.contracts.find((candidate) => candidate.name === name);
+      if (!contract) diagnostics.push({ code: "E_REFERENCE_UNKNOWN", severity: "error", message: `There is no contract "${name}" in the designs.` });
+      else if (!selected.includes(contract)) selected.push(contract);
+    }
+  }
+  if (hasErrors(diagnostics)) return report([]);
+  selected.sort((a, b) => compareText(a.module, b.module) || compareText(a.name, b.name));
+
+  const { read } = createFileReader(root, diagnostics);
+  const entries = new Map(existing.entries.map((entry) => [keyOf(entry), entry]));
+  const accepted: AcceptReport["accepted"] = [];
+  for (const contract of selected) {
+    const material = collectMaterial(result, contract.name, read);
+    // A fingerprint with a dependency that could not be read is not the material: nothing is recorded against it.
+    if (material.unreadable.length > 0) {
+      diagnostics.push(...scopeDiagnostics(material, "warn").filter((diagnostic) => diagnostic.code === "E_ENVIRONMENT").map((diagnostic) => ({ ...diagnostic, message: `${diagnostic.message}. The material cannot be accepted while it is not all there.` })));
+      continue;
+    }
+    const { fingerprint, digests } = fingerprintOf(material.parts);
+    const key = keyOf({ module: contract.module, contract: contract.name });
+    const prior = entries.get(key);
+    const current = prior !== undefined && prior.fingerprint === fingerprint;
+    const kind = prior?.accepted ? "acceptance" : "verdict";
+    // A fresh verdict stands unless the contract was named; a fresh acceptance is the same record and stays as it is.
+    if (prior && current && (kind === "acceptance" || names === "needed")) {
+      kept.push({ module: contract.module, contract: contract.name, record: kind });
+      continue;
+    }
+    entries.set(key, { module: contract.module, contract: contract.name, fingerprint, material: digests, findings: [], accepted: true });
+    const invariants = index.invariants.filter((invariant) => invariant.contract === contract.name).length;
+    accepted.push({ module: contract.module, contract: contract.name, fingerprint, invariants, replaced: prior ? { kind, current } : null });
+  }
+  if (hasErrors(diagnostics)) return report([]);
+  for (const [key, entry] of entries) {
+    if (index.contracts.some((contract) => contract.module === entry.module && contract.name === entry.contract)) continue;
+    entries.delete(key);
+    removed.push({ module: entry.module, contract: entry.contract });
+  }
+  if (accepted.length === 0 && removed.length === 0) return report([]);
+
+  try {
+    writeRecordFile(path.join(root, REVIEW_FILE), formatReviewFile([...entries.values()].sort((a, b) => compareText(keyOf(a), keyOf(b)))));
+  } catch (cause) {
+    diagnostics.push({ code: "E_ENVIRONMENT", severity: "error", message: `Cannot write the review file: ${(cause as Error).message}`, file: REVIEW_FILE });
+    return report([]);
+  }
+  return report(accepted);
+}
+
+export function formatAcceptReport(report: AcceptReport): string {
+  const lines = report.accepted.map((entry) => {
+    const replaced =
+      entry.replaced === null ? "no record before" : entry.replaced.current ? `replaces the ${entry.replaced.kind} for this material` : `replaces an outdated ${entry.replaced.kind}`;
+    // ○, as in the packet: the material is recorded, and nothing is known about the tests.
+    return `○ accepted  ${entry.contract} (${plural(entry.invariants, "invariant")}, ${replaced})`;
+  });
+  lines.push(...report.kept.map((entry) => `= kept      ${entry.contract} (${entry.record === "verdict" ? "a recorded verdict" : "an acceptance"} for this material)`));
+  lines.push(...report.removed.map((entry) => `- removed   ${entry.contract} (no longer in ${entry.module})`));
+  lines.push(...report.diagnostics.map(formatDiagnostic));
+  const errors = report.diagnostics.filter((diagnostic) => diagnostic.severity === "error").length;
+  const kept = report.kept.length > 0 ? `, ${report.kept.length} kept` : "";
+  const removed = report.removed.length > 0 ? `, ${report.removed.length} removed` : "";
+  if (errors > 0) lines.push(`review --accept: ${plural(errors, "error")}, nothing recorded.`);
+  else if (report.accepted.length === 0) lines.push(`review --accept: nothing to accept${kept}${removed}${report.selection === "needed" ? ": every contract has a record of its material as it is now" : ""}.`);
+  else lines.push(`review --accept: ${report.accepted.length} accepted without a review${kept}${removed} in ${report.file}; check asks for no review of their material as it is now, and nothing attests that their tests check the invariants.`);
+  return `${lines.join("\n")}\n`;
 }
 
 /** The assessments of a verdict, counted over the invariants and over the contract as a whole apart. */

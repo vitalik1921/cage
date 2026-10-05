@@ -30,5 +30,5 @@ description: Review the contracts of a cage project — judge whether the tests 
 
 - You judge as a stranger would, also when you wrote the code or the tests under review. The verdict is recorded and read by others.
 - `adequate` needs evidence: name the test and what it asserts. "The test exists" is not evidence.
-- Never lower an assessment, remove or soften an invariant, or edit `.cage/review.json` by hand to make the check pass.
+- Never lower an assessment, remove or soften an invariant, or edit `.cage/review.json` by hand to make the check pass. `cage review --accept` is not a review: it records the material as accepted without a verdict, and only a person decides that; do not run it unless asked to.
 - Do not run the project's tests to decide; this is a reading of what the tests would prove, not whether they pass today.

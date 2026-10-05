@@ -2,15 +2,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { runCheck } from "./check.ts";
-import { loadConfig } from "./config.ts";
+import { isMaxDiagnostics, loadConfig, MAX_DIAGNOSTICS_LIMIT, type Config } from "./config.ts";
 import { isError, type Diagnostic } from "./diagnostic.ts";
 import { discoverDesigns, discoverSources } from "./discovery.ts";
 import { parseHookInput, runGate } from "./gate.ts";
 import { formatInitReport, runInit, type Agent } from "./init.ts";
 import { runLock } from "./lock-command.ts";
-import { formatRecordReport, recordVerdicts } from "./review-record.ts";
+import { acceptContracts, formatAcceptReport, formatRecordReport, recordVerdicts } from "./review-record.ts";
 import { formatReviewMarkdown, runReview } from "./review.ts";
-import { formatCheckReport, formatLockReport } from "./report.ts";
+import { formatCheckReport, formatLockReport, limitCheckReport } from "./report.ts";
 
 export interface CliIo {
   cwd: string;
@@ -38,6 +38,10 @@ Commands:
   review [name...]      The material of the named contracts for a reviewer: markdown (default) or json;
                         without names, the contracts without a fresh recorded review; --all for every contract
   review --record <f>   Record the verdicts in <f> (json, the shape the review asks for; relative to the current directory) in .cage/review.json
+  review --accept [name...]
+                        Accept the material of the contracts as it is now without a review, in .cage/review.json: check asks for none
+                        until it changes, and counts them apart from reviewed ones. Without names, every contract in need of a review;
+                        --all for every contract, replacing recorded verdicts too
   gate                  Stop hook for an agent's environment: the full check; errors and review findings block (exit 2,
                         report and guidance on stderr); after 3 blocks in one session the agent may stop. Reads the hook's JSON on stdin
 
@@ -45,6 +49,9 @@ Options:
   --root <path>     Project root (default: the current directory)
   --config <path>   Configuration file, relative to the project root (default: .cage/config.json if present)
   --format <format> Report format: text (default) or json; for review markdown (default) or json
+  --max-diagnostics <n|all>
+                    check, gate: show at most n diagnostics, the ones that matter most, and count the rest by code
+                    (default: "maxDiagnostics" in the configuration, 50)
   --all             review: every contract, not only those in need of a review
   --agent <name>    init: claude, codex or none; may be repeated (claude and codex)
   --test-adapter <name>  init: node:test or vitest (default: vitest when package.json depends on it)
@@ -89,6 +96,8 @@ function run(argv: readonly string[], io: CliIo): number {
         base: { type: "string" },
         all: { type: "boolean" },
         record: { type: "string" },
+        accept: { type: "boolean" },
+        "max-diagnostics": { type: "string" },
         agent: { type: "string", multiple: true },
         "test-adapter": { type: "string" },
         help: { type: "boolean", short: "h" },
@@ -128,6 +137,10 @@ function run(argv: readonly string[], io: CliIo): number {
   if (command !== "review" && values.record !== undefined) throw new UsageError("--record is an option of the review command.");
   if (values.record !== undefined && (values.all || extra.length > 0)) throw new UsageError("--record takes the verdicts file only; the contracts are those in it.");
   if (values.record !== undefined && values.record.trim() === "") throw new UsageError("--record needs the path of a verdicts file.");
+  if (command !== "review" && values.accept) throw new UsageError("--accept is an option of the review command.");
+  if (values.accept && values.record !== undefined) throw new UsageError("--accept records acceptances, --record a reviewer's verdicts; pass one of them.");
+  if (command !== "check" && command !== "gate" && values["max-diagnostics"] !== undefined) throw new UsageError("--max-diagnostics is an option of the check and gate commands.");
+  const maxDiagnostics = parseMaxDiagnostics(values["max-diagnostics"]);
   if (command !== "check" && values.phase !== undefined) throw new UsageError("--phase is an option of the check command.");
   if (command !== "check" && command !== "gate" && values.base !== undefined) throw new UsageError("--base is an option of the check and gate commands.");
   if (command === "gate" && values.format !== undefined) throw new UsageError("gate has no --format: its report goes to the agent as text.");
@@ -140,10 +153,10 @@ function run(argv: readonly string[], io: CliIo): number {
     }
   }
 
-  const formats = command === "review" && values.record === undefined ? ["markdown", "json"] : ["text", "json"];
+  const formats = command === "review" && values.record === undefined && !values.accept ? ["markdown", "json"] : ["text", "json"];
   const format = values.format ?? formats[0];
   if (!formats.includes(format)) {
-    const what = command === "review" ? (values.record === undefined ? "the review packet" : "review --record") : command;
+    const what = command === "review" ? (values.accept ? "review --accept" : values.record === undefined ? "the review packet" : "review --record") : command;
     throw new UsageError(`Unknown format "${format}" for ${what}; expected ${formats.join(" or ")}.`);
   }
 
@@ -188,7 +201,10 @@ function run(argv: readonly string[], io: CliIo): number {
     // The design phase does not look at source files, so it does not search for them either.
     const sources = phase === "design" || diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
     const report = runCheck({ ...scope, sources, testAdapter: config.testAdapter, coverage: config.coverage, reviewScope }, phase, { lockBase: values.base, review: config.review });
-    return print(report, formatCheckReport(report));
+    // What is shown is limited; the exit code is of everything that was found.
+    const shown = limitCheckReport(report, maxDiagnostics ?? config.maxDiagnostics);
+    io.stdout(format === "json" ? `${JSON.stringify(shown, null, 2)}\n` : formatCheckReport(shown));
+    return exitCode(report.diagnostics);
   }
   if (command === "lock") {
     const report = runLock(scope);
@@ -196,7 +212,7 @@ function run(argv: readonly string[], io: CliIo): number {
   }
   if (command === "gate") {
     const sources = diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
-    const { exitCode, feedback } = runGate({ ...scope, sources, testAdapter: config.testAdapter, coverage: config.coverage, reviewScope }, { lockBase: values.base, review: config.review }, parseHookInput(io.stdin));
+    const { exitCode, feedback } = runGate({ ...scope, sources, testAdapter: config.testAdapter, coverage: config.coverage, reviewScope }, { lockBase: values.base, review: config.review }, parseHookInput(io.stdin), maxDiagnostics ?? config.maxDiagnostics);
     if (feedback !== "") io.stderr(feedback);
     return exitCode;
   }
@@ -206,6 +222,10 @@ function run(argv: readonly string[], io: CliIo): number {
     if (values.record !== undefined) {
       const report = recordVerdicts(phaseOptions, path.resolve(io.cwd, values.record));
       return print(report, formatRecordReport(report));
+    }
+    if (values.accept) {
+      const report = acceptContracts(phaseOptions, extra.length > 0 ? extra : values.all ? "all" : "needed");
+      return print(report, formatAcceptReport(report));
     }
     const report = runReview(phaseOptions, extra.length > 0 ? extra : values.all ? "all" : "needed");
     io.stdout(format === "json" ? `${JSON.stringify(report, null, 2)}\n` : formatReviewMarkdown(report));
@@ -241,6 +261,15 @@ function askAgents(io: CliIo, ask: (question: string) => string | null): Agent[]
     // What was typed is shown escaped: a stray control sequence does not reach the terminal.
     io.stderr(key === "" ? "There is no default; type one of the choices.\n" : `${JSON.stringify(answer.trim().slice(0, 40))} is not one of the choices.\n`);
   }
+}
+
+/** `--max-diagnostics` as typed: a whole number or "all"; undefined when not given, so that the configuration decides. */
+function parseMaxDiagnostics(given: string | undefined): Config["maxDiagnostics"] | undefined {
+  if (given === undefined) return undefined;
+  const text = given.trim();
+  const value = text === "all" ? "all" : /^\d+$/.test(text) ? Number(text) : text;
+  if (!isMaxDiagnostics(value)) throw new UsageError(`--max-diagnostics needs a whole number from 0 to ${MAX_DIAGNOSTICS_LIMIT}, or all; got "${given}".`);
+  return value;
 }
 
 /** 2 when the configuration or environment is unusable, 1 for any other error, 0 otherwise. */

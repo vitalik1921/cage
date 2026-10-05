@@ -94,7 +94,7 @@ export function runInit(options: InitOptions): InitReport {
     const testAdapter = options.testAdapter ?? detectTestAdapter([root, repository]);
     // NestJS projects name their end-to-end tests `*.e2e-spec.ts`; they are tests, not code.
     const tests = testAdapter === "vitest" ? ["src/**/*.{test,spec,e2e-spec}.ts", "tests/**/*.{test,spec,e2e-spec}.ts"] : ["src/**/*.test.ts", "tests/**/*.test.ts"];
-    put(configFile, `${JSON.stringify({ version: 1, tests, testAdapter, review: "warn", coverage: "warn" }, null, 2)}\n`, () => undefined, false);
+    put(configFile, `${JSON.stringify({ version: 1, tests, testAdapter, review: "warn", coverage: "warn", maxDiagnostics: 50 }, null, 2)}\n`, () => undefined, false);
   } else {
     files.push({ path: shown(configFile), status: "kept" });
   }
