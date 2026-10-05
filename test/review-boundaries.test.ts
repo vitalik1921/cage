@@ -71,7 +71,7 @@ function outsideLink(t: TestContext, preserveSymlinks: boolean): void {
   assert.ok(!packet.fingerprinted.includes(`${QUOTA_DIR}/linked.ts`));
   assert.ok(!packet.diagnostics.some(({ code }) => code === "E_ENVIRONMENT"), JSON.stringify(packet.diagnostics));
   // Said, not silent: the helper at the packet; the hole in the fingerprint is check's to say, not the packet's.
-  assert.ok(packet.diagnostics.some(({ code, file, message }) => code === "W_OUTSIDE_ROOT" && file === `${QUOTA_DIR}/linked.ts` && /outside the project/.test(message)), JSON.stringify(packet.diagnostics));
+  assert.ok(packet.diagnostics.some(({ code, file, message }) => code === "W_OUTSIDE_ROOT" && file === `${QUOTA_DIR}/linked.ts` && /out of the project/.test(message)), JSON.stringify(packet.diagnostics));
   assert.ok(!packet.diagnostics.some(({ code }) => code.endsWith("REVIEW_SCOPE_LIMIT")), JSON.stringify(packet.diagnostics));
 
   const recorded = record(root, adequate(), packet.fingerprint);
@@ -140,7 +140,7 @@ test("the variables of a block or a loop around a test, and the loop's header, a
   assert.deepEqual(staleOf(root), []);
   const edit = (from: string, to: string) => writeFile(root, QUOTA_TEST, fs.readFileSync(path.join(root, QUOTA_TEST), "utf8").replace(from, to));
 
-  const changed = (title: string) => new RegExp(`since then:\\n- test "${title}" \\(src/modules/quota/quota\\.test\\.ts\\) changed\\n`);
+  const changed = (title: string) => new RegExp(`^Quota\\n- test "${title}" \\(src/modules/quota/quota\\.test\\.ts\\) changed$`);
   edit("for (const left of [0])", "for (const left of [1])");
   assert.match(staleOf(root)[0] ?? "", changed("refuses"));
   assert.equal(record(root, adequate()).code, 0);
@@ -191,7 +191,7 @@ for (const layout of ["test-support", "excluded"] as const) {
     // Named from the project, not by this machine's path.
     assert.ok(!environment[0].message.includes(root), environment[0].message);
     assert.ok(report.diagnostics.some(({ code, file }) => code === "E_ENVIRONMENT" && file === second));
-    assert.match(cli(root, "review", "Quota").stdout, /- ✗ Structural check: 1 error/);
+    assert.match(cli(root, "review", "Quota").stdout, /^check: E_ENVIRONMENT /m);
 
     const refused = record(root, adequate(), report.contracts[0].fingerprint);
     assert.equal(refused.code, 2);
@@ -209,13 +209,13 @@ test("a finding without a reason, or without evidence where its assessment needs
   assert.equal(record(root, adequate()).code, 0);
   const reviewFile = fs.readFileSync(path.join(root, REVIEW_FILE));
   const cases: [string, Finding[], RegExp][] = [
-    ["blank reason", [finding("accounts", { reason: "   " }), ...adequate().slice(1)], /without a reason: `accounts`/],
-    ["empty reason", [...adequate().slice(0, 3), finding("race", { assessment: "weak", reason: "" })], /without a reason: `race`/],
-    ["null evidence on adequate", [finding("accounts", { evidence: null }), ...adequate().slice(1)], /without evidence: `accounts`/],
-    ["blank evidence on weak", [finding("accounts", { assessment: "weak", evidence: " " }), ...adequate().slice(1)], /without evidence: `accounts`/],
-    ["blank evidence on insufficient-context", [finding("accounts", { assessment: "insufficient-context", evidence: "" }), ...adequate().slice(1)], /without evidence: `accounts`/],
-    ["contract-level note without evidence", [...adequate(), finding(null, { evidence: null })], /without evidence: the contract as a whole/],
-    ["contract-level note without a reason", [...adequate(), finding(null, { assessment: "weak", reason: "\n" })], /without a reason: the contract as a whole/],
+    ["blank reason", [finding("accounts", { reason: "   " }), ...adequate().slice(1)], /no reason for `accounts`/],
+    ["empty reason", [...adequate().slice(0, 3), finding("race", { assessment: "weak", reason: "" })], /no reason for `race`/],
+    ["null evidence on adequate", [finding("accounts", { evidence: null }), ...adequate().slice(1)], /no evidence for `accounts`/],
+    ["blank evidence on weak", [finding("accounts", { assessment: "weak", evidence: " " }), ...adequate().slice(1)], /no evidence for `accounts`/],
+    ["blank evidence on insufficient-context", [finding("accounts", { assessment: "insufficient-context", evidence: "" }), ...adequate().slice(1)], /no evidence for `accounts`/],
+    ["contract-level note without evidence", [...adequate(), finding(null, { evidence: null })], /no evidence for the contract as a whole/],
+    ["contract-level note without a reason", [...adequate(), finding(null, { assessment: "weak", reason: "\n" })], /no reason for the contract as a whole/],
   ];
   for (const [name, findings, message] of cases) {
     const { code, report } = record(root, findings);

@@ -269,7 +269,7 @@ try {
     assert.notEqual(after, before);
     assert.equal(check.status, 1);
     // The code heads the diagnostic; the changed parts follow one a line.
-    assert.match(check.stdout, new RegExp(`E_REVIEW_STALE: error at [^\\n]+\\n(?:[^\\n]*\\n)*?  - test "${title}"`));
+    assert.match(check.stdout, new RegExp(`E_REVIEW_STALE: Quota \\([^\\n]+\\)\\n(?:[^\\n]*\\n)*?  - test "${title}"`));
     assert.equal(recordQuota(quotaFindings()).status, 0);
   }
   log("60-block-loop-setup", stale.join("\n"));

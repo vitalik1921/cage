@@ -134,7 +134,7 @@ function describePart(key: string): string {
  */
 export function scopeDiagnostics(material: Material, level: "warn" | "require"): Diagnostic[] {
   // A dependency that cannot be read is a hole of unknown size: the material cannot be established.
-  const diagnostics: Diagnostic[] = material.unreadable.map(({ file, message }) => ({ code: "E_ENVIRONMENT", severity: "error" as const, message: `Cannot read a dependency of the review of "${material.contract.name}": ${message}`, file, contract: material.contract.name }));
+  const diagnostics: Diagnostic[] = material.unreadable.map(({ file, message }) => ({ code: "E_ENVIRONMENT", severity: "error" as const, message: `cannot read a dependency of ${material.contract.name}: ${message}`, file, contract: material.contract.name }));
   // One file a line, five at most: the message is read, not parsed.
   const listed = (entries: Material["beyond"], why: (entry: Material["beyond"][number]) => string) => {
     const shown = entries.slice(0, 5).map((entry) => `- ${entry.file} (${why(entry)})`);
@@ -151,7 +151,7 @@ export function scopeDiagnostics(material: Material, level: "warn" | "require"):
   if (bounded.length > 0) {
     diagnostics.push(
       limit(
-        `The fingerprint of the review of contract "${material.contract.name}" stops at the bounds of \`reviewDependencies\` (${material.dependencies.length} dependency files fingerprinted); a change in these would not make the review outdated:\n${listed(bounded, ({ why }) => (why === "depth" ? "past the depth" : "past the file limit"))}\nThe bounds are the project's setting.`,
+        `${material.contract.name}, ${material.dependencies.length} dependency files fingerprinted\n${listed(bounded, ({ why }) => (why === "depth" ? "past the depth" : "past the file limit"))}`,
       ),
     );
   }
@@ -159,7 +159,7 @@ export function scopeDiagnostics(material: Material, level: "warn" | "require"):
   if (outside.length > 0) {
     diagnostics.push(
       limit(
-        `The fingerprint of the review of contract "${material.contract.name}" leaves out what lies outside the project; a change in these would not make the review outdated:\n${listed(outside, () => "a link out of the project")}\ncage does not read files outside the project.`,
+        `${material.contract.name}, files outside the project\n${listed(outside, () => "a link out of the project")}`,
       ),
     );
   }
@@ -207,7 +207,7 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
       diagnostics.push({
         code: code("MISSING"),
         severity,
-        message: `Contract "${contract.name}" has no recorded review. Run \`cage review ${contract.name}\`, have the material reviewed, and record the verdict with \`cage review --record\`.`,
+        message: `${contract.name}`,
         ...contract.location,
         contract: contract.name,
       });
@@ -223,12 +223,12 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
       // The files may all match while the recorded fingerprint does not: the entry was edited or made by other rules.
       // One part a line, ten at most: the full list is the index's (`cage review`), the message is a pointer.
       const shown = what.length > MAX_LISTED_PARTS ? [...what.slice(0, MAX_LISTED_PARTS), `and ${what.length - MAX_LISTED_PARTS} more: \`cage review ${contract.name}\` lists them`] : what;
-      const since = what.length > 0 ? `since then:\n${shown.map((item) => `- ${item}`).join("\n")}` : "its recorded fingerprint does not match its files.";
+      const since = what.length > 0 ? `\n${shown.map((item) => `- ${item}`).join("\n")}` : ": no part differs, the fingerprint does";
       // A changed declaration is a changed promise: whoever imports its implementation from outside the module relies on the old one.
       const users = changed.includes("contract") && result.compiler ? externalUses(root, result.compiler.ts, result.compiler.overlay, material.implementations, contract.module, contract.members.map((member) => member.name), sourceFiles) : [];
-      const outside = users.length > 0 ? `\nThe contract changed and is used outside its module by ${users.map((use) => `${use.file}:${use.line}${use.members.length > 0 ? ` (${use.members.join(", ")})` : ""}`).join(", ")}: they rely on the old promise.` : "";
-      // An acceptance was never a review: what is asked for is a review, not another acceptance.
-      const record = entry.accepted ? `The acceptance of ${subject} (recorded without a review) is for other material; ${since}\nReview it.` : `The recorded review of ${subject} is for other material; ${since}\nReview it again.`;
+      const outside = users.length > 0 ? `\nused outside the module by ${users.map((use) => `${use.file}:${use.line}${use.members.length > 0 ? ` (${use.members.join(", ")})` : ""}`).join(", ")}` : "";
+      // An acceptance was never a review; it is named as such.
+      const record = `${contract.name}${entry.accepted ? " (accepted without a review)" : ""}${since}`;
       diagnostics.push({
         code: code("STALE"),
         severity,
@@ -243,11 +243,11 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
       if (finding.assessment === "adequate") continue;
       const invariant = finding.invariant === null ? undefined : index.invariants.find((candidate) => candidate.contract === contract.name && candidate.id === finding.invariant);
       const about = finding.invariant === null ? "the contract as a whole" : `invariant \`${finding.invariant}\``;
-      const suggestion = finding.suggestedChange ? ` Suggested: ${finding.suggestedChange}` : "";
+      const suggestion = finding.suggestedChange ? `\nsuggested: ${finding.suggestedChange}` : "";
       diagnostics.push({
         code: code("WEAK"),
         severity,
-        message: `The review of ${subject} found ${about} ${finding.assessment}: ${finding.reason}${suggestion}`,
+        message: `${contract.name}${finding.invariant === null ? " (the contract as a whole)" : `.${finding.invariant}`} ${finding.assessment}\n${finding.reason}${suggestion}`,
         ...(invariant?.location ?? contract.location),
         contract: contract.name,
         ...(finding.invariant === null ? {} : { invariant: finding.invariant }),
@@ -260,7 +260,7 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
     diagnostics.push({
       code: code("STALE"),
       severity,
-      message: `The review file has a review of contract "${entry.contract}" of ${entry.module}, which no longer exists there. \`cage review --record\` removes it.`,
+      message: `${entry.contract} (${entry.module}) is not in the designs`,
       file: REVIEW_FILE,
     });
   }
@@ -304,7 +304,7 @@ export function recordVerdicts(options: ImplementationPhaseOptions, verdictsFile
   });
   const verdictsPath = toProjectPath(root, verdictsFile);
   const refuse = (message: string) => {
-    diagnostics.push({ code: "E_CONFIG", severity: "error", message: `The verdicts are not usable: ${message}`, file: verdictsPath });
+    diagnostics.push({ code: "E_CONFIG", severity: "error", message: `verdicts not usable: ${message}`, file: verdictsPath });
     return report([]);
   };
 
@@ -329,13 +329,13 @@ export function recordVerdicts(options: ImplementationPhaseOptions, verdictsFile
   }
   const given = parseRecordText(text, parseVerdicts);
   if (typeof given === "string") return refuse(given);
-  if (given.length === 0) return refuse("it has no verdict.");
+  if (given.length === 0) return refuse("no verdict");
 
   // The check's own findings were part of the reviewed material; only what stops the material from being established is reported here.
   const result = checkImplementationPhase(options);
   if (!result.index || !result.linking) {
     diagnostics.push(...result.diagnostics.filter((diagnostic) => diagnostic.severity === "error"));
-    if (!hasErrors(diagnostics)) diagnostics.push({ code: "E_ENVIRONMENT", severity: "error", message: "The implementations and tests could not be read, so the material of a review cannot be established." });
+    if (!hasErrors(diagnostics)) diagnostics.push({ code: "E_ENVIRONMENT", severity: "error", message: "implementations and tests not read" });
     return report([]);
   }
   const existing = readReviewFile(root);
@@ -349,39 +349,39 @@ export function recordVerdicts(options: ImplementationPhaseOptions, verdictsFile
     const contract = result.index.contracts.find((candidate) => candidate.name === verdict.contract);
     const problem = (message: string) => diagnostics.push({ code: "E_REVIEW_VERDICT", severity: "error", message, file: verdictsPath, contract: verdict.contract });
     if (!contract) {
-      diagnostics.push({ code: "E_REFERENCE_UNKNOWN", severity: "error", message: `The verdict names contract "${verdict.contract}", which is not in the designs.`, file: verdictsPath });
+      diagnostics.push({ code: "E_REFERENCE_UNKNOWN", severity: "error", message: `no contract "${verdict.contract}"`, file: verdictsPath });
       continue;
     }
     if (given.findIndex((other) => other.contract === verdict.contract) !== order) {
-      problem(`There is more than one verdict for "${contract.name}"; one contract gets one verdict.`);
+      problem(`${contract.name}: two verdicts`);
       continue;
     }
     const material = collectMaterial(result, contract.name, read);
     // A fingerprint with a dependency that could not be read is not the material: nothing is recorded against it.
     if (material.unreadable.length > 0) {
-      diagnostics.push(...scopeDiagnostics(material, "warn").filter((diagnostic) => diagnostic.code === "E_ENVIRONMENT").map((diagnostic) => ({ ...diagnostic, message: `${diagnostic.message}. The verdict cannot be recorded against material that is not all there.` })));
+      diagnostics.push(...scopeDiagnostics(material, "warn").filter((diagnostic) => diagnostic.code === "E_ENVIRONMENT").map((diagnostic) => ({ ...diagnostic, message: `${diagnostic.message}; nothing recorded` })));
       continue;
     }
     const { fingerprint, digests } = fingerprintOf(material.parts);
     if (verdict.fingerprint !== fingerprint) {
-      problem(`The verdict for "${contract.name}" is for fingerprint ${verdict.fingerprint}, but the material is now ${fingerprint}: it changed since the review. Review it again.`);
+      problem(`${contract.name}: fingerprint ${verdict.fingerprint} given, the material is ${fingerprint}`);
       continue;
     }
     const invariants = result.index.invariants.filter((invariant) => invariant.contract === contract.name).map((invariant) => invariant.id);
     const unknown = verdict.findings.filter((finding) => finding.invariant !== null && !invariants.includes(finding.invariant)).map((finding) => finding.invariant);
     const unassessed = invariants.filter((id) => !verdict.findings.some((finding) => finding.invariant === id));
-    if (unknown.length > 0) problem(`The verdict for "${contract.name}" assesses invariants it does not have: ${unknown.map((id) => `\`${id}\``).join(", ")}.`);
-    if (unassessed.length > 0) problem(`The verdict for "${contract.name}" leaves invariants unassessed: ${unassessed.map((id) => `\`${id}\``).join(", ")}.`);
-    if (invariants.length === 0 && verdict.findings.length === 0) problem(`The verdict for "${contract.name}" has no finding; a contract without invariants gets one about the contract as a whole.`);
+    if (unknown.length > 0) problem(`${contract.name}: no such invariants ${unknown.map((id) => `\`${id}\``).join(", ")}`);
+    if (unassessed.length > 0) problem(`${contract.name}: unassessed ${unassessed.map((id) => `\`${id}\``).join(", ")}`);
+    if (invariants.length === 0 && verdict.findings.length === 0) problem(`${contract.name}: no finding`);
     // A finding says why, and on what: a file and line, except one that says the context was not enough.
     const blank = (text: string | null) => text === null || text.trim() === "";
     const about = (finding: Finding) => (finding.invariant === null ? "the contract as a whole" : `\`${finding.invariant}\``);
     const named = (findings: Finding[]) => [...new Set(findings.map(about))].join(", ");
     const unreasoned = verdict.findings.filter((finding) => blank(finding.reason));
     const unevidenced = verdict.findings.filter((finding) => (finding.assessment === "insufficient-context" ? finding.evidence !== null && blank(finding.evidence) : blank(finding.evidence)));
-    if (unreasoned.length > 0) problem(`The verdict for "${contract.name}" has findings without a reason: ${named(unreasoned)}. Every finding says why.`);
+    if (unreasoned.length > 0) problem(`${contract.name}: no reason for ${named(unreasoned)}`);
     if (unevidenced.length > 0) {
-      problem(`The verdict for "${contract.name}" has findings without evidence: ${named(unevidenced)}. Every finding names the file and line it rests on; only an insufficient-context one may have null instead.`);
+      problem(`${contract.name}: no evidence for ${named(unevidenced)}`);
     }
     if (unknown.length > 0 || unassessed.length > 0 || (invariants.length === 0 && verdict.findings.length === 0) || unreasoned.length > 0 || unevidenced.length > 0) continue;
 
@@ -454,7 +454,7 @@ export function acceptContracts(options: ImplementationPhaseOptions, names: read
   const result = checkImplementationPhase(options);
   if (!result.index || !result.linking) {
     diagnostics.push(...result.diagnostics.filter((diagnostic) => diagnostic.severity === "error"));
-    if (!hasErrors(diagnostics)) diagnostics.push({ code: "E_ENVIRONMENT", severity: "error", message: "The implementations and tests could not be read, so the material of a review cannot be established." });
+    if (!hasErrors(diagnostics)) diagnostics.push({ code: "E_ENVIRONMENT", severity: "error", message: "implementations and tests not read" });
     return report([]);
   }
   const existing = readReviewFile(root);
@@ -469,7 +469,7 @@ export function acceptContracts(options: ImplementationPhaseOptions, names: read
     selected = [];
     for (const name of names) {
       const contract = index.contracts.find((candidate) => candidate.name === name);
-      if (!contract) diagnostics.push({ code: "E_REFERENCE_UNKNOWN", severity: "error", message: `There is no contract "${name}" in the designs.` });
+      if (!contract) diagnostics.push({ code: "E_REFERENCE_UNKNOWN", severity: "error", message: `no contract "${name}"` });
       else if (!selected.includes(contract)) selected.push(contract);
     }
   }
@@ -483,7 +483,7 @@ export function acceptContracts(options: ImplementationPhaseOptions, names: read
     const material = collectMaterial(result, contract.name, read);
     // A fingerprint with a dependency that could not be read is not the material: nothing is recorded against it.
     if (material.unreadable.length > 0) {
-      diagnostics.push(...scopeDiagnostics(material, "warn").filter((diagnostic) => diagnostic.code === "E_ENVIRONMENT").map((diagnostic) => ({ ...diagnostic, message: `${diagnostic.message}. The material cannot be accepted while it is not all there.` })));
+      diagnostics.push(...scopeDiagnostics(material, "warn").filter((diagnostic) => diagnostic.code === "E_ENVIRONMENT").map((diagnostic) => ({ ...diagnostic, message: `${diagnostic.message}; not accepted` })));
       continue;
     }
     const { fingerprint, digests } = fingerprintOf(material.parts);

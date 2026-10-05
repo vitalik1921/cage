@@ -275,7 +275,7 @@ export function readTestDeclarations(
   const readTitle = (call: ts.CallExpression, managed: boolean, what: string): string => {
     const [title] = call.arguments;
     if (title && (ts.isStringLiteral(title) || ts.isNoSubstitutionTemplateLiteral(title))) return title.text;
-    if (managed) report("E_UNSUPPORTED_DECLARATION", `An annotated ${what} needs a title that is a string or a template without substitutions.`, (title ?? call).getStart(sourceFile));
+    if (managed) report("E_UNSUPPORTED_DECLARATION", `annotated ${what} without a plain string title`, (title ?? call).getStart(sourceFile));
     return "";
   };
 
@@ -298,7 +298,7 @@ export function readTestDeclarations(
       const inner = [...setup, ...hooksIn(callback.body.statements)];
       for (const statement of callback.body.statements) visit(statement, scope, [...path, title], inside, inner);
     } else if (managed) {
-      report("E_UNSUPPORTED_DECLARATION", "An annotated suite needs an inline function with a block body as its callback: its tests are read from the statements of that block.", call.getStart(sourceFile));
+      report("E_UNSUPPORTED_DECLARATION", "annotated suite without an inline block callback", call.getStart(sourceFile));
     }
   };
 
@@ -309,9 +309,9 @@ export function readTestDeclarations(
    */
   const readContext = (tags: ReadonlyMap<string, DocTag[]>, all: readonly DocTag[], what: string, inherited: Scope): Scope => {
     const [tag, second] = tags.get("tests") ?? [];
-    if (second) report("E_TAG_FORMAT", `\`@tests\` is given more than once; name the contracts ${what} is about in one tag: \`@tests A B\`.`, second.start);
+    if (second) report("E_TAG_FORMAT", `\`@tests\` given twice on the ${what}`, second.start);
     const contracts = tag && parseNames(tag.text);
-    if (tag && contracts === undefined) report("E_TAG_FORMAT", "`@tests` needs one or more contract names: `@tests Quota`, or `@tests Webhook Quota` for a test that demonstrates both.", tag.start);
+    if (tag && contracts === undefined) report("E_TAG_FORMAT", "`@tests` without contract names", tag.start);
     const written = all.filter((candidate) => candidate.name === "tests");
     if (written.length === 0) return inherited;
     if (tag && contracts !== undefined && !second) {
@@ -340,8 +340,8 @@ export function readTestDeclarations(
     const covers: FoundTest["covers"] = [];
     for (const tag of coverTags) {
       const ids = parseInvariantIds(tag.text);
-      if (!ids) report("E_TAG_FORMAT", "`@covers` needs one or more invariant ids.", tag.start);
-      else if (!scope) report("E_TEST_CONTEXT", "`@covers` needs a contract: add `@tests Name` to this test, or put the test in a suite marked `@tests`.", tag.start);
+      if (!ids) report("E_TAG_FORMAT", "`@covers` without invariant ids", tag.start);
+      else if (!scope) report("E_TEST_CONTEXT", "`@covers` without `@tests`", tag.start);
       else for (const id of ids) if (!covers.some((other) => other.id === id)) covers.push({ id, location: locate(tag.start) });
     }
     if (scope && scope !== "invalid") {

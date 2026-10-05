@@ -94,7 +94,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
     diagnostics.push({
       code: "W_WEAK_TYPECHECK",
       severity: "warning",
-      message: `The project's compiler options weaken the comparison of implementations with contracts: ${weak.join(", ")} ${weak.length === 1 ? "is" : "are"} off.`,
+      message: `${weak.join(", ")} off`,
       file: tsconfig,
     });
   }
@@ -102,7 +102,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
   const unreadable = (what: string, file: string, cause: unknown): Diagnostic => ({
     code: "E_ENVIRONMENT",
     severity: "error",
-    message: `Cannot read the ${what}: ${(cause as Error).message}`,
+    message: `cannot read the ${what}: ${(cause as Error).message}`,
     file,
   });
   const coverage = options.coverage ?? "warn";
@@ -191,11 +191,11 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
       diagnostics.push({
         code: "E_TYPE_MISMATCH",
         severity: "error",
-        message: `"${implementation.name}" does not fit contract "${contract.name}".\n${converted.message}`,
+        message: `${implementation.name} does not fit ${contract.name}\n${converted.message}`,
         ...implementation.location,
         tsCode: mismatch.code,
         contract: contract.name,
-        related: [{ message: "The contract.", ...contract.location }, ...explained],
+        related: [{ message: "contract", ...contract.location }, ...explained],
       });
     }
     const { name, kind, location } = implementation;
@@ -210,7 +210,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
     diagnostics.push({
       code: "E_IMPLEMENTATION_MISSING",
       severity: "error",
-      message: `Contract "${contract.name}" has no implementation: no exported class, function or const is marked \`@implements ${contract.name}\`.`,
+      message: `${contract.name}`,
       ...contract.location,
       contract: contract.name,
     });
@@ -222,7 +222,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
   // about at the test; an invariant with no active test at all is an error at the invariant instead.
   const warned = new Map<string, { test: TestDeclaration; invariants: string[] }>();
   const keyOf = (test: TestDeclaration) => `${test.location.file}:${test.location.line}:${test.location.column}`;
-  const describeTest = (test: TestDeclaration) => `"${[...test.suitePath, test.title].join(" > ")}" (${test.location.file}:${test.location.line}, ${test.inactiveBecause})`;
+  const describeTest = (test: TestDeclaration) => `"${[...test.suitePath, test.title].join(" > ")}" ${test.inactiveBecause} (${test.location.file}:${test.location.line})`;
   for (const invariant of index.invariants) {
     const linked = testsLinkedTo(tests, invariant.contract, invariant.id);
     const inactive = linked.filter((test) => test.status !== "active");
@@ -230,7 +230,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
       diagnostics.push({
         code: "E_TEST_INACTIVE",
         severity: "error",
-        message: `Invariant ${invariant.contract}: ${invariant.id} is linked only to tests that cannot run an assertion:\n${inactive.map((test) => `- ${describeTest(test)}`).join("\n")}\n${inactive.some((test) => test.status === "broken-import") ? "Fix the broken import of the test file, enable a test, or give it a body." : "Enable one, or give it a body."} Cage reads tests and does not run them: this is what their text shows, not proof that an active test checks the rule.`,
+        message: `${invariant.contract}.${invariant.id}\n${inactive.map((test) => `- ${describeTest(test)}`).join("\n")}`,
         ...invariant.location,
         contract: invariant.contract,
         invariant: invariant.id,
@@ -252,7 +252,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
     diagnostics.push({
       code: "E_TEST_MISSING",
       severity: "error",
-      message: `Invariant ${invariant.contract}: ${invariant.id} has no linked test declaration.`,
+      message: `${invariant.contract}.${invariant.id}`,
       ...invariant.location,
       contract: invariant.contract,
       invariant: invariant.id,
@@ -263,7 +263,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
     diagnostics.push({
       code: "W_TEST_INACTIVE",
       severity: "warning",
-      message: `Test ${describeTest(test)} is linked to ${invariants.map((id) => `${test.contract}: ${id}`).join(", ")} but cannot run an assertion; ${invariants.length === 1 ? "that invariant relies on its" : "those invariants rely on their"} other, active tests.`,
+      message: `"${[...test.suitePath, test.title].join(" > ")}" ${test.inactiveBecause}; covers ${invariants.map((id) => `${test.contract}.${id}`).join(", ")}`,
       ...test.location,
       contract: test.contract,
     });
@@ -276,7 +276,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
 const unknownContract = (tag: string, name: string, location: SourceLocation): Diagnostic => ({
   code: "E_REFERENCE_UNKNOWN",
   severity: "error",
-  message: `\`@${tag} ${name}\`: there is no contract with this name.`,
+  message: `\`@${tag} ${name}\`: no such contract`,
   ...location,
 });
 
@@ -464,9 +464,7 @@ function findImplementations(
         diagnostics.push({
           code: coverage === "require" ? "E_NOT_DESIGNED" : "W_NOT_DESIGNED",
           severity: coverage === "require" ? "error" : "warning",
-          message:
-            `Exported ${declaration.kind} "${declaration.name}" is not covered by the design of ${moduleId}: nothing marks it \`@implements\`. ` +
-            `Describe its contract in the design, or list the file in ${path.posix.join(moduleId, IGNORE_FILE)}.`,
+          message: `${declaration.kind} ${declaration.name} in ${moduleId}`,
           ...declaration.location,
         });
       }
@@ -552,7 +550,7 @@ function readTests(
           diagnostics.push({
             code: "E_REFERENCE_AMBIGUOUS",
             severity: "error",
-            message: `\`@covers ${id}\`: ${quoted(owners)} both have an invariant with this id; give this test its own \`@tests\` line naming the one it demonstrates.`,
+            message: `\`@covers ${id}\`: ${quoted(owners)} both have it`,
             ...location,
             contract: owners[0],
           });
@@ -563,7 +561,7 @@ function readTests(
           diagnostics.push({
             code: "E_REFERENCE_UNKNOWN",
             severity: "error",
-            message: `\`@covers ${id}\`: ${named.length === 1 ? "contract" : "contracts"} ${quoted(named)} ${named.length === 1 ? "has" : "have"} no invariant with this id.${hint}`,
+            message: `\`@covers ${id}\`: ${quoted(named)} ${named.length === 1 ? "has" : "have"} no such invariant`,
             ...location,
             contract: named[0],
           });

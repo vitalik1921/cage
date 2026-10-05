@@ -39,7 +39,7 @@ interface PendingLocks {
 
 const declarationKey = (module: string, name: string) => `${module}\n${name}`;
 
-const BLOCK_CONTENT = "A ts design block may contain only `import type` declarations and exported interface or type declarations.";
+const BLOCK_CONTENT = "not an `import type` or an exported interface or type";
 
 /**
  * Builds the registry of contracts, data types, invariants and declared
@@ -70,19 +70,19 @@ export function indexDesigns(
     diagnostics.push({
       code: "E_CONTRACT_DUPLICATE",
       severity: "error",
-      message: `Contract name "${contract.name}" is already used; contract names are unique in the whole scope.`,
+      message: `contract "${contract.name}" declared twice`,
       ...contract.location,
       contract: contract.name,
-      related: [{ message: "The other declaration.", ...first.location }],
+      related: [{ message: "the other declaration", ...first.location }],
     });
   }
 
   for (const use of uses) {
     const target = contracts.get(use.name);
     const problem = !target
-      ? `\`@uses ${use.name}\`: there is no contract with this name.`
+      ? `\`@uses ${use.name}\`: no such contract`
       : target.name === use.contract.name
-        ? `\`@uses ${use.name}\`: a contract cannot use itself.`
+        ? `\`@uses ${use.name}\`: a contract using itself`
         : undefined;
     if (problem !== undefined) {
       diagnostics.push({ code: "E_REFERENCE_UNKNOWN", severity: "error", message: problem, ...use.location, contract: use.contract.name });
@@ -103,9 +103,9 @@ export function indexDesigns(
     diagnostics.push({
       code: "E_DESIGN_CYCLE",
       severity: "error",
-      message: `Design modules depend on each other in a cycle: ${[...cycle.map((edge) => edge.fromModule), first.fromModule].join(" → ")}.`,
+      message: `${[...cycle.map((edge) => edge.fromModule), first.fromModule].join(" → ")}`,
       ...first.location,
-      related: rest.map((edge) => ({ message: `${edge.fromModule} depends on ${edge.toModule} here.`, ...edge.location })),
+      related: rest.map((edge) => ({ message: `${edge.fromModule} depends on ${edge.toModule}`, ...edge.location })),
     });
   }
 
@@ -118,7 +118,7 @@ export function indexDesigns(
     diagnostics.push({
       code: "W_LOCK_OPEN_TYPE",
       severity: "warning",
-      message: `${subject} is \`@${use.locked.level}\`, but it uses ${declared.get(target)} "${target.name}", which is not locked: a change to "${target.name}" changes it too. Mark "${target.name}" \`@final\` or \`@extendable\`.`,
+      message: `${subject} is \`@${use.locked.level}\`; ${declared.get(target)} "${target.name}" it uses is not locked`,
       ...use.location,
       ...(use.locked.kind === "contract" ? { contract: use.locked.name } : {}),
     });
@@ -126,14 +126,14 @@ export function indexDesigns(
 
   // A scope without contracts is an error, unless that is a consequence of the errors above.
   if (index.contracts.length === 0 && diagnostics.length === 0) {
-    diagnostics.push({ code: "E_NO_CONTRACTS", severity: "error", message: "The designs declare no contract: no exported interface is marked `@contract`." });
+    diagnostics.push({ code: "E_NO_CONTRACTS", severity: "error", message: "no exported interface is marked `@contract`" });
   }
   for (const contract of index.contracts) {
     if (contracts.get(contract.name) === contract && !withInvariantTags.has(contract)) {
       diagnostics.push({
         code: "W_NO_INVARIANTS",
         severity: "warning",
-        message: `Contract "${contract.name}" has no \`@invariant\`: only its types can be checked.`,
+        message: `${contract.name}`,
         ...contract.location,
         contract: contract.name,
       });
@@ -191,8 +191,8 @@ function readDesign(
   /** `@description`: at most one, with a text. Returns null when there is none or it is invalid. */
   const readDescription = (tags: ReadonlyMap<string, DocTag[]>): string | null => {
     const [first, second] = tags.get("description") ?? [];
-    if (second) report("E_TAG_FORMAT", "`@description` is given more than once.", second.start);
-    if (first && first.text === "") report("E_TAG_FORMAT", "`@description` has no text.", first.start);
+    if (second) report("E_TAG_FORMAT", "`@description` given twice", second.start);
+    if (first && first.text === "") report("E_TAG_FORMAT", "`@description` without text", first.start);
     return first && first.text !== "" ? first.text : null;
   };
 
@@ -201,16 +201,16 @@ function readDesign(
     for (const tag of tags.get("invariant") ?? []) {
       const invariant = parseInvariant(tag.text);
       if (!invariant) {
-        report("E_TAG_FORMAT", "`@invariant` needs an id (lowercase letters, digits and hyphens, starting with a letter) followed by a text.", tag.start);
+        report("E_TAG_FORMAT", "`@invariant` without an id (lowercase letters, digits, hyphens) and a text", tag.start);
         continue;
       }
       const location = design.locate(tag.start);
       const first = declared.get(invariant.id);
       if (first) {
-        report("E_INVARIANT_DUPLICATE", `Invariant id "${invariant.id}" is already used in contract "${contract}".`, tag.start, {
+        report("E_INVARIANT_DUPLICATE", `${contract}.${invariant.id} declared twice`, tag.start, {
           contract,
           invariant: invariant.id,
-          related: [{ message: "The other invariant.", ...first }],
+          related: [{ message: "the other invariant", ...first }],
         });
         continue;
       }
@@ -222,7 +222,7 @@ function readDesign(
   const readContract = (declaration: ts.InterfaceDeclaration, tags: ReadonlyMap<string, DocTag[]>, description: string | null, lock: LockLevel | null) => {
     const name = declaration.name.text;
     const unsupported = (what: string, node: ts.Node) =>
-      report("E_UNSUPPORTED_DECLARATION", `Contract "${name}": ${what}.`, node.getStart(sourceFile), { contract: name });
+      report("E_UNSUPPORTED_DECLARATION", `${name}: ${what}`, node.getStart(sourceFile), { contract: name });
 
     if (declaration.typeParameters) unsupported("generic contracts are not supported", declaration.typeParameters[0]);
     if (declaration.heritageClauses) unsupported("`extends` is not supported", declaration.heritageClauses[0]);
@@ -274,7 +274,7 @@ function readDesign(
     if (hasInvariantTags) withInvariantTags.add(contract);
     for (const tag of tags.get("uses") ?? []) {
       const names = parseNames(tag.text);
-      if (!names) report("E_TAG_FORMAT", "`@uses` needs one or more contract names.", tag.start);
+      if (!names) report("E_TAG_FORMAT", "`@uses` without contract names", tag.start);
       for (const used of names ?? []) {
         // The same name in a later `@uses` of this contract is the same dependency.
         if (!uses.some((use) => use.contract === contract && use.name === used)) uses.push({ contract, name: used, location: design.locate(tag.start) });
@@ -287,7 +287,7 @@ function readDesign(
     const at = declaration.name.getStart(sourceFile);
     const modifiers = declaration.modifiers?.map((modifier) => modifier.kind) ?? [];
     if (!modifiers.includes(ts.SyntaxKind.ExportKeyword) || modifiers.includes(ts.SyntaxKind.DefaultKeyword)) {
-      report("E_UNSUPPORTED_DECLARATION", `"${name}" must be a named export: a design declares only its public types.`, at);
+      report("E_UNSUPPORTED_DECLARATION", `"${name}" is not a named export`, at);
     }
 
     const all = docTags(declaration);
@@ -300,20 +300,20 @@ function readDesign(
       isContract ? "on a contract" : "on a data type",
     );
     const markers = [...(tags.get("contract") ?? []), ...(tags.get("data") ?? [])];
-    for (const marker of markers) if (marker.text !== "") report("E_TAG_FORMAT", `\`@${marker.name}\` takes no text; the name comes from the declaration.`, marker.start);
+    for (const marker of markers) if (marker.text !== "") report("E_TAG_FORMAT", `\`@${marker.name}\` with text`, marker.start);
     if (markers.length === 0) {
-      report("E_UNSUPPORTED_DECLARATION", `"${name}" must be marked \`@contract\` or \`@data\` in the doc comment right before it.`, at);
+      report("E_UNSUPPORTED_DECLARATION", `"${name}" without \`@contract\` or \`@data\``, at);
       bindDocsWithin(declaration);
       return;
     }
     if (markers.length > 1) {
-      report("E_TAG_FORMAT", `"${name}" has more than one \`@contract\` / \`@data\` marker.`, markers[1].start);
+      report("E_TAG_FORMAT", `"${name}" with more than one \`@contract\` / \`@data\``, markers[1].start);
       bindDocsWithin(declaration);
       return;
     }
 
     const description = readDescription(tags);
-    if (!tags.has("description")) report("E_DESCRIPTION_MISSING", `"${name}" needs a \`@description\`.`, at);
+    if (!tags.has("description")) report("E_DESCRIPTION_MISSING", `"${name}"`, at);
 
     if (ts.isInterfaceDeclaration(declaration)) {
       const kind = isContract ? "contract" : "data";
@@ -321,7 +321,7 @@ function readDesign(
       interfaces.set(name, earlier ?? kind);
       // Two contracts of one name are reported with the contracts of all modules.
       if (earlier && !(earlier === "contract" && isContract)) {
-        report("E_UNSUPPORTED_DECLARATION", `"${name}" is declared more than once; declaration merging is not supported.`, at);
+        report("E_UNSUPPORTED_DECLARATION", `"${name}" declared more than once`, at);
         bindDocsWithin(declaration);
         return;
       }
@@ -334,7 +334,7 @@ function readDesign(
     } else if (ts.isInterfaceDeclaration(declaration)) {
       readContract(declaration, tags, description, lock);
     } else {
-      report("E_UNSUPPORTED_DECLARATION", `Contract "${name}" must be an interface.`, at);
+      report("E_UNSUPPORTED_DECLARATION", `"${name}" is a contract but not an interface`, at);
       bindDocsWithin(declaration);
       return;
     }
@@ -360,15 +360,15 @@ function readDesign(
     const [first, second] = [...(tags.get("final") ?? []), ...(tags.get("extendable") ?? [])].sort((a, b) => a.start - b.start);
     if (!first) return null;
     if (second) {
-      report("E_TAG_FORMAT", "A declaration is either `@final` or `@extendable`, and says so once.", second.start);
+      report("E_TAG_FORMAT", "`@final` or `@extendable` twice", second.start);
       return null;
     }
     if (first.text !== "") {
-      report("E_TAG_FORMAT", `\`@${first.name}\` takes no text.`, first.start);
+      report("E_TAG_FORMAT", `\`@${first.name}\` with text`, first.start);
       return null;
     }
     if (first.name === "extendable" && !ts.isInterfaceDeclaration(declaration)) {
-      report("E_TAG_LOCATION", "`@extendable` needs an interface: a type alias has no members to add to. Use `@final`, or declare an interface.", first.start);
+      report("E_TAG_LOCATION", "`@extendable` on a type alias", first.start);
       return null;
     }
     return first.name as LockLevel;
@@ -441,19 +441,19 @@ function readDesign(
     const at = declaration.getStart(sourceFile);
     const specifier = declaration.moduleSpecifier;
     if (!declaration.importClause?.isTypeOnly || !ts.isStringLiteral(specifier)) {
-      report("E_DESIGN_IMPORT", "A ts design block may import only with `import type`.", at);
+      report("E_DESIGN_IMPORT", "import without `import type`", at);
       return;
     }
     const target = resolveImport(specifier, sourceFile);
     const written = design.writtenSpecifier(specifier);
     if (target === "out-of-scope") {
-      report("E_DESIGN_OUT_OF_SCOPE", `"${written}" is a design document that is not in the scope.`, specifier.getStart(sourceFile));
+      report("E_DESIGN_OUT_OF_SCOPE", `"${written}"`, specifier.getStart(sourceFile));
     } else if (target === "other") {
-      report("E_DESIGN_IMPORT", `"${written}" is not a design document (*.cage.mdx); a design may import only types of other designs.`, specifier.getStart(sourceFile));
+      report("E_DESIGN_IMPORT", `"${written}" is not a *.cage.mdx`, specifier.getStart(sourceFile));
     } else if (target.moduleId === moduleId) {
-      report("E_DESIGN_IMPORT", "A design cannot import itself: the documents of one directory are one design, and they share their types.", specifier.getStart(sourceFile));
+      report("E_DESIGN_IMPORT", "a design importing itself", specifier.getStart(sourceFile));
     } else if (!target.documents.includes(written.split("/").at(-1) ?? "")) {
-      report("E_DESIGN_IMPORT", `"${written}" is not a document of the design of ${target.moduleId}; it has ${target.documents.join(", ")}.`, specifier.getStart(sourceFile));
+      report("E_DESIGN_IMPORT", `"${written}" is not a document of ${target.moduleId} (${target.documents.join(", ")})`, specifier.getStart(sourceFile));
     } else {
       const bindings = declaration.importClause.namedBindings;
       if (bindings && ts.isNamespaceImport(bindings)) imported.set(bindings.name.text, { moduleId: target.moduleId, name: null });
@@ -470,7 +470,7 @@ function readDesign(
       (ts.isExportDeclaration(statement) && statement.moduleSpecifier !== undefined) ||
       (ts.isImportEqualsDeclaration(statement) && ts.isExternalModuleReference(statement.moduleReference));
     if (ts.isImportDeclaration(statement)) readImport(statement);
-    else if (namesModule) report("E_DESIGN_IMPORT", "A ts design block may refer to another module only with `import type`.", statement.getStart(sourceFile));
+    else if (namesModule) report("E_DESIGN_IMPORT", "a module named without `import type`", statement.getStart(sourceFile));
     else if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) readDeclaration(statement);
     else if (statement.kind !== ts.SyntaxKind.EmptyStatement) report("E_UNSUPPORTED_DECLARATION", BLOCK_CONTENT, statement.getStart(sourceFile));
   }
@@ -490,7 +490,7 @@ function readDesign(
 
   const visit = (node: ts.Node) => {
     if (ts.isImportTypeNode(node)) {
-      report("E_DESIGN_IMPORT", "Inline `import(...)` types are not allowed; use an `import type` declaration.", node.getStart(sourceFile));
+      report("E_DESIGN_IMPORT", "inline `import(...)` type", node.getStart(sourceFile));
     }
     ts.forEachChild(node, visit);
   };

@@ -51,7 +51,7 @@ test("the gate hook runs cage gate for each project of the repository and blocks
   const blocked = hook("gate.sh", repository, JSON.stringify({ session_id: id, stop_hook_active: false }));
   assert.equal(blocked.code, 2);
   assert.match(blocked.stderr, new RegExp(`^cage project ${repository.replaceAll("/", "\\/")}:\\n`));
-  assert.match(blocked.stderr, /W_REVIEW_MISSING: warning at [^\n]+\n  Contract "Send" has no recorded review/);
+  assert.match(blocked.stderr, /^W_REVIEW_MISSING: Send \(/m);
   // The hook's input reached the gate: it counted a block for this session.
   assert.equal(fs.readdirSync(os.tmpdir()).filter((entry) => entry.startsWith(`cage-gate-${id}-`)).length, 1);
 

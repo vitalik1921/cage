@@ -31,8 +31,8 @@ test("the gate blocks on errors and on missing reviews, whatever the review leve
   const blocked = gate(root, { session_id: id, stop_hook_active: false });
   assert.equal(blocked.code, 2);
   assert.equal(blocked.stdout, "");
-  assert.match(blocked.stderr, /W_REVIEW_MISSING: warning at [^\n]+\n  Contract "Send" has no recorded review/);
-  assert.match(blocked.stderr, /`cage check` is not clean \(3 blocking\)\. Fix what it reports before stopping\./);
+  assert.match(blocked.stderr, /^W_REVIEW_MISSING: Send \(src\/modules\/campaigns\/campaigns\.cage\.mdx:\d+:\d+\)$/m);
+  assert.match(blocked.stderr, /`cage check` is not clean \(3 blocking\)\. Fix what it reports before stopping; `cage codes` explains a code\./);
   assert.match(blocked.stderr, /`cage review` lists what needs a review and what changed; `cage review <Name>` gives one contract's material/);
 
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "off" }));
@@ -46,7 +46,7 @@ test("the gate blocks on errors and on missing reviews, whatever the review leve
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "off", coverage: "require" }));
   const uncovered = gate(root, { session_id: id, stop_hook_active: false });
   assert.equal(uncovered.code, 2);
-  assert.match(uncovered.stderr, /E_NOT_DESIGNED: error at [^\n]+\n  Exported class "Extra"/);
+  assert.match(uncovered.stderr, /^E_NOT_DESIGNED: class Extra in src\/modules\/mail \(/m);
   fs.rmSync(path.join(root, "src/modules/mail/extra.ts"));
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "off" }));
 

@@ -152,11 +152,10 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
  */
 function readDocuments(ts: TypeScript, root: string, designs: readonly DesignSource[], patterns: readonly string[], modules: DesignModule[], diagnostics: Diagnostic[]): void {
   if (designs.length === 0) {
-    const where = patterns.length > 0 ? `the \`designs\` patterns of the configuration (${patterns.join(", ")}) match nothing under the project root` : "check the project root and the `designs` patterns";
     diagnostics.push({
       code: "E_NO_DESIGNS",
       severity: "error",
-      message: `No *.cage.mdx documents were found: ${where}. A design lives next to its module, such as src/quota/quota.cage.mdx.`,
+      message: `no *.cage.mdx matches ${patterns.length > 0 ? patterns.join(", ") : "the designs patterns"}`,
     });
   }
   for (const design of designs) {
@@ -170,7 +169,7 @@ function readDocuments(ts: TypeScript, root: string, designs: readonly DesignSou
       try {
         source = stripBom(fs.readFileSync(sourceFile, "utf8"));
       } catch (cause) {
-        diagnostics.push({ code: "E_ENVIRONMENT", severity: "error", message: `Cannot read the design document: ${(cause as Error).message}`, file });
+        diagnostics.push({ code: "E_ENVIRONMENT", severity: "error", message: `cannot read the design document: ${(cause as Error).message}`, file });
         readable = false;
         continue;
       }
@@ -187,14 +186,14 @@ function readDocuments(ts: TypeScript, root: string, designs: readonly DesignSou
       diagnostics.push({
         code: "E_DESIGN_BLOCK_MISSING",
         severity: "error",
-        message: `The design of ${design.moduleId} has no ts design block in any of its documents: ${names.join(", ")}.`,
+        message: `${design.moduleId}: no ts design block in ${names.join(", ")}`,
         file: names[0],
       });
     } else if (!hasBusinessContext && documents.some((document) => document.blocks.length > 0)) {
       diagnostics.push({
         code: "W_BUSINESS_CONTEXT_MISSING",
         severity: "warning",
-        message: `The design of ${design.moduleId} has no prose outside its code blocks: a reviewer gets the contracts without their business context.`,
+        message: `${design.moduleId}: no prose outside the code blocks`,
         file: names[0],
       });
     }
@@ -302,7 +301,7 @@ export function createConverter(ts: TypeScript, root: string, program: ts.Progra
     return {
       code,
       severity: diagnostic.category === ts.DiagnosticCategory.Error ? "error" : "warning",
-      message: unmapped ? `${message} (reported outside the authored ts design blocks)` : message,
+      message: unmapped ? `${message} (outside the authored ts design blocks)` : message,
       ...location,
       tsCode: diagnostic.code,
       ...(related?.length ? { related } : {}),
@@ -333,7 +332,7 @@ function checkBlocks(ts: TypeScript, root: string, modules: readonly DesignModul
           diagnostics.push({
             code: "E_DESIGN_IMPORT",
             severity: "error",
-            message: "`/// <reference>` is not allowed in a ts design block; a design may import only types of other designs, with `import type`.",
+            message: "`/// <reference>` in a ts design block",
             ...authoredPosition(origin, comment.pos),
           });
         }

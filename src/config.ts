@@ -79,14 +79,14 @@ export function loadConfig(root: string, configPath?: string): LoadedConfig {
     text = stripBom(fs.readFileSync(file, "utf8"));
   } catch (cause) {
     if (configPath === undefined && (cause as NodeJS.ErrnoException).code === "ENOENT") return { config: defaultConfig, diagnostics: [] };
-    return { config: defaultConfig, diagnostics: [error(`Cannot read the configuration: ${(cause as Error).message}`)] };
+    return { config: defaultConfig, diagnostics: [error(`cannot read the configuration: ${(cause as Error).message}`)] };
   }
 
   let value: unknown;
   try {
     value = JSON.parse(text);
   } catch (cause) {
-    return { config: defaultConfig, diagnostics: [error(`The configuration is not valid JSON: ${(cause as Error).message}`)] };
+    return { config: defaultConfig, diagnostics: [error(`invalid JSON: ${(cause as Error).message}`)] };
   }
 
   const problems = validate(value);
@@ -122,13 +122,13 @@ const fields: Record<keyof Config, { expected: string; valid: (value: unknown) =
 };
 
 function validate(value: unknown): string[] {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return ["The configuration must be a JSON object."];
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return ["not a JSON object"];
   const problems: string[] = [];
-  if (!("version" in value)) problems.push('"version" is required and must be 1.');
+  if (!("version" in value)) problems.push('"version" must be 1');
   for (const [name, fieldValue] of Object.entries(value)) {
     const field = Object.hasOwn(fields, name) ? fields[name as keyof Config] : undefined;
-    if (!field) problems.push(`Unknown field "${name}".`);
-    else if (!field.valid(fieldValue)) problems.push(`"${name}" must be ${field.expected}.`);
+    if (!field) problems.push(`unknown field "${name}"`);
+    else if (!field.valid(fieldValue)) problems.push(`"${name}" must be ${field.expected}`);
   }
   return problems;
 }

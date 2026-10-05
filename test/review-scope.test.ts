@@ -115,7 +115,7 @@ function staleBecause(root: string): string | undefined {
   const stale = report.diagnostics.find((diagnostic) => diagnostic.code === "E_REVIEW_STALE");
   if (stale) assert.equal(code, 1);
   // The parts, one a line in the message, joined as a list here.
-  return stale && /since then:\n([\s\S]*)\nReview it again\./.exec(stale.message)?.[1].split("\n").map((line) => line.replace(/^- /, "")).join(", ");
+  return stale && stale.message.split("\n").slice(1).map((line) => line.replace(/^- /, "")).join(", ");
 }
 
 test("a test file edited while review runs: the material is cut from the text the check read, not from the disk", (t) => {
@@ -176,7 +176,7 @@ test("a change of the module's prose makes the review outdated; another contract
   // The prose is every contract's business context.
   editFile(root, DESIGN, (text) => text.replace("a send is refused when none are left", "both sends go through"));
   assert.deepEqual(
-    check(root).report.diagnostics.filter((diagnostic) => diagnostic.code === "E_REVIEW_STALE").map((diagnostic) => [diagnostic.contract, /since then:\n- (.*)\nReview/.exec(diagnostic.message)?.[1]]),
+    check(root).report.diagnostics.filter((diagnostic) => diagnostic.code === "E_REVIEW_STALE").map((diagnostic) => [diagnostic.contract, /\n- (.*)$/.exec(diagnostic.message)?.[1]]),
     [
       ["Quota", `the prose of ${DESIGN} changed`],
       ["Ledger", `the prose of ${DESIGN} changed`],
@@ -220,7 +220,7 @@ test("what lies beyond the bounds is reported, never silent; exclude takes a fil
   const warned = check(shallow).report.diagnostics.find((diagnostic) => diagnostic.code === "E_REVIEW_SCOPE_LIMIT");
   // Under "review": "require" the limit is an error, so that it cannot pass unnoticed in CI.
   assert.ok(warned);
-  assert.match(warned.message, /^The fingerprint of the review of contract "Quota" stops at the bounds of `reviewDependencies` \(3 dependency files fingerprinted\); a change in these would not make the review outdated:\n- src\/quota\/b\.ts \(past the depth\)\nThe bounds are the project's setting\.$/);
+  assert.match(warned.message, /^Quota, 3 dependency files fingerprinted\n- src\/quota\/b\.ts \(past the depth\)$/);
   // The message states the fact; it sends nobody to the configuration, because an agent reads it.
   assert.doesNotMatch(warned.message, /config\.json|Raise|exclude/);
   assert.deepEqual(packet(shallow).contracts[0].fingerprinted, [RULE, STUB, "src/quota/a.ts"]);
@@ -252,7 +252,7 @@ test("bounds outside their range are a configuration error", (t) => {
     const root = quotaProject(t, {}, { reviewDependencies });
     const { code, stdout } = cli(root, "check");
     assert.equal(code, 2);
-    assert.match(stdout, /E_CONFIG: error at \.cage\/config\.json\n  "reviewDependencies" must be an object with "depth" \(0–10\), "maxFiles" \(0–1000\) and "exclude"/);
+    assert.match(stdout, /^E_CONFIG: "reviewDependencies" must be an object with "depth" \(0–10\), "maxFiles" \(0–1000\) and "exclude" .* \(\.cage\/config\.json\)$/m);
   }
 });
 

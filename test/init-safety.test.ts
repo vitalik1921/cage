@@ -97,7 +97,7 @@ test("a hook that only mentions cage gate is not the gate: init adds its own bes
     assert.equal(commands.length, 2, fake);
     assert.equal(commands[0], fake);
     assert.deepEqual(report.diagnostics.map(({ code }) => code), ["W_GATE_COMMAND"], fake);
-    assert.match(report.diagnostics[0].message, /mentions `cage gate` but is not recognised as the gate of this project/);
+    assert.match(report.diagnostics[0].message, /mentions cage gate but is not the gate of/);
     // The added gate is recognised from then on.
     assert.equal(statusOf(init(root, "claude"), ".claude/settings.json"), "kept", fake);
   }

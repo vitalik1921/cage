@@ -82,7 +82,7 @@ test("review --accept records every contract in need of a review as accepted wit
   const [send] = packet(root, "Send").contracts;
   assert.deepEqual(send.recordedReview, { status: "accepted", assessments: null, contractAssessments: null });
   assert.deepEqual(send.priorNotes, []);
-  assert.ok(cli(root, "review", "Send").stdout.includes("- ○ Recorded review: none — this material was accepted without a review (`cage review --accept`); adequacy is not attested; record a verdict with `cage review --record`"));
+  assert.match(cli(root, "review", "Send").stdout, /^review: accepted without a review$/m);
   assert.deepEqual(index(root).contracts, []);
 
   // Running it again changes nothing: every contract has a record of its material as it is now.
@@ -99,7 +99,7 @@ test("a change makes an acceptance outdated like a review; --accept without name
   const stale = check(root).report.diagnostics.filter(({ code }) => code === "W_REVIEW_STALE");
   assert.equal(stale.length, 1);
   assert.equal(stale[0].contract, "Send");
-  assert.match(stale[0].message, /^The acceptance of contract "Send" \(recorded without a review\) is for other material; since then:\n- test "не передає повідомлення без квоти \(edited\)" \(src\/modules\/campaigns\/send\.test\.ts\) is new\n- test "не передає повідомлення без квоти" \(src\/modules\/campaigns\/send\.test\.ts\) is gone\nReview it\.$/);
+  assert.match(stale[0].message, /^Send \(accepted without a review\)\n- test "не передає повідомлення без квоти \(edited\)" \(src\/modules\/campaigns\/send\.test\.ts\) is new\n- test "не передає повідомлення без квоти" \(src\/modules\/campaigns\/send\.test\.ts\) is gone$/);
   assert.deepEqual(index(root).contracts.map(({ contract, status }) => `${contract} ${status}`), ["Send outdated"]);
   // The gate blocks on an outdated acceptance as on an outdated review.
   assert.equal(cliWithStdin(root, JSON.stringify({ session_id: "accept-stale" }), "gate").code, 2);
@@ -144,7 +144,7 @@ test("--accept refuses an unknown contract and records nothing; the flags exclud
   assert.equal(unknown.code, 1);
   assert.equal(unknown.report.ok, false);
   assert.deepEqual(unknown.report.accepted, []);
-  assert.deepEqual(unknown.report.diagnostics.map(({ code, message }) => ({ code, message })), [{ code: "E_REFERENCE_UNKNOWN", message: 'There is no contract "Nobody" in the designs.' }]);
+  assert.deepEqual(unknown.report.diagnostics.map(({ code, message }) => ({ code, message })), [{ code: "E_REFERENCE_UNKNOWN", message: 'no contract "Nobody"' }]);
   assert.ok(!fs.existsSync(path.join(root, REVIEW_FILE)));
   assert.match(cli(root, "review", "--accept", "Nobody").stdout, /review --accept: 1 error, nothing recorded\.$/m);
 
@@ -160,5 +160,5 @@ test("--accept refuses an unknown contract and records nothing; the flags exclud
   writeFile(root, REVIEW_FILE, JSON.stringify(file));
   const broken = check(root);
   assert.equal(broken.code, 2);
-  assert.match(broken.report.diagnostics[0].message, /^The review file is not usable: /);
+  assert.match(broken.report.diagnostics[0].message, /^review file not usable: /);
 });

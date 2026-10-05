@@ -58,18 +58,18 @@ export function parseDesignMdx(source: string, file: string): ParsedDesign {
     const start = node.position!.start.offset!;
     if (node.lang !== "ts") {
       diagnostics.push(
-        error("E_DESIGN_BLOCK_MARKER", `Code fence meta "design" is reserved for "ts" blocks, got "${node.lang ?? ""}".`, start),
+        error("E_DESIGN_BLOCK_MARKER", `design on a "${node.lang ?? ""}" block, not ts`, start),
       );
       return;
     }
     if (!topLevel || node.position!.start.column !== 1) {
       diagnostics.push(
-        error("E_DESIGN_BLOCK_LOCATION", "A ts design block must be an unindented fenced block at the top level of the document.", start),
+        error("E_DESIGN_BLOCK_LOCATION", "ts design block indented or nested", start),
       );
       return;
     }
     if (node.value.trim() === "") {
-      diagnostics.push(error("E_DESIGN_BLOCK_EMPTY", "The ts design block is empty.", start));
+      diagnostics.push(error("E_DESIGN_BLOCK_EMPTY", "empty ts design block", start));
       return;
     }
     blocks.push({

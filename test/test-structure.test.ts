@@ -251,7 +251,7 @@ for (const adapter of ["node:test", "vitest"] as const) {
     assert.deepEqual(errors.map(({ code, invariant }) => ({ code, invariant })), [{ code: "E_TEST_INACTIVE", invariant: "empty" }]);
     assert.deepEqual(
       warnings.filter(({ code }) => code === "W_TEST_INACTIVE").map(({ message }) => message.replace(/ \(src\/m\/quota\.test\.ts:\d+, /, " (…, ")),
-      ['Test "Quota > skipped" (…, skipped by `.skip`) is linked to Quota: consume but cannot run an assertion; that invariant relies on its other, active tests.'],
+      ['"Quota > skipped" skipped by `.skip`; covers Quota.consume'],
     );
   });
 }

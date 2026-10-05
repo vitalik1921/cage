@@ -28,7 +28,7 @@ test("--config is relative to the project root, and must exist", (t) => {
   const [missing] = problems(root, "tools/nope.json");
   assert.equal(missing.code, "E_CONFIG");
   assert.equal(missing.file, "tools/nope.json");
-  assert.match(missing.message, /^Cannot read the configuration: ENOENT/);
+  assert.match(missing.message, /^cannot read the configuration: ENOENT/);
 });
 
 test("an invalid configuration is reported field by field", (t) => {
@@ -42,15 +42,15 @@ test("an invalid configuration is reported field by field", (t) => {
     });
   };
 
-  assert.match(check("{ nope")[0], /^The configuration is not valid JSON: /);
-  assert.deepEqual(check("[]"), ["The configuration must be a JSON object."]);
-  assert.deepEqual(check("{}"), ['"version" is required and must be 1.']);
-  assert.deepEqual(check('{ "version": 2 }'), ['"version" must be 1.']);
-  assert.deepEqual(check('{ "version": 1, "testAdapter": "jest" }'), ['"testAdapter" must be "node:test" or "vitest".']);
+  assert.match(check("{ nope")[0], /^invalid JSON: /);
+  assert.deepEqual(check("[]"), ["not a JSON object"]);
+  assert.deepEqual(check("{}"), ['"version" must be 1']);
+  assert.deepEqual(check('{ "version": 2 }'), ['"version" must be 1']);
+  assert.deepEqual(check('{ "version": 1, "testAdapter": "jest" }'), ['"testAdapter" must be "node:test" or "vitest"']);
   assert.deepEqual(check('{ "version": 1, "designs": "src/**", "tsconfig": "", "exclude": [1] }'), [
-    '"designs" must be an array of non-empty strings.',
-    '"tsconfig" must be a non-empty string.',
-    '"exclude" must be an array of non-empty strings.',
+    '"designs" must be an array of non-empty strings',
+    '"tsconfig" must be a non-empty string',
+    '"exclude" must be an array of non-empty strings',
   ]);
-  assert.deepEqual(check('{ "version": 1, "output": "generated", "toString": 1 }'), ['Unknown field "output".', 'Unknown field "toString".']);
+  assert.deepEqual(check('{ "version": 1, "output": "generated", "toString": 1 }'), ['unknown field "output"', 'unknown field "toString"']);
 });

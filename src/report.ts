@@ -2,22 +2,25 @@ import type { CheckReport } from "./check.ts";
 import { compareText, isError, type Diagnostic, type RelatedLocation } from "./diagnostic.ts";
 import type { LockReport } from "./lock-command.ts";
 
-function formatLocation({ file, line, column }: Pick<RelatedLocation, "file" | "line" | "column">): string {
+function formatPlace({ file, line, column }: Pick<RelatedLocation, "file" | "line" | "column">): string {
   if (file === undefined) return "";
-  return line === undefined ? `${file}: ` : `${file}:${line}:${column}: `;
+  return line === undefined ? file : `${file}:${line}:${column}`;
 }
 
 /**
- * One diagnostic as text: the code first, so that what kind of thing it is reads before where; then the severity and
- * the place on the same line; the message on the lines below, indented, one list item per line where the message has
- * a list. Related places follow, indented, as `file:line:column: message`.
+ * One diagnostic as text: `CODE: what (file:line:column)` — the code says what kind of thing it is, the message names
+ * the thing, the place closes the line; a message's further lines (a list, a compiler's explanation) follow indented.
+ * Related places follow as `what (file:line:column)`. The severity is the code's prefix; what a code means and what
+ * to do about it is `cage codes`, not the line.
  */
 export function formatDiagnostic(diagnostic: Diagnostic): string {
-  const { file, line, column } = diagnostic;
-  const where = file === undefined ? "" : line === undefined ? ` at ${file}` : ` at ${file}:${line}:${column}`;
-  const ts = diagnostic.tsCode === undefined ? "" : ` (TS${diagnostic.tsCode})`;
-  const lines = [`${diagnostic.code}: ${diagnostic.severity}${where}${ts}`, ...diagnostic.message.split("\n").map((text) => `  ${text}`)];
-  for (const related of diagnostic.related ?? []) lines.push(`  ${formatLocation(related)}${related.message.replaceAll("\n", "\n  ")}`);
+  const place = [formatPlace(diagnostic), diagnostic.tsCode === undefined ? "" : `TS${diagnostic.tsCode}`].filter((part) => part !== "").join(", ");
+  const [head, ...details] = diagnostic.message.split("\n");
+  const lines = [`${diagnostic.code}: ${head}${place === "" ? "" : ` (${place})`}`, ...details.map((text) => `  ${text}`)];
+  for (const related of diagnostic.related ?? []) {
+    const where = formatPlace(related);
+    lines.push(`  ${related.message.replaceAll("\n", "\n  ")}${where === "" ? "" : ` (${where})`}`);
+  }
   return lines.join("\n");
 }
 
@@ -60,7 +63,7 @@ export function limitCheckReport(report: CheckReport, max: number | "all"): Chec
 function formatOmitted({ omitted }: CheckReport): string[] {
   if (omitted.count === 0) return [];
   const codes = Object.entries(omitted.byCode).map(([code, count]) => `${count} ${code}`).join(", ");
-  return [`${omitted.count} more not shown (${codes}): the report shows ${omitted.limit} at most. Fix what is shown and check again, or pass --max-diagnostics all ("maxDiagnostics" in .cage/config.json).`];
+  return [`${omitted.count} more not shown (${codes}); --max-diagnostics all shows every one`];
 }
 
 export function formatCheckReport(report: CheckReport): string {

@@ -142,6 +142,8 @@ export interface ReviewIndexEntry {
   /** What the check found about the contract. */
   errors: number;
   warnings: number;
+  /** The codes of those findings, each once. */
+  codes: string[];
 }
 
 /**
@@ -275,7 +277,7 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
       if (!selected.includes(contract)) selected.push(contract);
     } else {
       ok = false;
-      diagnostics.push({ code: "E_REFERENCE_UNKNOWN", severity: "error", message: `There is no contract "${name}" in the designs.` });
+      diagnostics.push({ code: "E_REFERENCE_UNKNOWN", severity: "error", message: `no contract "${name}"` });
     }
   }
   selected.sort((a, b) => compareText(a.module, b.module) || compareText(a.name, b.name));
@@ -363,6 +365,7 @@ export function runReviewIndex(options: ImplementationPhaseOptions, selection: "
       files: material.files.length,
       errors: about.filter((diagnostic) => diagnostic.severity === "error").length,
       warnings: about.filter((diagnostic) => diagnostic.severity === "warning").length,
+      codes: [...new Set(about.map((diagnostic) => diagnostic.code))],
     });
   }
   return report(entries);
@@ -573,54 +576,11 @@ function importsOutside(
     .map(([file, importers]) => ({ file, importedBy: [...importers].sort(([a], [b]) => compareText(a, b)).map(([importer, names]) => ({ file: importer, names: [...names].sort(compareText) })) }));
 }
 
-/** The review as one Markdown document: the instruction, each contract, every file once, and the verdict format. */
-/** The marks of the status lines; the same in a terminal and in a pipe, and no colour: the packet is read by people and by models. */
-const STATUS = { ok: "✓", attention: "!", problem: "✗", unknown: "○" } as const;
-
-/** What cage knows about a packet, one fact a line: what it collected, what its text says, and what is recorded, kept apart. */
-function statusLines(packet: ContractPacket): string[] {
-  const count = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-  const declarations = packet.tests.flatMap((file) => file.declarations);
-  const inactive = declarations.filter((test) => test.status !== "active").length;
-  const collected = [count(packet.designs.length, "design"), count(packet.implementations.length, "implementation"), count(declarations.length, "test declaration"), count(packet.helpers.length, "test helper"), `${packet.fingerprinted.length} fingerprinted ${packet.fingerprinted.length === 1 ? "dependency" : "dependencies"}`];
-  const errors = packet.diagnostics.filter((diagnostic) => diagnostic.severity === "error").length;
-  const warnings = packet.diagnostics.length - errors;
-  const lines = [`- ${STATUS.ok} Material collected: ${collected.join(", ")} — gathered for the reviewer, not judged by cage`];
-  if (declarations.length === 0) lines.push(packet.invariants.length === 0 ? `- ${STATUS.attention} Tests: none tagged, and no invariant to link one to` : `- ${STATUS.problem} Tests: no test declaration is tagged for this contract`);
-  else if (inactive > 0) lines.push(`- ${STATUS.attention} Tests: ${inactive} of ${count(declarations.length, "declaration")} inactive in the source (skipped, todo, empty, or a broken import in their file); see Tests`);
-  else lines.push(`- ${STATUS.ok} Tests: ${declarations.length === 1 ? "the declaration is" : `all ${declarations.length} declarations are`} active in the source (not skipped, todo or empty; their files import nothing broken)`);
-  lines.push(`- ${STATUS.unknown} Test results: not known — cage reads the tests, it does not run them`);
-  if (errors > 0) lines.push(`- ${STATUS.problem} Structural check: ${count(errors, "error")}${warnings > 0 ? `, ${count(warnings, "warning")}` : ""} about this material; see Diagnostics`);
-  else if (warnings > 0) lines.push(`- ${STATUS.attention} Structural check: ${count(warnings, "warning")} about this material; see Diagnostics`);
-  else lines.push(`- ${STATUS.ok} Structural check: nothing found about this material (the recorded review is the next line)`);
-  const { status, assessments } = packet.recordedReview;
-  if (status === "none") lines.push(`- ${STATUS.unknown} Recorded review: none — adequacy is not attested; record a verdict with \`cage review --record\``);
-  else if (status === "outdated" && packet.changed.length === 0) {
-    lines.push(`- ${STATUS.problem} Recorded review: outdated — no part differs by its digest, yet the record does not match (the parts are in another order, or the record was edited): nothing can be told apart, judge every invariant afresh. The adequacy of this material is not attested`);
-  } else if (status === "outdated") {
-    const touched = packet.touched ?? [];
-    const scope = packet.invariants.length === 0 ? "" : touched.length === packet.invariants.length ? `, touching every invariant` : `, touching ${touched.length} of ${count(packet.invariants.length, "invariant")}`;
-    lines.push(`- ${STATUS.problem} Recorded review: outdated — ${count(packet.changed.length, "part")} of the material changed since it${scope}; see "What changed". The adequacy of this material is not attested`);
-  }
-  else if (status === "unknown") lines.push(`- ${STATUS.unknown} Recorded review: not known — the review file cannot be used; see Diagnostics`);
-  else if (status === "accepted") lines.push(`- ${STATUS.unknown} Recorded review: none — this material was accepted without a review (\`cage review --accept\`); adequacy is not attested; record a verdict with \`cage review --record\``);
-  else {
-    const listed = (counts: Record<Assessment, number>) => ASSESSMENTS.filter((assessment) => counts[assessment] > 0).map((assessment) => `${counts[assessment]} ${assessment}`).join(", ");
-    const invariants = assessments ? listed(assessments) : "";
-    const contract = packet.recordedReview.contractAssessments;
-    // The contract as a whole is named when the reviewer found fault with it, or when it is all there is.
-    const whole = contract && (findsFault(contract) || invariants === "") ? `the contract as a whole: ${listed(contract) || "no finding"}` : "";
-    const fault = (assessments !== null && findsFault(assessments)) || (contract !== null && findsFault(contract));
-    lines.push(`- ${fault ? STATUS.attention : STATUS.ok} Recorded review: current — a reviewer's verdict on this material: ${[invariants, whole].filter((part) => part !== "").join("; ")}; an assessment, not a proof`);
-  }
-  return lines;
-}
-
 /** A changed part in one line: what it is, where, and what happened to it. */
 function describeChange(change: ChangedPart): string {
   const where = change.line === undefined ? change.file : `${change.file}:${change.line}`;
-  const what = change.kind === "contract" ? "the contract declaration" : change.kind === "design" ? "the prose of the design" : change.kind === "implementation" ? `implementation \`${change.name}\`` : change.kind === "test" ? `test "${change.name}"` : "dependency";
-  return `${what} (${where}): ${change.change}`;
+  const what = change.kind === "contract" ? "the contract declaration" : change.kind === "design" ? "the prose of the design" : change.kind === "implementation" ? `implementation ${change.name}` : change.kind === "test" ? `test "${change.name}"` : "dependency";
+  return `${what} ${change.change} (${where})`;
 }
 
 /** The lines of an excerpt with their numbers, pieces apart. */
@@ -629,147 +589,154 @@ function numberedPieces(excerpt: Excerpt): string[] {
   return excerpt.pieces.flatMap((piece, order) => [...(order === 0 ? [] : [`${" ".repeat(width)} ⋮`]), ...piece.text.split("\n").map((line, offset) => `${String(piece.startLine + offset).padStart(width)} | ${line}`)]);
 }
 
+/** A diagnostic in one line of a packet or the index: the code, the thing, the place. */
+function diagnosticLine(diagnostic: Diagnostic): string {
+  const place = [diagnostic.file, diagnostic.line, diagnostic.column].filter((part) => part !== undefined).join(":");
+  return `${diagnostic.code} ${diagnostic.message.split("\n")[0]}${place === "" ? "" : ` (${place})`}`;
+}
+
+/** The recorded review of a packet in one line. */
+function recordedLine(packet: ContractPacket): string {
+  const { status, assessments, contractAssessments } = packet.recordedReview;
+  if (status === "none") return "none";
+  if (status === "unknown") return "not known (the review file cannot be used)";
+  if (status === "accepted") return "accepted without a review";
+  if (status === "outdated") {
+    if (packet.changed.length === 0) return "outdated: no part differs, the fingerprint does (reordered, or the record edited)";
+    const touched = packet.touched ?? [];
+    const scope = packet.invariants.length === 0 ? "" : touched.length === packet.invariants.length ? ", touching every invariant" : `, touching ${touched.length} of ${packet.invariants.length} invariants`;
+    return `outdated, ${packet.changed.length} ${packet.changed.length === 1 ? "part" : "parts"} changed${scope}`;
+  }
+  const listed = (counts: Record<Assessment, number>) => ASSESSMENTS.filter((assessment) => counts[assessment] > 0).map((assessment) => `${counts[assessment]} ${assessment}`).join(", ");
+  const invariants = assessments ? listed(assessments) : "";
+  const whole = contractAssessments && (findsFault(contractAssessments) || invariants === "") ? `the contract as a whole: ${listed(contractAssessments) || "no finding"}` : "";
+  return `current: ${[invariants, whole].filter((part) => part !== "").join("; ")}`;
+}
+
+/** The verdict template for the packets of a report, with the fingerprints filled in: what `cage review --record` reads. */
+function verdictTemplate(contracts: readonly ContractPacket[]): string {
+  const finding = { invariant: "<id, or null for the contract as a whole>", assessment: "adequate | weak | unrelated | insufficient-context", reason: "<why>", evidence: "<file:line; null only for insufficient-context>", suggestedChange: "<what to change, or null>" };
+  return JSON.stringify({ version: 1, verdicts: contracts.map((packet) => ({ contract: packet.contract, fingerprint: packet.fingerprint, findings: [finding] })) });
+}
+
+/**
+ * The packets as one Markdown document: per contract its facts, invariants with the previous findings, code, and
+ * the text that comes along; at the end the verdict template. The reviewer's instruction is the `cage-review` skill's
+ * and the reference's, not the packet's.
+ */
 export function formatReviewMarkdown(report: ReviewReport): string {
-  const texts = [...report.files.map((file) => file.text), ...report.excerpts.flatMap((excerpt) => excerpt.pieces.map((piece) => piece.text)), JSON.stringify(report.resultFormat, null, 2)];
+  const texts = [...report.files.map((file) => file.text), ...report.excerpts.flatMap((excerpt) => excerpt.pieces.map((piece) => piece.text))];
   const longest = Math.max(2, ...texts.flatMap((text) => [...text.matchAll(/`+/g)].map((run) => run[0].length)));
   const fence = "`".repeat(longest + 1);
-  const at = ({ file, line, column }: Partial<SourceLocation>) => [file, line, column].filter((part) => part !== undefined).join(":");
-  const lines: string[] = ["# Design review", "", report.instruction, ""];
-  if (!report.complete) lines.push("> The check found errors; they are listed with each contract. Part of the material below has been rejected by the harness.", "");
-  if (report.contracts.length === 0) {
-    lines.push("No contract to review.", "");
-  } else {
-    lines.push(`Status: ${STATUS.ok} known and in order · ${STATUS.attention} needs a look · ${STATUS.problem} missing, outdated or an error · ${STATUS.unknown} not done or not known by cage.`, "Collected material is not judged material: adequacy comes only from a recorded verdict, and no line here says that a test passed.", "");
-    const carried = report.included === "all" ? "Every file of the material is included whole under Files." : report.included === "none" ? "No file text is included: open the files named here in the repository." : "Of a contract with an outdated review only the lines that changed are included (Changed material), and whole only a changed design or dependency; of any other contract every file. `--files all` includes every file whole, `--files none` only the references.";
-    lines.push(carried, "");
-  }
+  const at = ({ file, line }: Partial<SourceLocation>) => [file, line].filter((part) => part !== undefined).join(":");
+  const lines: string[] = [];
+  if (!report.complete) lines.push("> The check found errors; part of the material has been rejected by the harness. They are listed with each contract.", "");
+  if (report.contracts.length === 0) lines.push("No contract to review.", "");
 
   for (const packet of report.contracts) {
-    lines.push(`## Contract ${packet.contract} (${packet.module})`, "");
-    lines.push(`- Design: ${packet.designs.join(", ")}`);
-    lines.push(`- Fingerprint: ${packet.fingerprint}`);
-    lines.push(`- Lock: ${packet.lock === null ? "none (open)" : `@${packet.lock}`}`);
-    lines.push(`- Description: ${packet.description ?? "none"}`, "");
-    lines.push("### Status", "", ...statusLines(packet), "");
+    const declarations = packet.tests.flatMap((file) => file.declarations);
+    const inactive = declarations.filter((test) => test.status !== "active").length;
+    lines.push(`# ${packet.contract} (${packet.module})`);
+    lines.push(`fingerprint: ${packet.fingerprint}`);
+    lines.push(`design: ${packet.designs.join(", ")}${packet.dependencies.designs.length > 0 ? `; uses ${packet.dependencies.designs.join(", ")}` : ""}`);
+    if (packet.description) lines.push(`description: ${packet.description}`);
+    if (packet.lock) lines.push(`lock: @${packet.lock}`);
+    lines.push(`review: ${recordedLine(packet)}`);
+    lines.push(`tests: ${declarations.length === 0 ? "none tagged" : inactive === 0 ? `all ${declarations.length} active` : `${inactive} of ${declarations.length} inactive (skipped, todo, empty or a broken import); not run by cage`}`);
+    if (packet.diagnostics.length > 0) lines.push(`check: ${packet.diagnostics.map(diagnosticLine).join("; ")}`);
+    lines.push("");
+
     if (packet.recordedReview.status === "outdated") {
-      lines.push("### What changed since the recorded review", "");
-      if (packet.changed.length === 0) lines.push("- no part differs by its digest: the parts are in another order, or the record was edited; every file is included, judge every invariant afresh");
+      lines.push("## Changed");
+      if (packet.changed.length === 0) lines.push("- no part differs by its digest; every file is included, judge every invariant afresh");
       for (const change of packet.changed) lines.push(`- ${describeChange(change)}`);
       const touched = packet.touched ?? [];
-      if (packet.invariants.length > 0 && packet.changed.length > 0) lines.push("", touched.length === 0 ? "- touches no invariant's tests: confirm or revise the previous findings" : touched.length === packet.invariants.length ? "- touches every invariant: judge each afresh" : `- touches ${touched.map((id) => `\`${id}\``).join(", ")}: judge these afresh; confirm or revise the previous findings of the others`);
+      const rest = packet.invariants.map(({ id }) => id).filter((id) => !touched.includes(id));
+      if (packet.invariants.length > 0 && packet.changed.length > 0) lines.push(`touches: ${touched.length === 0 ? "no invariant's tests" : touched.join(", ")}${touched.length > 0 ? " (judge afresh)" : ""}${rest.length > 0 ? `; ${rest.join(", ")} (confirm or revise)` : ""}`);
       lines.push("");
     }
-    lines.push("### Members", "");
-    if (packet.members.length === 0) lines.push("- (a callable contract: one call signature)");
-    for (const member of packet.members) lines.push(`- \`${member.name}\` (${at(member.location)})${member.description ? `: ${member.description}` : ""}`);
-    lines.push("", "### Invariants", "");
+
+    lines.push("## Invariants");
     if (packet.invariants.length === 0) lines.push("- none: assess the contract as a whole");
     for (const invariant of packet.invariants) {
-      const tests = invariant.tests.length === 0 ? "no test declaration" : invariant.tests.map((test) => `${test.file}:${test.line} "${test.title}"`).join("; ");
-      lines.push(`- \`${invariant.id}\`${invariant.member ? ` on \`${invariant.member}\`` : ""} (${at(invariant.location)}): ${invariant.text}`, `  - tests: ${tests}`);
+      lines.push(`- ${invariant.id}${invariant.member ? ` on ${invariant.member}` : ""} (${at(invariant.location)}): ${invariant.text}`);
+      lines.push(`  tests: ${invariant.tests.length === 0 ? "none" : invariant.tests.map((test) => `${test.file}:${test.line} "${test.title}"`).join("; ")}`);
       for (const finding of invariant.prior) {
-        const stands = invariant.touched === null ? "" : invariant.touched ? "; its material changed: judge it afresh" : "; its material did not change: confirm or revise";
-        lines.push(`  - recorded review: ${finding.assessment} — ${firstSentence(finding.reason)}${finding.evidence ? ` (${finding.evidence})` : ""}${stands}`);
+        const stands = invariant.touched === null ? "" : invariant.touched ? ", changed" : ", unchanged";
+        lines.push(`  recorded: ${finding.assessment}, "${firstSentence(finding.reason)}"${finding.evidence ? ` (${finding.evidence})` : ""}${stands}`);
       }
     }
-    lines.push("", "### Implementations", "");
+    lines.push("");
+
+    lines.push("## Code");
     if (packet.implementations.length === 0) lines.push("- none tagged");
-    for (const implementation of packet.implementations) {
-      lines.push(`- \`${implementation.name}\` (${implementation.kind}, ${at(implementation.location)})${implementation.compatible ? "" : ": does not fit the contract"}`);
-    }
-    lines.push("", "### Tests", "");
-    if (packet.tests.length === 0) lines.push("- none tagged");
+    for (const implementation of packet.implementations) lines.push(`- ${implementation.name} (${implementation.kind}, ${at(implementation.location)})${implementation.compatible ? "" : ": does not fit the contract"}`);
+    if (packet.members.length > 0) lines.push(`- members: ${packet.members.map((member) => `${member.name}${member.description ? ` (${member.description})` : ""}`).join(", ")}`);
     for (const file of packet.tests) {
-      lines.push(`- ${file.file}`);
-      for (const test of file.declarations) {
-        const inactive = test.status === "active" ? "" : ` (inactive: ${test.inactiveBecause ?? test.status})`;
-        lines.push(`  - line ${test.line}: "${[...test.suitePath, test.title].join(" > ")}" covers ${test.covers.length === 0 ? "nothing" : test.covers.map((id) => `\`${id}\``).join(", ")}${inactive}`);
-      }
+      const inactiveHere = file.declarations.filter((test) => test.status !== "active");
+      lines.push(`- tests: ${file.file}${inactiveHere.length > 0 ? `; inactive: ${inactiveHere.map((test) => `"${test.title}" ${test.inactiveBecause ?? test.status} (line ${test.line})`).join(", ")}` : ""}`);
     }
-    lines.push("", "### Dependencies", "");
-    const named = (edges: { contract: string; module: string }[]) => (edges.length === 0 ? "none" : edges.map((edge) => `${edge.contract} (${edge.module})`).join(", "));
-    lines.push(`- uses: ${named(packet.dependencies.uses)}`, `- used by: ${named(packet.dependencies.usedBy)}`, `- designs included: ${packet.dependencies.designs.length === 0 ? "none" : packet.dependencies.designs.join(", ")}`);
-    lines.push("", "### Used outside the module", "");
-    if (packet.usedBy.length === 0) lines.push("- nothing in the project imports an implementation of this contract from outside its module");
-    for (const use of packet.usedBy) lines.push(`- ${use.file}:${use.line} imports ${use.names.join(", ")}${use.members.length > 0 ? ` and calls ${use.members.join(", ")}` : ""} — relies on the promises above; a change here reaches it`);
-    lines.push("", "### Notes of the previous review", "");
-    if (packet.priorNotes.length === 0) lines.push("- none recorded");
-    for (const note of packet.priorNotes) lines.push(`- ${note}`);
-    lines.push("", "### Fingerprinted dependencies", "");
-    if (packet.fingerprinted.length === 0) lines.push("- none: the implementations and tests import no other local file");
-    else lines.push(`- ${packet.fingerprinted.join(", ")} — a change in any of these makes the recorded review outdated`);
-    lines.push("", "### Helpers loaded with the tests", "");
-    if (packet.helpers.length === 0) lines.push("- none: the tests import nothing else from the project");
-    for (const file of packet.helpers) lines.push(`- ${file}`);
-    lines.push("", "### Tests without declarations", "");
-    if (packet.untaggedTests.length === 0) lines.push("- none: every test file of the module declares something");
-    for (const file of packet.untaggedTests) lines.push(`- ${file} (matched by the tests patterns, no \`@tests\` / \`@covers\`: proof there is not linked)`);
-    lines.push("", "### Not loaded", "");
-    if (packet.unloaded.length === 0) lines.push("- nothing: every project file the material imports is included");
-    for (const { file, importedBy } of packet.unloaded) {
-      lines.push(`- ${file}: ${importedBy.map((importer) => `${importer.names.join(", ")} for ${importer.file}`).join("; ")}`);
-    }
-    lines.push("", "### Diagnostics", "");
-    if (packet.diagnostics.length === 0) lines.push("- none");
-    for (const diagnostic of packet.diagnostics) lines.push(`- ${at(diagnostic) || "(project)"}: ${diagnostic.severity} ${diagnostic.code}: ${diagnostic.message.replaceAll("\n", "\n  ")}`);
+    if (packet.fingerprinted.length > 0) lines.push(`- fingerprinted: ${packet.fingerprinted.join(", ")}`);
+    if (packet.helpers.length > 0) lines.push(`- test helpers: ${packet.helpers.join(", ")}`);
+    if (packet.dependencies.uses.length > 0) lines.push(`- uses: ${packet.dependencies.uses.map((edge) => `${edge.contract} (${edge.module})`).join(", ")}`);
+    if (packet.dependencies.usedBy.length > 0) lines.push(`- used by: ${packet.dependencies.usedBy.map((edge) => `${edge.contract} (${edge.module})`).join(", ")}`);
+    for (const use of packet.usedBy) lines.push(`- used outside the module: ${use.file}:${use.line} imports ${use.names.join(", ")}${use.members.length > 0 ? `, calls ${use.members.join(", ")}` : ""}`);
+    for (const note of packet.priorNotes) lines.push(`- previous review note: ${note}`);
+    for (const file of packet.untaggedTests) lines.push(`- test file without tags: ${file}`);
+    for (const { file, importedBy } of packet.unloaded) lines.push(`- not loaded: ${file} (${importedBy.map((importer) => `${importer.names.join(", ")} for ${importer.file}`).join("; ")})`);
     lines.push("");
   }
 
   if (report.excerpts.length > 0) {
-    lines.push("## Changed material", "", "The lines of each changed part, numbered as in its file; the rest of the file is by reference.", "");
+    lines.push("## Changed material", "");
     for (const excerpt of report.excerpts) {
-      const ranges = excerpt.pieces.map((piece) => (piece.startLine === piece.endLine ? `${piece.startLine}` : `${piece.startLine}–${piece.endLine}`)).join(", ");
-      lines.push(`### ${excerpt.part} (${excerpt.file}, lines ${ranges})`, "", `${fence}ts`, ...numberedPieces(excerpt), fence, "");
+      const ranges = excerpt.pieces.map((piece) => (piece.startLine === piece.endLine ? `${piece.startLine}` : `${piece.startLine}-${piece.endLine}`)).join(", ");
+      lines.push(`### ${excerpt.file}:${ranges}`, `${fence}ts`, ...numberedPieces(excerpt), fence, "");
     }
   }
-  if (report.files.length > 0 || report.included !== "none") lines.push("## Files", "");
-  if (report.files.length === 0 && report.included !== "none") lines.push(report.contracts.length === 0 ? "- none" : "- none included whole; see Changed material and the references above", "");
-  for (const file of report.files) {
-    const language = file.path.endsWith(".mdx") ? "mdx" : "ts";
-    // Every line is numbered, so that evidence can name a line without counting.
-    const numbered = file.text.replace(/\n$/, "").split("\n");
-    const width = String(numbered.length).length;
-    lines.push(`### ${file.path} (${file.role})`, "", `${fence}${language}`, ...numbered.map((line, index) => `${String(index + 1).padStart(width)} | ${line}`), fence, "");
+  if (report.files.length > 0) {
+    lines.push("## Files", "");
+    for (const file of report.files) {
+      const language = file.path.endsWith(".mdx") ? "mdx" : "ts";
+      // Every line is numbered, so that evidence can name a line without counting.
+      const numbered = file.text.replace(/\n$/, "").split("\n");
+      const width = String(numbered.length).length;
+      lines.push(`### ${file.path} (${file.role})`, `${fence}${language}`, ...numbered.map((line, index) => `${String(index + 1).padStart(width)} | ${line}`), fence, "");
+    }
   }
-  lines.push("## Result format", "", "Answer with one JSON object of this shape; `fingerprint` is copied from the contract's packet:", "", `${fence}json`, JSON.stringify(report.resultFormat, null, 2), fence, "");
+  if (report.contracts.length > 0) lines.push("## Verdict", "`cage review --record <file>` reads this shape, one finding per invariant:", verdictTemplate(report.contracts), "");
   return `${lines.join("\n")}\n`;
 }
 
-/** The index as Markdown: one entry per contract, what it needs and what changed, and how to get its material. */
+/** The index as Markdown: one entry per contract, its status and what changed. */
 export function formatReviewIndexMarkdown(report: ReviewIndex): string {
-  const lines: string[] = ["# Design review: index", ""];
+  const lines: string[] = [];
   if (!report.ok) {
-    lines.push("The designs could not be indexed; see the diagnostics.", "");
-  } else if (report.contracts.length === 0) {
-    lines.push(report.selection === "needed" ? `${STATUS.ok} No contract needs a review: each has a recorded verdict, or an acceptance without a review, of its material as it is now. \`cage review --all\` lists every contract.` : "No contract in the designs.", "");
-  } else {
-    const needing = report.contracts.filter((entry) => entry.status === "none" || entry.status === "outdated" || entry.status === "unknown").length;
-    lines.push(
-      report.selection === "needed" ? `${needing === 1 ? "1 contract needs" : `${needing} contracts need`} a review.` : `${report.contracts.length} contracts, ${needing} in need of a review.`,
-      "Take one at a time: `cage review <Name>` gives its material — for an outdated review the lines that changed and the previous findings, otherwise everything; `--files none` for the references only, `--files all` for every file whole. Record the verdict with `cage review --record <file>`.",
-      "",
-    );
+    lines.push("# Review index: the designs could not be indexed", "");
+    for (const diagnostic of report.diagnostics) lines.push(`- ${diagnosticLine(diagnostic)}`);
+    return `${lines.join("\n")}\n`;
   }
+  const needing = report.contracts.filter((entry) => entry.status === "none" || entry.status === "outdated" || entry.status === "unknown").length;
+  const head = report.selection === "needed" ? (needing === 0 ? "no contract needs a review" : `${needing} ${needing === 1 ? "contract needs" : "contracts need"} a review`) : `${report.contracts.length} contracts, ${needing} in need of a review`;
+  lines.push(`# Review index: ${head}`, "");
   const describeStatus = (entry: ReviewIndexEntry) => {
-    if (entry.status === "none") return `${STATUS.unknown} no review`;
-    if (entry.status === "unknown") return `${STATUS.unknown} not known (the review file cannot be used)`;
-    if (entry.status === "accepted") return `${STATUS.unknown} accepted without a review`;
-    if (entry.status === "current") return `${STATUS.ok} reviewed, current`;
-    if (entry.changed.length === 0) return `${STATUS.problem} outdated: no part differs by its digest, yet the record does not match (the parts are in another order, or the record was edited)`;
+    if (entry.status === "none") return "no review";
+    if (entry.status === "unknown") return "not known (the review file cannot be used)";
+    if (entry.status === "accepted") return "accepted without a review";
+    if (entry.status === "current") return "reviewed, current";
+    if (entry.changed.length === 0) return "outdated: no part differs, the fingerprint does";
     const touched = entry.touched ?? [];
-    const scope = entry.invariants.length === 0 ? "" : touched.length === entry.invariants.length ? ", touching every invariant" : touched.length === 0 ? ", touching no invariant's tests" : `, touching ${touched.map((id) => `\`${id}\``).join(", ")}`;
-    return `${STATUS.problem} outdated: ${entry.changed.length === 1 ? "1 part" : `${entry.changed.length} parts`} changed${scope}`;
+    const scope = entry.invariants.length === 0 ? "" : touched.length === entry.invariants.length ? ", touching every invariant" : touched.length === 0 ? ", touching no invariant's tests" : `, touching ${touched.join(", ")}`;
+    return `outdated, ${entry.changed.length} ${entry.changed.length === 1 ? "part" : "parts"} changed${scope}`;
   };
   for (const entry of report.contracts) {
-    const found = entry.errors > 0 || entry.warnings > 0 ? `; check: ${[entry.errors > 0 ? `${entry.errors} error${entry.errors === 1 ? "" : "s"}` : "", entry.warnings > 0 ? `${entry.warnings} warning${entry.warnings === 1 ? "" : "s"}` : ""].filter((part) => part !== "").join(", ")}` : "";
-    lines.push(`- **${entry.contract}** (${entry.module}): ${describeStatus(entry)} — ${entry.invariants.length === 1 ? "1 invariant" : `${entry.invariants.length} invariants`}, ${entry.files === 1 ? "1 file" : `${entry.files} files`} of material${found}`);
+    lines.push(`- ${entry.contract} (${entry.module}): ${describeStatus(entry)}; ${entry.invariants.length} ${entry.invariants.length === 1 ? "invariant" : "invariants"}, ${entry.files} ${entry.files === 1 ? "file" : "files"}${entry.codes.length > 0 ? `; ${entry.codes.join(", ")}` : ""}`);
     const shown = entry.changed.slice(0, 8);
     for (const change of shown) lines.push(`  - ${describeChange(change)}`);
     if (entry.changed.length > shown.length) lines.push(`  - and ${entry.changed.length - shown.length} more`);
   }
-  if (report.diagnostics.length > 0) {
-    lines.push("", "## Diagnostics", "");
-    for (const diagnostic of report.diagnostics) lines.push(`- ${[diagnostic.file, diagnostic.line, diagnostic.column].filter((part) => part !== undefined).join(":") || "(project)"}: ${diagnostic.severity} ${diagnostic.code}: ${diagnostic.message.replaceAll("\n", "\n  ")}`);
-  }
+  // An entry carries its contract's codes; every error, and what is about no listed contract, is said in full.
+  const standing = report.diagnostics.filter((diagnostic) => diagnostic.severity === "error" || !report.contracts.some((entry) => entry.contract === diagnostic.contract));
+  if (standing.length > 0) lines.push("", ...standing.map((diagnostic) => `- ${diagnosticLine(diagnostic)}`));
   return `${lines.join("\n")}\n`;
 }

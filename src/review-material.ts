@@ -84,7 +84,7 @@ export function createFileReader(root: string, diagnostics: Diagnostic[], source
     if (text === undefined && !insideRoot(root, file)) {
       if (!outside.has(file)) {
         outside.add(file);
-        diagnostics.push({ code: "W_OUTSIDE_ROOT", severity: "warning", message: `${file} is a symbolic link to a file outside the project: cage does not read it into the review or its fingerprint. A change there does not make a review outdated.`, file });
+        diagnostics.push({ code: "W_OUTSIDE_ROOT", severity: "warning", message: `${file}: symbolic link out of the project`, file });
       }
       return undefined;
     }
@@ -94,7 +94,7 @@ export function createFileReader(root: string, diagnostics: Diagnostic[], source
       files.set(file, loaded);
       return loaded;
     } catch (cause) {
-      diagnostics.push({ code: "E_ENVIRONMENT", severity: "error", message: `Cannot read a file of the review: ${(cause as Error).message}`, file });
+      diagnostics.push({ code: "E_ENVIRONMENT", severity: "error", message: `cannot read a file of the review: ${(cause as Error).message}`, file });
       return undefined;
     }
   };

@@ -32,7 +32,7 @@ export function readModuleScopes(root: string, moduleIds: readonly string[]): { 
       text = stripBom(fs.readFileSync(path.join(root, file), "utf8"));
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== "ENOENT") {
-        diagnostics.push({ code: "E_ENVIRONMENT", severity: "error", message: `Cannot read the ignore file: ${(cause as Error).message}`, file });
+        diagnostics.push({ code: "E_ENVIRONMENT", severity: "error", message: `cannot read the ignore file: ${(cause as Error).message}`, file });
       }
     }
     const globs: string[] = [];
@@ -40,7 +40,7 @@ export function readModuleScopes(root: string, moduleIds: readonly string[]): { 
       const pattern = line.text.trim();
       if (pattern === "" || pattern.startsWith("#")) return;
       if (pattern.startsWith("!")) {
-        diagnostics.push({ code: "E_CONFIG", severity: "error", message: "Negated patterns (`!`) are not supported in an ignore file.", file, line: index + 1, column: 1 });
+        diagnostics.push({ code: "E_CONFIG", severity: "error", message: "negated pattern (`!`) in the ignore file", file, line: index + 1, column: 1 });
         return;
       }
       globs.push(...toGlobs(pattern));

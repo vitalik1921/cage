@@ -36,9 +36,9 @@ test("without names review is an index: which contracts need a review, what chan
   );
   assert.match(first.contracts[0].fingerprint, /^sha256:[0-9a-f]{64}$/);
   const text = cli(root, "review").stdout;
-  assert.match(text, /^# Design review: index\n\n3 contracts need a review\.\nTake one at a time: `cage review <Name>` gives its material/);
-  assert.match(text, /^- \*\*Send\*\* \(src\/modules\/campaigns\): ○ no review — 4 invariants, 5 files of material$/m);
-  assert.match(text, /^- \*\*Sender\*\* \(src\/modules\/mail\): ○ no review — 0 invariants, 2 files of material; check: 1 warning$/m);
+  assert.match(text, /^# Review index: 3 contracts need a review\n\n- Send /);
+  assert.match(text, /^- Send \(src\/modules\/campaigns\): no review; 4 invariants, 5 files$/m);
+  assert.match(text, /^- Sender \(src\/modules\/mail\): no review; 0 invariants, 2 files; W_NO_INVARIANTS$/m);
   // No file text in the index.
   assert.ok(!text.includes("```"));
 
@@ -48,8 +48,8 @@ test("without names review is an index: which contracts need a review, what chan
   const all = index(root, "--all");
   assert.equal(all.selection, "all");
   assert.deepEqual(all.contracts.map(({ contract, status }) => `${contract} ${status}`), ["Send current", "Sender none", "Quota current"]);
-  assert.match(cli(root, "review", "--all").stdout, /^3 contracts, 1 in need of a review\.$/m);
-  assert.match(cli(root, "review", "--all").stdout, /^- \*\*Send\*\* \(src\/modules\/campaigns\): ✓ reviewed, current — 4 invariants, 5 files of material$/m);
+  assert.match(cli(root, "review", "--all").stdout, /^# Review index: 3 contracts, 1 in need of a review$/m);
+  assert.match(cli(root, "review", "--all").stdout, /^- Send \(src\/modules\/campaigns\): reviewed, current; 4 invariants, 5 files$/m);
 
   // One test's body changes: the review of Send is outdated by that one part, which touches the invariant the test covers.
   editFile(root, SEND_TEST, (s) => s.replace('assert.equal(await service.run("a", "hello"), "limited");', 'assert.equal(await service.run("a", "hello"), "limited"); // edited'));
@@ -58,8 +58,8 @@ test("without names review is an index: which contracts need a review, what chan
   assert.deepEqual(send.changed, [{ part: `test ${SEND_TEST}:не передає повідомлення без квоти`, kind: "test", change: "changed", file: SEND_TEST, line: inFixture(SEND_TEST, 'it("не передає').line, name: "не передає повідомлення без квоти" }]);
   assert.deepEqual(send.touched, ["limit"]);
   const outdated = cli(root, "review").stdout;
-  assert.match(outdated, /^- \*\*Send\*\* \(src\/modules\/campaigns\): ✗ outdated: 1 part changed, touching `limit` — 4 invariants, 5 files of material$/m);
-  assert.match(outdated, /^  - test "не передає повідомлення без квоти" \(src\/modules\/campaigns\/send\.test\.ts:\d+\): changed$/m);
+  assert.match(outdated, /^- Send \(src\/modules\/campaigns\): outdated, 1 part changed, touching limit; 4 invariants, 5 files$/m);
+  assert.match(outdated, /^  - test "не передає повідомлення без квоти" changed \(src\/modules\/campaigns\/send\.test\.ts:\d+\)$/m);
 
   // The implementation changes too: everything is touched; a title changes: the old test is gone, the new one is new.
   // A comment inside the class is a change of the implementation's text; one between the tag and the class would untag it.
@@ -76,7 +76,7 @@ test("without names review is an index: which contracts need a review, what chan
     ],
   );
   assert.deepEqual(again.touched, ["quota", "limit", "quota-error", "sender-error"]);
-  assert.match(cli(root, "review").stdout, /✗ outdated: 4 parts changed, touching every invariant/);
+  assert.match(cli(root, "review").stdout, /outdated, 4 parts changed, touching every invariant/);
 });
 
 test("a named packet carries the changed lines of an outdated review with the previous findings; --files all and none change what comes along", (t) => {
@@ -121,17 +121,18 @@ test("a named packet carries the changed lines of an outdated review with the pr
   assert.ok(excerpt.pieces[0].text.trimEnd().endsWith("});"));
 
   const markdown = cli(root, "review", "Send").stdout;
-  assert.match(markdown, /^- ✗ Recorded review: outdated — 1 part of the material changed since it, touching 1 of 4 invariants; see "What changed"\./m);
-  assert.match(markdown, /^### What changed since the recorded review\n\n- test "не передає повідомлення без квоти" \(src\/modules\/campaigns\/send\.test\.ts:\d+\): changed\n\n- touches `limit`: judge these afresh; confirm or revise the previous findings of the others$/m);
-  assert.match(markdown, /^  - recorded review: adequate — limit is checked\. \(src\/modules\/campaigns\/send\.test\.ts:9\); its material changed: judge it afresh$/m);
-  assert.match(markdown, /^  - recorded review: adequate — quota is checked\. \(src\/modules\/campaigns\/send\.test\.ts:9\); its material did not change: confirm or revise$/m);
-  assert.match(markdown, new RegExp(`^### test src/modules/campaigns/send\\.test\\.ts:не передає повідомлення без квоти \\(src/modules/campaigns/send\\.test\\.ts, lines ${start}–${excerpt.pieces[0].endLine}\\)$`, "m"));
+  assert.match(markdown, /^review: outdated, 1 part changed, touching 1 of 4 invariants$/m);
+  assert.match(markdown, /^## Changed\n- test "не передає повідомлення без квоти" changed \(src\/modules\/campaigns\/send\.test\.ts:\d+\)\ntouches: limit \(judge afresh\); quota, quota-error, sender-error \(confirm or revise\)$/m);
+  assert.match(markdown, /^  recorded: adequate, "limit is checked\." \(src\/modules\/campaigns\/send\.test\.ts:9\), changed$/m);
+  assert.match(markdown, /^  recorded: adequate, "quota is checked\." \(src\/modules\/campaigns\/send\.test\.ts:9\), unchanged$/m);
+  assert.match(markdown, new RegExp(`^### src/modules/campaigns/send\\.test\\.ts:${start}-${excerpt.pieces[0].endLine}$`, "m"));
   // `<line> | ` and then the line as written, with its own indentation.
   assert.match(markdown, new RegExp(`^${start} \\| {3}/\\*\\* @covers limit \\*/$`, "m"));
-  assert.match(markdown, /^## Files\n\n- none included whole; see Changed material and the references above$/m);
+  assert.ok(!markdown.includes("## Files"));
   assert.ok(!markdown.includes(`### ${SEND_TEST} (test)`));
-  // The instruction says what to do with an outdated review.
-  assert.match(markdown, /judge the touched ones afresh; for the others, confirm the previous finding or revise it/);
+  // No instruction in the packet: that is the skill's. The verdict template closes it, with the fingerprint filled in.
+  assert.ok(!markdown.includes("You are reviewing"));
+  assert.match(markdown, new RegExp(`^## Verdict\\n.*\\n\\{"version":1,"verdicts":\\[\\{"contract":"Send","fingerprint":"${send.fingerprint}"`, "m"));
 
   // --files all: every file whole, no excerpts; --files none: neither.
   const all = packet(root, "Send", "--files", "all");
@@ -144,7 +145,7 @@ test("a named packet carries the changed lines of an outdated review with the pr
   assert.deepEqual(none.excerpts, []);
   const bare = cli(root, "review", "Send", "--files", "none").stdout;
   assert.ok(!bare.includes("## Files"));
-  assert.match(bare, /No file text is included: open the files named here in the repository\./);
+  assert.ok(!bare.includes("## Changed material"));
 
   // A changed design document, or dependency, comes whole: there is no smaller part to show.
   editFile(root, CAMPAIGNS, (s) => s.replace("# ", "# Campaigns: "));
@@ -158,6 +159,15 @@ test("a named packet carries the changed lines of an outdated review with the pr
   assert.deepEqual(whole.contracts[0].touched, ["quota", "limit", "quota-error", "sender-error"]);
   assert.deepEqual(whole.files.map(({ path, role }) => `${path} ${role}`), [CAMPAIGNS + " design", CALLBACK_SENDER + " helper"]);
   assert.equal(whole.excerpts.length, 1);
+});
+
+test("the index keeps every error in view: a broken review file is named, not only counted", (t) => {
+  const root = copyFixture(t, "vertical");
+  writeFile(root, ".cage/review.json", "{ nope");
+  const run = cli(root, "review");
+  assert.equal(run.code, 2);
+  assert.match(run.stdout, /^- Send \(src\/modules\/campaigns\): not known \(the review file cannot be used\); 4 invariants, 5 files$/m);
+  assert.match(run.stdout, /^- E_CONFIG review file not usable: .* \(\.cage\/review\.json\)$/m);
 });
 
 test("--files goes with the names of contracts only, and takes changed, all or none", (t) => {
@@ -184,14 +194,14 @@ test("touched is conservative where the record cannot tell: a reorder, a finding
   assert.equal(swapped.status, "outdated");
   assert.deepEqual(swapped.changed, []);
   assert.deepEqual(swapped.touched, ["quota", "limit", "quota-error", "sender-error"]);
-  assert.match(cli(reordered, "review").stdout, /✗ outdated: no part differs by its digest, yet the record does not match \(the parts are in another order, or the record was edited\)/);
+  assert.match(cli(reordered, "review").stdout, /outdated: no part differs, the fingerprint does/);
   const whole = packet(reordered, "Send");
   assert.equal(whole.files.length, 6);
   assert.deepEqual(whole.excerpts, []);
   assert.ok(whole.contracts[0].invariants.every(({ touched }) => touched === true));
   const text = cli(reordered, "review", "Send").stdout;
-  assert.match(text, /- ✗ Recorded review: outdated — no part differs by its digest, yet the record does not match .*: nothing can be told apart, judge every invariant afresh\./);
-  assert.match(text, /^- no part differs by its digest: the parts are in another order, or the record was edited; every file is included, judge every invariant afresh$/m);
+  assert.match(text, /^review: outdated: no part differs, the fingerprint does \(reordered, or the record edited\)$/m);
+  assert.match(text, /^- no part differs by its digest; every file is included, judge every invariant afresh$/m);
   assert.doesNotMatch(text, /touches no invariant/);
 
   // A finding whose evidence points into the lines of a changed test rested on it: the invariant is touched although the test covers another one.

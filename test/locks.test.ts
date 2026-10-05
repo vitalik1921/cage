@@ -104,13 +104,13 @@ test("a @final declaration must not change: not a signature, not a member more o
   assert.deepEqual(problems(root), [
     {
       code: "E_LOCK_VIOLATION",
-      message: 'Data type "AccountId" is `@final`: it must not change.\nits type changed; it was: string',
+      message: 'Data type "AccountId" is `@final`\nits type changed; it was: string',
       ...position(root, "type AccountId", "type ".length),
     },
     {
       code: "E_LOCK_VIOLATION",
       message: [
-        'Contract "Quota" is `@final`: it must not change.',
+        'Contract "Quota" is `@final`',
         "`take` changed; it was: take(account: AccountId): boolean;",
         "`left` was removed; it was: left(account: AccountId): number;",
         "`refill` was added",
@@ -132,8 +132,8 @@ test("an @extendable declaration may grow, and what it has must stay", (t) => {
 
   // Additions pass; until they are recorded they are not protected, and the check says so.
   assert.deepEqual(problems(root).map(({ code, message }) => ({ code, message })), [
-    { code: "W_LOCK_UNRECORDED", message: 'Contract "Store" has additions that are not locked yet: `put`. Run `cage lock` to record them.' },
-    { code: "W_LOCK_UNRECORDED", message: 'Data type "Row" has additions that are not locked yet: `label`. Run `cage lock` to record them.' },
+    { code: "W_LOCK_UNRECORDED", message: 'Contract "Store": `put` not locked yet' },
+    { code: "W_LOCK_UNRECORDED", message: 'Data type "Row": `label` not locked yet' },
   ]);
   assert.equal(cli(root, "check", "--phase", "design").code, 0);
   assert.deepEqual(
@@ -145,8 +145,8 @@ test("an @extendable declaration may grow, and what it has must stay", (t) => {
   change(root, "  get(key: string): string | null;", "  get(key: string): string;");
   change(root, "  label?: string;\n", "");
   assert.deepEqual(problems(root).map(({ code, message }) => ({ code, message })), [
-    { code: "E_LOCK_VIOLATION", message: 'Contract "Store" is `@extendable`: what it has must not change; only members and invariants may be added.\n`get` changed; it was: get(key: string): string | null;' },
-    { code: "E_LOCK_VIOLATION", message: 'Data type "Row" is `@extendable`: what it has must not change; only members and invariants may be added.\n`label` was removed; it was: label?: string;' },
+    { code: "E_LOCK_VIOLATION", message: 'Contract "Store" is `@extendable`\n`get` changed; it was: get(key: string): string | null;' },
+    { code: "E_LOCK_VIOLATION", message: 'Data type "Row" is `@extendable`\n`label` was removed; it was: label?: string;' },
   ]);
 });
 
@@ -166,15 +166,15 @@ test("a lock is not lifted by taking the tag off or deleting the declaration", (
   change(root, " * @extendable\n */\nexport interface Row", " * @final\n */\nexport interface Row");
 
   assert.deepEqual(problems(root), [
-    { code: "E_LOCK_VIOLATION", message: `Contract "Store" of src/m is recorded as \`@extendable\` in ${LOCK_FILE}, but it no longer exists.`, file: LOCK_FILE, line: undefined, column: undefined },
+    { code: "E_LOCK_VIOLATION", message: `Contract "Store" of src/m is \`@extendable\` in ${LOCK_FILE}, gone from the designs`, file: LOCK_FILE, line: undefined, column: undefined },
     {
       code: "E_LOCK_VIOLATION",
-      message: `Contract "Quota" is recorded as \`@final\` in ${LOCK_FILE}, but the tag was taken off. A lock is lifted by removing its entry from the lock file.`,
+      message: `Contract "Quota" is \`@final\` in ${LOCK_FILE}, tag taken off`,
       ...position(root, "interface Quota", "interface ".length),
     },
     {
       code: "E_LOCK_VIOLATION",
-      message: 'Data type "Row" is `@extendable`: what it has must not change; only members and invariants may be added.\nit is recorded as `@extendable` and is now marked `@final`',
+      message: 'Data type "Row" is `@extendable`\nrecorded `@extendable`, now `@final`',
       ...position(root, "interface Row", "interface ".length),
     },
   ]);
@@ -244,7 +244,7 @@ test("a lock sees members whose names are also names of Object.prototype", (t) =
   change(root, "  amount: number;", "  amount: number;\n  toString(): string;\n  valueOf(): number;\n  constructor: string;\n  __proto__: string;");
   assert.deepEqual(
     problems(root).map(({ code, message }) => ({ code, message })),
-    [{ code: "E_LOCK_VIOLATION", message: 'Data type "Money" is `@final`: it must not change.\n`toString` was added\n`valueOf` was added\n`constructor` was added\n`__proto__` was added' }],
+    [{ code: "E_LOCK_VIOLATION", message: 'Data type "Money" is `@final`\n`toString` was added\n`valueOf` was added\n`constructor` was added\n`__proto__` was added' }],
   );
 
   const extendable = designProject(t, { m: mdx(money("  toString(): string;").replace("@final", "@extendable"), contract("Thing", "run(): void;", "@invariant ok Працює.")) });
@@ -264,12 +264,12 @@ test("type parameters, a base type and a call signature are not additions to an 
         code: "E_LOCK_VIOLATION",
         // The property named `extends` is a member like any other; what the interface extends is not.
         message:
-          'Data type "Row" is `@extendable`: what it has must not change; only members and invariants may be added.\nits type parameters was added\nwhat it extends was added\nits call signature was added',
+          'Data type "Row" is `@extendable`\nits type parameters was added\nwhat it extends was added\nits call signature was added',
       },
       // The base type is also an open type inside a locked declaration.
       {
         code: "W_LOCK_OPEN_TYPE",
-        message: 'Data type "Row" is `@extendable`, but it uses data type "Base", which is not locked: a change to "Base" changes it too. Mark "Base" `@final` or `@extendable`.',
+        message: 'Data type "Row" is `@extendable`; data type "Base" it uses is not locked',
       },
     ],
   );
@@ -287,7 +287,7 @@ test("a lock compares what the type says, not how it is written", (t) => {
   // Whitespace inside a string literal is part of the type.
   change(root, '"a  b"', '"a b"');
   assert.deepEqual(problems(root).map(({ code, message }) => ({ code, message })), [
-    { code: "E_LOCK_VIOLATION", message: 'Data type "Kind" is `@final`: it must not change.\nits type changed; it was: "a  b" | "c"' },
+    { code: "E_LOCK_VIOLATION", message: 'Data type "Kind" is `@final`\nits type changed; it was: "a  b" | "c"' },
   ]);
 });
 
@@ -309,8 +309,8 @@ test("a lock covers the invariants of a contract: a @final one keeps them as the
   change(root, "Порожня квота\n *   відмовляє.", "Порожня квота чекає.\n * @invariant fair Квота однакова для всіх.");
   change(root, " * @invariant miss Невідомий ключ дає null.", " * @invariant miss Невідомий ключ дає null.\n * @invariant trim Ключ порівнюється без пробілів.");
   assert.deepEqual(problems(root).map(({ code, message }) => ({ code, message })), [
-    { code: "E_LOCK_VIOLATION", message: 'Contract "Quota" is `@final`: it must not change.\ninvariant `empty` changed; it was: Порожня квота відмовляє.\ninvariant `fair` was added' },
-    { code: "W_LOCK_UNRECORDED", message: 'Contract "Store" has additions that are not locked yet: invariant `trim`. Run `cage lock` to record them.' },
+    { code: "E_LOCK_VIOLATION", message: 'Contract "Quota" is `@final`\ninvariant `empty` changed; it was: Порожня квота відмовляє.\ninvariant `fair` was added' },
+    { code: "W_LOCK_UNRECORDED", message: 'Contract "Store": invariant `trim` not locked yet' },
   ]);
 
   change(root, "Порожня квота чекає.\n * @invariant fair Квота однакова для всіх.", "Порожня квота відмовляє.");
@@ -324,7 +324,7 @@ test("a lock covers the invariants of a contract: a @final one keeps them as the
     {
       code: "E_LOCK_VIOLATION",
       message:
-        'Contract "Store" is `@extendable`: what it has must not change; only members and invariants may be added.\ninvariant `miss` was removed; it was: Невідомий ключ дає null.\ninvariant `trim` changed; it was: Ключ порівнюється без пробілів.',
+        'Contract "Store" is `@extendable`\ninvariant `miss` was removed; it was: Невідомий ключ дає null.\ninvariant `trim` changed; it was: Ключ порівнюється без пробілів.',
     },
   ]);
 });
@@ -338,7 +338,7 @@ test("a lock file written before invariants were locked is not usable", (t) => {
     {
       code: "E_CONFIG",
       // Entries are sorted by module, kind and name, so the first contract is the first entry.
-      message: 'The lock file is not usable: entry 1 ("Quota") is not as `cage lock` writes it: a contract has "members" and "invariants", a data type only "members".',
+      message: 'lock file not usable: entry 1 ("Quota") is not as `cage lock` writes it: a contract has "members" and "invariants", a data type only "members".',
       file: LOCK_FILE,
     },
   ]);
@@ -362,7 +362,7 @@ test("a locked declaration that uses an open type is warned about, once per type
   const where = (needle: string) => inFile(root, designFile("orders"), needle);
   const warning = (subject: string, level: string, kind: string, name: string, position: { file: string; line: number; column: number }) => ({
     code: "W_LOCK_OPEN_TYPE",
-    message: `${subject} is \`@${level}\`, but it uses ${kind} "${name}", which is not locked: a change to "${name}" changes it too. Mark "${name}" \`@final\` or \`@extendable\`.`,
+    message: `${subject} is \`@${level}\`; ${kind} "${name}" it uses is not locked`,
     ...position,
   });
   assert.deepEqual(

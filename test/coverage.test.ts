@@ -16,7 +16,7 @@ function project(t: TestContext, files: Record<string, string>, designs: Record<
 const uncovered = (root: string) =>
   checkLinking(root)
     .diagnostics.filter((diagnostic) => diagnostic.code === "W_NOT_DESIGNED")
-    .map(({ severity, message, file, line, column }) => ({ severity, what: /^Exported (\w+ "[^"]+")/.exec(message)?.[1], file, line, column }));
+    .map(({ severity, message, file, line, column }) => ({ severity, what: /^(\w+ \S+) in /.exec(message)?.[1], file, line, column }));
 
 test("exported code of a module that its design does not cover is a warning", (t) => {
   const root = project(t, {
@@ -47,16 +47,16 @@ test("exported code of a module that its design does not cover is a warning", (t
   const { diagnostics, errors } = checkLinking(root);
   assert.deepEqual(errors, []);
   assert.deepEqual(uncovered(root), [
-    { severity: "warning", what: 'class "Controller"', ...inFile(root, "src/m/controller.ts", "Controller") },
-    { severity: "warning", what: 'function "handle"', ...inFile(root, "src/m/controller.ts", "handle") },
-    { severity: "warning", what: 'const "limit"', ...inFile(root, "src/m/controller.ts", "limit") },
-    { severity: "warning", what: 'const "retries"', ...inFile(root, "src/m/controller.ts", "retries") },
-    { severity: "warning", what: 'const "helper"', ...inFile(root, "src/m/controller.ts", "helper") },
-    { severity: "warning", what: 'class "Worker"', ...inFile(root, "src/m/deep/nested/worker.ts", "Worker") },
+    { severity: "warning", what: 'class Controller', ...inFile(root, "src/m/controller.ts", "Controller") },
+    { severity: "warning", what: 'function handle', ...inFile(root, "src/m/controller.ts", "handle") },
+    { severity: "warning", what: 'const limit', ...inFile(root, "src/m/controller.ts", "limit") },
+    { severity: "warning", what: 'const retries', ...inFile(root, "src/m/controller.ts", "retries") },
+    { severity: "warning", what: 'const helper', ...inFile(root, "src/m/controller.ts", "helper") },
+    { severity: "warning", what: 'class Worker', ...inFile(root, "src/m/deep/nested/worker.ts", "Worker") },
   ]);
   assert.equal(
     diagnostics.find((diagnostic) => diagnostic.code === "W_NOT_DESIGNED")?.message,
-    'Exported class "Controller" is not covered by the design of src/m: nothing marks it `@implements`. Describe its contract in the design, or list the file in src/m/.cageignore.',
+    "class Controller in src/m",
   );
   // Warnings do not fail the check, and the design phase does not look at code at all.
   assert.equal(cli(root, "check").code, 0);
@@ -69,7 +69,7 @@ test("exported code of a module that its design does not cover is a warning", (t
   const found = (JSON.parse(required.stdout) as { diagnostics: Diagnostic[] }).diagnostics.filter(({ code }) => code.endsWith("NOT_DESIGNED"));
   assert.equal(found.length, 6);
   assert.ok(found.every(({ code, severity }) => code === "E_NOT_DESIGNED" && severity === "error"));
-  assert.equal(found[0].message, 'Exported class "Controller" is not covered by the design of src/m: nothing marks it `@implements`. Describe its contract in the design, or list the file in src/m/.cageignore.');
+  assert.equal(found[0].message, "class Controller in src/m");
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, coverage: "off" }));
   const off = cli(root, "check", "--format", "json");
   assert.equal(off.code, 0);
@@ -105,10 +105,10 @@ test("a module's ignore file lists the files and folders that need no design", (
     ].join("\n"),
   );
   assert.deepEqual(uncovered(root).map(({ what, file }) => [what, file]), [
-    ['class "Controller"', "src/m/controller.ts"],
-    ['const "View"', "src/m/dto/response/view.ts"],
+    ['class Controller', "src/m/controller.ts"],
+    ['const View', "src/m/dto/response/view.ts"],
     // `/generated` is a path from the module root: the folder of the same name further down is not it.
-    ['class "SubClient"', "src/m/sub/generated/client.ts"],
+    ['class SubClient', "src/m/sub/generated/client.ts"],
   ]);
 
   // An ignored file is not skipped altogether: its tags are still read.
@@ -132,7 +132,7 @@ test("a file belongs to the nearest module above it", (t) => {
     { "m/inner": mdx(inner) },
   );
   assert.deepEqual(checkLinking(root).errors, []);
-  assert.deepEqual(uncovered(root).map(({ what, file }) => [what, file]), [['class "Extra"', "src/m/inner/inner.ts"]]);
+  assert.deepEqual(uncovered(root).map(({ what, file }) => [what, file]), [['class Extra', "src/m/inner/inner.ts"]]);
 });
 
 test("a declaration with a rejected @implements is an error, not also uncovered", (t) => {
@@ -149,7 +149,7 @@ test("ignore patterns are read like a .gitignore, without negation", (t) => {
     {
       code: "E_CONFIG",
       severity: "error",
-      message: "Negated patterns (`!`) are not supported in an ignore file.",
+      message: "negated pattern (`!`) in the ignore file",
       file: `src/m/${IGNORE_FILE}`,
       line: patterns.indexOf("!entities/keep.ts") + 1,
       column: 1,

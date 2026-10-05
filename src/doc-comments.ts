@@ -86,11 +86,11 @@ export function readAllowedTags(
   for (const tag of tags) {
     const kind = tagKind(tag.name);
     if (kind === "standard" || /^ts-/i.test(tag.name)) continue;
-    if (kind === "unknown") report("E_UNKNOWN_TAG", `Unknown tag \`@${tag.name}\`.`, tag.start);
-    else if (kind === "unsupported") report("E_UNSUPPORTED_TAG", `\`@${tag.name}\` is not supported.`, tag.start);
-    else if (!allowed.includes(tag.name)) report("E_TAG_LOCATION", `\`@${tag.name}\` is not allowed ${where}.`, tag.start);
-    else if (tag.suffix !== "") report("E_TAG_FORMAT", `\`@${tag.name}${tag.suffix}\`: a space must follow the tag name.`, tag.start);
-    else if (inlineTag(tag.name, tag.text)) report("E_TAG_FORMAT", `\`@${inlineTag(tag.name, tag.text)}\` starts a new line of the comment: one tag per line.`, tag.start);
+    if (kind === "unknown") report("E_UNKNOWN_TAG", `\`@${tag.name}\``, tag.start);
+    else if (kind === "unsupported") report("E_UNSUPPORTED_TAG", `\`@${tag.name}\``, tag.start);
+    else if (!allowed.includes(tag.name)) report("E_TAG_LOCATION", `\`@${tag.name}\` ${where}`, tag.start);
+    else if (tag.suffix !== "") report("E_TAG_FORMAT", `"@${tag.name}${tag.suffix}" needs a space after the tag name`, tag.start);
+    else if (inlineTag(tag.name, tag.text)) report("E_TAG_FORMAT", `\`@${inlineTag(tag.name, tag.text)}\` mid-line; one tag per line`, tag.start);
     else byName.set(tag.name, [...(byName.get(tag.name) ?? []), tag]);
   }
   return byName;

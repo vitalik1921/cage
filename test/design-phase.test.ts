@@ -117,7 +117,7 @@ test("a cross-design import names a document of the other design and resolves to
   assert.deepEqual(designErrors(root), []);
   const typo = editFile(root, CAMPAIGNS, (s) => s.replace("../quota/limits.cage.mdx", "../quota/limit.cage.mdx"));
   assert.deepEqual(designErrors(root).map(summary), [{ code: "E_DESIGN_IMPORT", tsCode: undefined, file: CAMPAIGNS, ...find(typo, '"../quota/limit.cage.mdx"') }]);
-  assert.match(designErrors(root)[0].message, /is not a document of the design of src\/modules\/quota; it has limits\.cage\.mdx, quota\.cage\.mdx/);
+  assert.match(designErrors(root)[0].message, /is not a document of src\/modules\/quota \(limits\.cage\.mdx, quota\.cage\.mdx\)/);
 });
 
 test("plain ts blocks stay examples: not extracted and not type-checked", (t) => {

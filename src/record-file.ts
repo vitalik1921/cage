@@ -20,7 +20,7 @@ export function parseRecordText<T>(text: string, parse: (value: unknown) => T[] 
  * when it cannot be read or is not what the command writes.
  */
 export function readRecordFile<T>(root: string, file: string, label: string, parse: (value: unknown) => T[] | string): { entries: T[]; diagnostics: Diagnostic[] } {
-  const invalid = (message: string) => ({ entries: [], diagnostics: [{ code: "E_CONFIG", severity: "error" as const, message: `The ${label} is not usable: ${message}`, file }] });
+  const invalid = (message: string) => ({ entries: [], diagnostics: [{ code: "E_CONFIG", severity: "error" as const, message: `${label} not usable: ${message}`, file }] });
   let text: string;
   try {
     text = fs.readFileSync(path.join(root, file), "utf8");

@@ -74,7 +74,7 @@ export function runInit(options: InitOptions): InitReport {
     try {
       current = fs.readFileSync(file, "utf8");
     } catch (cause) {
-      if ((cause as NodeJS.ErrnoException).code !== "ENOENT") return problem("E_ENVIRONMENT", "error", file, `Cannot read ${shown(file)}: ${(cause as Error).message}`);
+      if ((cause as NodeJS.ErrnoException).code !== "ENOENT") return problem("E_ENVIRONMENT", "error", file, `cannot read ${shown(file)}: ${(cause as Error).message}`);
     }
     const next = current === undefined ? text : update(current);
     if (next instanceof Error) return problem("E_CONFIG", "error", file, `${shown(file)} cannot be changed: ${next.message}`);
@@ -84,7 +84,7 @@ export function runInit(options: InitOptions): InitReport {
       else writeRecordFile(file, next);
       files.push({ path: shown(file), status: current === undefined ? "created" : "updated" });
     } catch (cause) {
-      problem("E_ENVIRONMENT", "error", file, `Cannot write ${shown(file)}: ${(cause as Error).message}`);
+      problem("E_ENVIRONMENT", "error", file, `cannot write ${shown(file)}: ${(cause as Error).message}`);
     }
   };
 
@@ -103,7 +103,7 @@ export function runInit(options: InitOptions): InitReport {
   // The hook runs from the repository: it names the project and the `cage` that is installed, wherever that is.
   const bin = installedBin(root, repository);
   if (bin === undefined) {
-    problem("W_GATE_COMMAND", "warning", undefined, `No installed \`cage\` was found between ${shown(root) || "."} and the repository; the hook expects node_modules/.bin/cage at the repository root. Install cage-ts there, or edit the hook command.`);
+    problem("W_GATE_COMMAND", "warning", undefined, `no installed cage between ${shown(root) || "."} and the repository (node_modules/.bin/cage)`);
   }
   const binPath = bin ?? "node_modules/.bin/cage";
   const projectPath = toProjectPath(repository, root) || ".";
@@ -117,7 +117,7 @@ export function runInit(options: InitOptions): InitReport {
   const nearMiss = (file: string, command: string, under: "$CLAUDE_PROJECT_DIR" | "") => {
     // Another project's gate in the same repository is a gate: nothing to say about it.
     if (!/\bcage\b/.test(command) || !/\bgate\b/.test(command) || runsGate(command, under, undefined)) return;
-    problem("W_GATE_COMMAND", "warning", file, `The Stop hook command ${JSON.stringify(command)} mentions \`cage gate\` but is not recognised as the gate of this project (${projectPath}): it is kept as it is, and the gate is added beside it. If it was meant as this gate — an earlier init wrote paths into double quotes, where a shell expands \`$\` and backticks — remove it.`);
+    problem("W_GATE_COMMAND", "warning", file, `Stop hook ${JSON.stringify(command)} mentions cage gate but is not the gate of ${projectPath}; kept, the gate added beside it`);
   };
 
   let instructions: string;

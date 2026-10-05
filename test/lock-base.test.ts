@@ -84,7 +84,7 @@ test("a lock lifted by editing the lock file passes locally and fails against th
   assert.deepEqual(against.report.diagnostics.map(({ code, message, file, contract }) => ({ code, message, file, contract })), [
     {
       code: "E_LOCK_BASE",
-      message: 'Contract "Quota" of src/m is locked as `@final` on main: it must not change.\n`take` changed; it was: take(account: AccountId): boolean;',
+      message: 'Contract "Quota" of src/m is `@final` on main\n`take` changed; it was: take(account: AccountId): boolean;',
       file: LOCK_FILE,
       contract: "Quota",
     },
@@ -95,7 +95,7 @@ test("a lock lifted by editing the lock file passes locally and fails against th
   unlock(root, "Quota");
   assert.equal(check(root).code, 0);
   assert.deepEqual(problems(root, "--base", "main"), [
-    { code: "E_LOCK_BASE", message: `Contract "Quota" of src/m is locked as \`@final\` on main, but its entry is gone from ${LOCK_FILE}. A lock that main has is not lifted here.`, file: LOCK_FILE },
+    { code: "E_LOCK_BASE", message: `Contract "Quota" of src/m is \`@final\` on main, gone from ${LOCK_FILE}`, file: LOCK_FILE },
   ]);
 });
 
@@ -119,7 +119,7 @@ test("against the base an @extendable lock may grow and get stricter, not looser
   unlock(root, "Store");
   assert.equal(cli(root, "lock").code, 0);
   assert.deepEqual(problems(root, "--base", "main"), [
-    { code: "E_LOCK_BASE", message: 'Contract "Store" of src/m is locked as `@final` on main: it must not change.\nit is `@final` there and `@extendable` here', file: LOCK_FILE },
+    { code: "E_LOCK_BASE", message: 'Contract "Store" of src/m is `@final` on main\nit is `@final` there and `@extendable` here', file: LOCK_FILE },
   ]);
   change(root, "put(key: string, value: string): void;", "put(key: string, value: string): boolean;");
   unlock(root, "Store");
@@ -127,7 +127,7 @@ test("against the base an @extendable lock may grow and get stricter, not looser
   assert.deepEqual(problems(root, "--base", "HEAD~1").map(({ code, message }) => ({ code, message })), [
     {
       code: "E_LOCK_BASE",
-      message: 'Contract "Store" of src/m is locked as `@extendable` on HEAD~1: what it has must not change; only members and invariants may be added.\n`put` changed; it was: put(key: string, value: string): void;',
+      message: 'Contract "Store" of src/m is `@extendable` on HEAD~1\n`put` changed; it was: put(key: string, value: string): void;',
     },
   ]);
 });

@@ -45,24 +45,20 @@ Real output, on the Quota example from [Start](#start).
 **A rule with no test.** The spec promises that a take uses exactly one send; no test is linked to that rule.
 
 ```text
-E_TEST_MISSING: error at src/quota/quota.cage.mdx:20:6
-  Invariant Quota: consume has no linked test declaration.
+E_TEST_MISSING: Quota.consume (src/quota/quota.cage.mdx:20:6)
 ```
 
 **A test that changed after its review.** The agent “simplified” the test of that rule; it still passes. Cage names the test, and sends the agent back to review it:
 
 ```text
-W_REVIEW_STALE: warning at src/quota/quota.cage.mdx:16:18
-  The recorded review of contract "Quota" is for other material; since then:
+W_REVIEW_STALE: Quota (src/quota/quota.cage.mdx:16:18)
   - test "takes exactly one send" (src/quota/quota.test.ts) changed
-  Review it again.
 ```
 
 **A frozen interface that changed.** The interface is marked `@final` (frozen), and the agent changes it anyway:
 
 ```text
-E_LOCK_VIOLATION: error at src/quota/quota.cage.mdx:17:18
-  Contract "Quota" is `@final`: it must not change.
+E_LOCK_VIOLATION: Contract "Quota" is `@final` (src/quota/quota.cage.mdx:17:18)
   `take` changed; it was: take(accountId: AccountId): Promise<boolean>;
 ```
 
@@ -70,10 +66,10 @@ If the agent unfreezes it to get past that, CI compares with the main branch:
 
 ```text
 $ cage check --base main
-E_LOCK_BASE: error at .cage/lock.json
-  Contract "Quota" of src/quota is locked as `@final` on main, but its entry is gone from .cage/lock.json.
-  A lock that main has is not lifted here.
+E_LOCK_BASE: Contract "Quota" of src/quota is `@final` on main, gone from .cage/lock.json (.cage/lock.json)
 ```
+
+Every line is a code, the thing and the place; what a code means and what to do about it is one command, `cage codes`.
 
 ## How you use it
 
@@ -220,11 +216,12 @@ Run `npx cage check`. It reports, with file and line, every contract with no imp
 | `cage check` | Everything: designs, implementations, test links, locks, coverage, reviews. Exit 1 on a violation. |
 | `cage check --phase design` | Specs only — while you write them. |
 | `cage review` | The reviewer's index: every contract whose review is missing or outdated, what changed since the recorded review and which rules that touches. `--all` lists every contract. |
-| `cage review <Name>` | The material of one contract: its rules, tests, code and helpers by file and line, the previous verdict on each rule, and the lines that changed since it (`--files all` for every file whole, `--files none` for references only), with instructions for the reviewer and the answer format. |
+| `cage review <Name>` | The material of one contract: its rules, tests, code and helpers by file and line, the previous verdict on each rule, the lines that changed since it (`--files all` for every file whole, `--files none` for references only), and the verdict template. |
 | `cage review --record <file>` | Saves the reviewer's verdict in `.cage/review.json`. From then on `check` wants an up-to-date one for every contract. |
 | `cage review --accept` | Takes the current spec, code and tests of every unreviewed contract as accepted, without a verdict: `check` asks for a review only when they change, and counts them apart from reviewed ones. For a person adopting Cage on an existing project; `--all` includes the reviewed contracts too. |
 | `cage lock` | Freezes the contracts marked `@final` (no changes) or `@extendable` (additions only); `check` refuses other changes. |
 | `cage gate` | `check` for the agent's Stop hook: errors and missing or outdated reviews go back to the agent. `init` wires it up. |
+| `cage codes` | What every diagnostic code means and what to do about it. A diagnostic line itself names only the thing and the place. |
 
 `--root <dir>` for a project inside a monorepo; `--format json` for machines (`check`, `lock`, `init`, `review --record` and `review --accept` print `text` by default, the `review` packet `markdown`). In CI, `cage check --base origin/main` also refuses a lock that was lifted on the branch. `check` and `gate` show the 50 diagnostics that matter most and count the rest by code, so that a long report does not drown an agent: `--max-diagnostics <n|all>`, or `maxDiagnostics` in the configuration.
 

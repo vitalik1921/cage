@@ -120,9 +120,9 @@ test("an implementation that does not fit its contract is a type mismatch, expla
 
   const half = mismatches[1];
   assert.equal(half.contract, "Store");
-  assert.match(half.message, /^"HalfStore" does not fit contract "Store"\.\nType 'HalfStore' does not satisfy the expected type 'Store'\.\n\s+Property 'put' is missing in type 'HalfStore' but required in type 'Store'\.$/);
+  assert.match(half.message, /^HalfStore does not fit Store\nType 'HalfStore' does not satisfy the expected type 'Store'\.\n\s+Property 'put' is missing in type 'HalfStore' but required in type 'Store'\.$/);
   // The contract is shown where it is authored, in the design document.
-  assert.deepEqual(half.related?.[0], { message: "The contract.", ...inFile(root, designFile("m"), "interface Store", "interface ".length) });
+  assert.deepEqual(half.related?.[0], { message: "contract", ...inFile(root, designFile("m"), "interface Store", "interface ".length) });
   // What the compiler adds points at the contract's member in the design document, never at the in-memory check.
   assert.deepEqual(
     half.related?.slice(1).map(({ message, file, line, column }) => ({ message, file, line, column })),
@@ -188,7 +188,7 @@ test("@implements names known contracts, one or several, in one tag or one per l
     { code: "E_TAG_FORMAT", ...inFile(root, "src/m/typed.ts", "@implements") },
     { code: "E_REFERENCE_UNKNOWN", ...inFile(root, "src/m/unknown.ts", "@implements") },
   ]);
-  assert.equal(found.errors.at(-1)?.message, "`@implements Stor`: there is no contract with this name.");
+  assert.equal(found.errors.at(-1)?.message, "`@implements Stor`: no such contract");
   assert.deepEqual(found.linking.implementations.map((implementation) => implementation.name), ["cleanTitle", "MemoryStore"]);
 
   // One declaration may implement several contracts; each is checked on its own.
@@ -309,7 +309,7 @@ test("a rejected @implements is one error: its contract is not also reported as 
     { code: "E_UNSUPPORTED_DECLARATION", ...inFile(root, "src/m/abstract-store.ts", "@implements") },
     { code: "E_UNSUPPORTED_DECLARATION", ...inFile(root, "src/m/ambient.ts", "@implements") },
   ]);
-  assert.equal(errors[1].message, "a `declare` declaration has no code: it is not an implementation.");
+  assert.equal(errors[1].message, "a `declare` declaration has no code: it is not an implementation");
 
   // The same when the tag itself is what was rejected: glued punctuation, or a comment between it and the class.
   const written = designProject(

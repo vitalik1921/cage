@@ -104,15 +104,16 @@ test("init without --agent and without a terminal fails and says what to pass; w
 test("the review packet shows what is collected, what the test text says and what is recorded as separate facts", (t) => {
   const root = copyFixture(t, "vertical");
   const markdown = () => cli(root, "review", "Send").stdout;
-  const statusOf = (text: string) => text.slice(text.indexOf("### Status"), text.indexOf("### Members"));
+  const head = (text: string) => text.slice(0, text.indexOf("\n## "));
 
-  const fresh = statusOf(markdown());
-  assert.match(fresh, /- ✓ Material collected: 1 design, 1 implementation, 4 test declarations, 1 test helper, 1 fingerprinted dependency — gathered for the reviewer, not judged by cage/);
-  assert.match(fresh, /- ✓ Tests: all 4 declarations are active in the source/);
-  assert.match(fresh, /- ○ Test results: not known — cage reads the tests, it does not run them/);
-  assert.match(fresh, /- ○ Recorded review: none — adequacy is not attested/);
-  assert.doesNotMatch(fresh, /pass(ed)?\b|adequate:/);
-  assert.match(markdown(), /^Collected material is not judged material: adequacy comes only from a recorded verdict, and no line here says that a test passed\.$/m);
+  const fresh = head(markdown());
+  assert.match(fresh, /^# Send \(src\/modules\/campaigns\)$/m);
+  assert.match(fresh, /^fingerprint: sha256:[0-9a-f]{64}$/m);
+  assert.match(fresh, /^tests: all 4 active$/m);
+  assert.match(fresh, /^review: none$/m);
+  assert.doesNotMatch(fresh, /pass(ed)?\b|adequate/);
+  // Facts only: the reviewer's instruction is the skill's, not the packet's.
+  assert.ok(!markdown().includes("You are reviewing"));
 
   // A verdict for this material is shown as such; one with a weak finding needs a look.
   const json = () => JSON.parse(cli(root, "review", "Send", "--format", "json").stdout) as ReviewReport;
@@ -127,15 +128,15 @@ test("the review packet shows what is collected, what the test text says and wha
   }));
   writeFile(root, "verdicts.json", JSON.stringify({ version: 1, verdicts: [{ contract: "Send", fingerprint, findings }] }));
   assert.equal(cli(root, "review", "--record", "verdicts.json").code, 0);
-  assert.match(statusOf(markdown()), /- ! Recorded review: current — a reviewer's verdict on this material: 3 adequate, 1 weak; an assessment, not a proof/);
+  assert.match(head(markdown()), /^review: current: 3 adequate, 1 weak$/m);
   assert.deepEqual(json().contracts[0].recordedReview, { status: "current", assessments: { adequate: 3, weak: 1, unrelated: 0, "insufficient-context": 0 }, contractAssessments: { adequate: 0, weak: 0, unrelated: 0, "insufficient-context": 0 } });
 
   // A skipped test is inactive in the packet, and the recorded verdict is for other material now.
   editFile(root, SEND_TEST, (text) => text.replace('it("не передає', 'it.skip("не передає'));
   const changed = markdown();
-  assert.match(statusOf(changed), /- ! Tests: 1 of 4 declarations inactive in the source \(skipped, todo, empty, or a broken import in their file\); see Tests/);
-  assert.match(statusOf(changed), /- ✗ Recorded review: outdated — 1 part of the material changed since it, touching 1 of 4 invariants; see "What changed"\. The adequacy of this material is not attested/);
-  assert.match(changed, /"SendService > не передає повідомлення без квоти" covers `limit` \(inactive: skipped by `\.skip`\)/);
+  assert.match(head(changed), /^tests: 1 of 4 inactive \(skipped, todo, empty or a broken import\); not run by cage$/m);
+  assert.match(head(changed), /^review: outdated, 1 part changed, touching 1 of 4 invariants$/m);
+  assert.match(changed, /^- tests: src\/modules\/campaigns\/send\.test\.ts; inactive: "не передає повідомлення без квоти" skipped by `\.skip` \(line \d+\)$/m);
   const declarations = json().contracts[0].tests[0].declarations;
   assert.deepEqual(declarations.map(({ status }) => status), ["active", "skipped", "active", "active"]);
   assert.equal(json().contracts[0].recordedReview.status, "outdated");
@@ -144,12 +145,12 @@ test("the review packet shows what is collected, what the test text says and wha
 
   // A broken review file leaves the review status unknown, not "none".
   writeFile(root, ".cage/review.json", "{ nope");
-  assert.match(statusOf(markdown()), /- ○ Recorded review: not known — the review file cannot be used/);
+  assert.match(head(markdown()), /^review: not known \(the review file cannot be used\)$/m);
 });
 
 test("with every contract reviewed, the default index says so instead of an empty document", (t) => {
   const root = designProject(t, {});
-  assert.match(cli(root, "review").stdout, /The designs could not be indexed; see the diagnostics\./);
+  assert.match(cli(root, "review").stdout, /^# Review index: the designs could not be indexed$/m);
   const vertical = copyFixture(t, "vertical");
   const report = JSON.parse(cli(vertical, "review", "--all", "--format", "json").stdout) as ReviewIndex;
   const verdicts = report.contracts.map((entry) => ({
@@ -159,7 +160,7 @@ test("with every contract reviewed, the default index says so instead of an empt
   }));
   writeFile(vertical, "verdicts.json", JSON.stringify({ version: 1, verdicts }));
   assert.equal(cli(vertical, "review", "--record", "verdicts.json").code, 0);
-  assert.match(cli(vertical, "review").stdout, /^✓ No contract needs a review: each has a recorded verdict, or an acceptance without a review, of its material as it is now\. `cage review --all` lists every contract\.$/m);
+  assert.match(cli(vertical, "review").stdout, /^# Review index: no contract needs a review$/m);
 });
 
 test("format and path options are checked against the command they are given to", (t) => {

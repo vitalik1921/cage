@@ -88,13 +88,13 @@ export function compareWithBase(base: readonly LockEntry[], current: readonly Lo
     const problem = (text: string) => diagnostics.push({ code: "E_LOCK_BASE", severity: "error", message: text, file: LOCK_FILE, ...(entry.kind === "contract" ? { contract: entry.name } : {}) });
     const here = now.get(keyOf(entry));
     if (!here) {
-      problem(`${subject} of ${entry.module} is locked as \`@${entry.level}\` on ${ref}, but its entry is gone from ${LOCK_FILE}. A lock that ${ref} has is not lifted here.`);
+      problem(`${subject} of ${entry.module} is \`@${entry.level}\` on ${ref}, gone from ${LOCK_FILE}`);
       continue;
     }
     const { changes } = differences(entry, here);
     // From extendable to final is stricter; the other way round lifts part of the lock.
     if (entry.level === "final" && here.level !== "final") changes.unshift(`it is \`@final\` there and \`@${here.level}\` here`);
-    if (changes.length > 0) problem(`${subject} of ${entry.module} is locked as \`@${entry.level}\` on ${ref}: ${RULE[entry.level]}.\n${changes.join("\n")}`);
+    if (changes.length > 0) problem(`${subject} of ${entry.module} is \`@${entry.level}\` on ${ref}\n${changes.join("\n")}`);
   }
   return diagnostics;
 }
@@ -135,7 +135,6 @@ function differences(recorded: Locked, current: Locked): { changes: string[]; ad
   return { changes, additions };
 }
 
-const RULE = { final: "it must not change", extendable: "what it has must not change; only members and invariants may be added" };
 
 /**
  * Compares the designs with the recorded locks. A lock is also broken by
@@ -155,19 +154,19 @@ export function compareLocks(index: DesignIndex, entries: readonly LockEntry[]):
       unrecorded.push({
         code: "E_LOCK_MISSING",
         severity: "error",
-        message: `${subject} is \`@${declaration.level}\` but is not recorded in ${LOCK_FILE} yet. Run \`cage lock\`.`,
+        message: `${subject} is \`@${declaration.level}\`, not in ${LOCK_FILE}`,
         ...declaration.location,
       });
       continue;
     }
     const { changes, additions } = differences(entry, declaration);
-    if (entry.level !== declaration.level) changes.unshift(`it is recorded as \`@${entry.level}\` and is now marked \`@${declaration.level}\``);
+    if (entry.level !== declaration.level) changes.unshift(`recorded \`@${entry.level}\`, now \`@${declaration.level}\``);
 
     if (changes.length > 0) {
       violations.push({
         code: "E_LOCK_VIOLATION",
         severity: "error",
-        message: `${subject} is \`@${entry.level}\`: ${RULE[entry.level]}.\n${changes.join("\n")}`,
+        message: `${subject} is \`@${entry.level}\`\n${changes.join("\n")}`,
         ...declaration.location,
         ...(declaration.kind === "contract" ? { contract: declaration.name } : {}),
       });
@@ -175,7 +174,7 @@ export function compareLocks(index: DesignIndex, entries: readonly LockEntry[]):
       unrecorded.push({
         code: "W_LOCK_UNRECORDED",
         severity: "warning",
-        message: `${subject} has additions that are not locked yet: ${additions.join(", ")}. Run \`cage lock\` to record them.`,
+        message: `${subject}: ${additions.join(", ")} not locked yet`,
         ...declaration.location,
       });
     }
@@ -189,8 +188,8 @@ export function compareLocks(index: DesignIndex, entries: readonly LockEntry[]):
       code: "E_LOCK_VIOLATION",
       severity: "error",
       message: declaration
-        ? `${subjectOf(entry)} is recorded as \`@${entry.level}\` in ${LOCK_FILE}, but the tag was taken off. A lock is lifted by removing its entry from the lock file.`
-        : `${subjectOf(entry)} of ${entry.module} is recorded as \`@${entry.level}\` in ${LOCK_FILE}, but it no longer exists.`,
+        ? `${subjectOf(entry)} is \`@${entry.level}\` in ${LOCK_FILE}, tag taken off`
+        : `${subjectOf(entry)} of ${entry.module} is \`@${entry.level}\` in ${LOCK_FILE}, gone from the designs`,
       ...(declaration ? declaration.location : { file: LOCK_FILE }),
     });
   }

@@ -17,10 +17,8 @@ const finding = (invariant: string | null, assessment: Finding["assessment"] = "
   suggestedChange: null,
 });
 const packet = (root: string, name: string) => (JSON.parse(cli(root, "review", name, "--format", "json").stdout) as ReviewReport).contracts[0];
-const statusOf = (root: string, name: string) => {
-  const text = cli(root, "review", name).stdout;
-  return text.slice(text.indexOf("### Status"), text.indexOf("### Members"));
-};
+/** The packet's line about the recorded review. */
+const statusOf = (root: string, name: string) => /^review: .*$/m.exec(cli(root, "review", name).stdout)?.[0] ?? "";
 const checkJson = (root: string) => JSON.parse(cli(root, "check", "--format", "json").stdout) as CheckReport;
 function record(root: string, verdicts: unknown, file = "verdicts.json") {
   writeFile(root, file, JSON.stringify(verdicts));
@@ -45,12 +43,11 @@ for (const assessment of ["weak", "unrelated", "insufficient-context"] as const)
     assert.deepEqual(packet(root, "Quota").recordedReview, { status: "current", assessments: { ...NONE, adequate: 4 }, contractAssessments: { ...NONE, [assessment]: 1 } });
     assert.deepEqual(packet(root, "Quota").priorNotes, [`${assessment}: Contract-level concern.`]);
     const status = statusOf(root, "Quota");
-    assert.match(status, new RegExp(`- ! Recorded review: current — a reviewer's verdict on this material: 4 adequate; the contract as a whole: 1 ${assessment}; an assessment, not a proof`));
-    assert.doesNotMatch(status, /✓ Recorded review/);
+    assert.equal(status, `review: current: 4 adequate; the contract as a whole: 1 ${assessment}`);
 
     const check = checkJson(root);
     const weak = check.diagnostics.filter(({ code, contract }) => code === "W_REVIEW_WEAK" && contract === "Quota");
-    assert.deepEqual(weak.map(({ message, invariant }) => ({ message, invariant })), [{ message: `The review of contract "Quota" found the contract as a whole ${assessment}: Contract-level concern. More detail.`, invariant: undefined }]);
+    assert.deepEqual(weak.map(({ message, invariant }) => ({ message, invariant })), [{ message: `Quota (the contract as a whole) ${assessment}\nContract-level concern. More detail.`, invariant: undefined }]);
     assert.equal(check.counts.weakContracts, 1);
     assert.equal(check.counts.reviewedInvariants, 4);
     assert.match(cli(root, "check").stdout, /reviews: 4 attested adequate, 0 found weak, 4 unreviewed, 1 contract found weak as a whole;/);
@@ -58,7 +55,7 @@ for (const assessment of ["weak", "unrelated", "insufficient-context"] as const)
     writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "require" }));
     const required = cli(root, "check");
     assert.equal(required.code, 1);
-    assert.match(required.stdout, /E_REVIEW_WEAK: error at [^\n]+\n  The review of contract "Quota" found the contract as a whole/);
+    assert.match(required.stdout, /E_REVIEW_WEAK: Quota \(the contract as a whole\) (weak|unrelated|insufficient-context) \(/);
   });
 }
 
@@ -69,7 +66,7 @@ test("an adequate contract-level note is an observation: ✓ everywhere, nothing
   assert.deepEqual(report.recorded[0].contractAssessments, { ...NONE, adequate: 1 });
   assert.deepEqual(report.recorded[0].notes, ["A constraint no rule mentions."]);
   assert.match(cli(root, "review", "--record", "verdicts.json").stdout, /^✓ recorded {2}Quota \(4 adequate; 1 note\)\n {12}note: A constraint no rule mentions\.\n/);
-  assert.match(statusOf(root, "Quota"), /- ✓ Recorded review: current — a reviewer's verdict on this material: 4 adequate; an assessment, not a proof/);
+  assert.equal(statusOf(root, "Quota"), "review: current: 4 adequate");
   const check = checkJson(root);
   assert.equal(check.counts.weakContracts, 0);
   assert.deepEqual(check.diagnostics.filter(({ code, contract }) => code.includes("REVIEW") && contract === "Quota"), []);
@@ -79,7 +76,7 @@ test("an adequate contract-level note is an observation: ✓ everywhere, nothing
   const sender = record(root, { version: 1, verdicts: [{ contract: "Sender", fingerprint: packet(root, "Sender").fingerprint, findings: [finding(null, "weak", "Nothing is promised.")] }] });
   assert.equal(sender.code, 0);
   assert.match(cli(root, "review", "--record", "verdicts.json").stdout, /^! recorded {2}Sender \(no invariants; the contract as a whole: 1 weak; 1 note\)/);
-  assert.match(statusOf(root, "Sender"), /- ! Recorded review: current — a reviewer's verdict on this material: the contract as a whole: 1 weak; an assessment, not a proof/);
+  assert.match(statusOf(root, "Sender"), /^review: current: the contract as a whole: 1 weak$/);
   assert.equal(checkJson(root).counts.weakContracts, 1);
 });
 
@@ -93,7 +90,7 @@ test("a review file written before contract-level assessments were counted is re
 
   assert.equal(packet(root, "Quota").recordedReview.status, "current");
   assert.deepEqual(packet(root, "Quota").recordedReview.contractAssessments, { ...NONE, weak: 1 });
-  assert.match(statusOf(root, "Quota"), /- ! Recorded review: current — .*the contract as a whole: 1 weak/);
+  assert.match(statusOf(root, "Quota"), /^review: current: .*the contract as a whole: 1 weak$/);
   assert.equal(checkJson(root).counts.weakContracts, 1);
   assert.ok(checkJson(root).diagnostics.some(({ code, contract }) => code === "W_REVIEW_WEAK" && contract === "Quota"));
 });

@@ -112,14 +112,14 @@ export function readImplementations(ts: TypeScript, sourceFile: ts.SourceFile, f
     for (const tag of tags) {
       const names = parseNames(tag.text);
       if (!names) {
-        report("E_TAG_FORMAT", "`@implements` needs one or more contract names.", tag.start);
+        report("E_TAG_FORMAT", "`@implements` without contract names", tag.start);
         continue;
       }
       for (const name of names) if (!contracts.has(name)) contracts.set(name, tag);
     }
     const target = describe(statement);
     if (typeof target === "string") {
-      report("E_UNSUPPORTED_DECLARATION", `${target}.`, tags[0].start);
+      report("E_UNSUPPORTED_DECLARATION", `${target}`, tags[0].start);
       continue;
     }
     for (const [contract, tag] of contracts) {

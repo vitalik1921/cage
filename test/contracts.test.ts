@@ -91,7 +91,7 @@ test("the plan fixture is indexed: contracts, data, invariants and declared depe
     {
       code: "W_NO_INVARIANTS",
       severity: "warning",
-      message: 'Contract "Sender" has no `@invariant`: only its types can be checked.',
+      message: "Sender",
       ...inFixture(MAIL, "Sender {"),
       contract: "Sender",
     },
@@ -262,11 +262,11 @@ test("invariants need an id and a text, and ids are unique in a contract", (t) =
     {
       code: "E_INVARIANT_DUPLICATE",
       severity: "error",
-      message: 'Invariant id "shared" is already used in contract "First".',
+      message: "First.shared declared twice",
       ...duplicate,
       contract: "First",
       invariant: "shared",
-      related: [{ message: "The other invariant.", ...at(root, "m", "@invariant shared На контракті.") }],
+      related: [{ message: "the other invariant", ...at(root, "m", "@invariant shared На контракті.") }],
     },
   ]);
   assert.deepEqual(
@@ -477,16 +477,16 @@ test("contract names are unique in the whole scope; data names only within a mod
     {
       code: "E_CONTRACT_DUPLICATE",
       severity: "error",
-      message: 'Contract name "Store" is already used; contract names are unique in the whole scope.',
+      message: 'contract "Store" declared twice',
       ...at(root, "b", "interface Store", "interface ".length),
       contract: "Store",
-      related: [{ message: "The other declaration.", ...at(root, "a", "interface Store", "interface ".length) }],
+      related: [{ message: "the other declaration", ...at(root, "a", "interface Store", "interface ".length) }],
     },
-    { code: "E_UNSUPPORTED_DECLARATION", severity: "error", message: '"Row" is declared more than once; declaration merging is not supported.', ...merged },
+    { code: "E_UNSUPPORTED_DECLARATION", severity: "error", message: '"Row" declared more than once', ...merged },
     {
       code: "E_UNSUPPORTED_DECLARATION",
       severity: "error",
-      message: '"Mixed" is declared more than once; declaration merging is not supported.',
+      message: '"Mixed" declared more than once',
       ...at(root, "b", "interface Mixed { c", "interface ".length),
     },
   ]);
@@ -518,11 +518,11 @@ test("@uses names contracts of the scope", (t) => {
 
   const broken = designProject(t, { a: mdx(contract("Send", "run(): void;", "@uses Missing Send", "@uses", "@uses not-a-name"), data("Row"), contract("Other", "run(): void;", "@uses Row")) });
   assert.deepEqual(designErrors(broken).map(({ code, message, ...rest }) => ({ code, message, line: rest.line, column: rest.column })), [
-    { code: "E_REFERENCE_UNKNOWN", message: "`@uses Missing`: there is no contract with this name.", ...position(broken, "@uses Missing Send") },
-    { code: "E_REFERENCE_UNKNOWN", message: "`@uses Send`: a contract cannot use itself.", ...position(broken, "@uses Missing Send") },
-    { code: "E_TAG_FORMAT", message: "`@uses` needs one or more contract names.", line: position(broken, "@uses Missing Send").line + 1, column: 4 },
-    { code: "E_TAG_FORMAT", message: "`@uses` needs one or more contract names.", ...position(broken, "@uses not-a-name") },
-    { code: "E_REFERENCE_UNKNOWN", message: "`@uses Row`: there is no contract with this name.", ...position(broken, "@uses Row") },
+    { code: "E_REFERENCE_UNKNOWN", message: "`@uses Missing`: no such contract", ...position(broken, "@uses Missing Send") },
+    { code: "E_REFERENCE_UNKNOWN", message: "`@uses Send`: a contract using itself", ...position(broken, "@uses Missing Send") },
+    { code: "E_TAG_FORMAT", message: "`@uses` without contract names", line: position(broken, "@uses Missing Send").line + 1, column: 4 },
+    { code: "E_TAG_FORMAT", message: "`@uses` without contract names", ...position(broken, "@uses not-a-name") },
+    { code: "E_REFERENCE_UNKNOWN", message: "`@uses Row`: no such contract", ...position(broken, "@uses Row") },
   ]);
 });
 
@@ -592,11 +592,11 @@ test("modules that depend on each other in a cycle are an error with the path", 
     {
       code: "E_DESIGN_CYCLE",
       severity: "error",
-      message: "Design modules depend on each other in a cycle: src/a → src/b → src/c → src/a.",
+      message: "src/a → src/b → src/c → src/a",
       ...at(root, "a", "import type"),
       related: [
-        { message: "src/b depends on src/c here.", ...at(root, "b", "@uses Third") },
-        { message: "src/c depends on src/a here.", ...at(root, "c", "@uses First") },
+        { message: "src/b depends on src/c", ...at(root, "b", "@uses Third") },
+        { message: "src/c depends on src/a", ...at(root, "c", "@uses First") },
       ],
     },
   ]);

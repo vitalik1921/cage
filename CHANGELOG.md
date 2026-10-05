@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+
+- **A diagnostic is a code, a thing and a place.** The text report prints `CODE: what (file:line:column)` — `E_TEST_MISSING: Quota.consume (…)`, `W_REVIEW_STALE: Quota (…)` with the changed parts beneath, `E_TYPE_MISMATCH: MemoryQuota does not fit Quota (…, TS1360)` with the compiler's explanation beneath — and nothing else: no severity word (the prefix says it), no sentence about what the code means or what to do. That is `cage codes`, one line per code, and the "Codes" table of the reference. Every message was rewritten this way; the JSON `message` is the same short text. A report of fifty findings is fifty facts.
+- **The review packet is facts only.** No instruction (it is the `cage-review` skill's and the reference's; the JSON report keeps `instruction`, `resultFormat` and `resultSchema`), no status legend, no section that says "none": the contract's lines (`fingerprint`, `design`, `review`, `tests`, `check`), `## Changed` with `touches:`, `## Invariants` with the previous finding per invariant, `## Code` with one line per fact that exists, the changed lines or the files, and `## Verdict` with the template and the fingerprints filled in. The index is one line per contract with its codes. The packet of one contract with one changed test is about a third of what it was.
+
 ## 0.3.1
 
 - **A diagnostic reads code first.** The text report prints `CODE: severity at file:line:column` and the message on the lines below, indented; a list in a message — the parts that changed since a review, the tests that cannot run, the files past the bounds — is one item a line, and `REVIEW_STALE` names ten parts at most, then counts the rest (`cage review <Name>` lists them all). Before, everything was one line per diagnostic, and a stale review of a contract with forty tests was one line of two thousand characters. JSON is unchanged except that these messages contain line breaks.

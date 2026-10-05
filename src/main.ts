@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { runCheck } from "./check.ts";
+import { formatCodes } from "./codes.ts";
 import { isMaxDiagnostics, loadConfig, MAX_DIAGNOSTICS_LIMIT, type Config } from "./config.ts";
 import { isError, type Diagnostic } from "./diagnostic.ts";
 import { discoverDesigns, discoverSources } from "./discovery.ts";
@@ -47,6 +48,7 @@ Commands:
                         --all for every contract, replacing recorded verdicts too
   gate                  Stop hook for an agent's environment: the full check; errors and review findings block (exit 2,
                         report and guidance on stderr); after 3 blocks in one session the agent may stop. Reads the hook's JSON on stdin
+  codes                 What every diagnostic code means and what to do about it; a diagnostic line itself names only the thing and the place
 
 Options:
   --root <path>     Project root (default: the current directory)
@@ -125,7 +127,7 @@ function run(argv: readonly string[], io: CliIo): number {
 
   const [command, ...extra] = positionals;
   if (command === undefined) throw new UsageError("Missing command.");
-  const COMMANDS = ["init", "check", "lock", "review", "gate"];
+  const COMMANDS = ["init", "check", "lock", "review", "gate", "codes"];
   if (!COMMANDS.includes(command)) throw new UsageError(`Unknown command "${command}".`);
   if (command !== "init" && (values.agent !== undefined || values["test-adapter"] !== undefined)) throw new UsageError("--agent and --test-adapter are options of the init command.");
   const agents = new Set<Agent>();
@@ -160,6 +162,12 @@ function run(argv: readonly string[], io: CliIo): number {
     }
   }
 
+  if (command === "codes") {
+    // The legend is the same for every project: the global options are accepted, the commands' own are not.
+    if ([values.format, values.phase, values.base, values.all, values.record, values.accept, values.files, values["max-diagnostics"]].some((value) => value !== undefined)) throw new UsageError("codes takes no options but --root and --config.");
+    io.stdout(formatCodes());
+    return 0;
+  }
   const formats = command === "review" && values.record === undefined && !values.accept ? ["markdown", "json"] : ["text", "json"];
   const format = values.format ?? formats[0];
   if (!formats.includes(format)) {
