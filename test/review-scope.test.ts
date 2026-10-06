@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { test, type TestContext } from "node:test";
 import type { CheckReport } from "../src/check.ts";
 import type { Diagnostic } from "../src/diagnostic.ts";
 import type { ReviewIndex, ReviewReport } from "../src/review.ts";
+import type { ReviewEntry } from "../src/review-record.ts";
 import ts from "typescript";
+import ts5 from "typescript-5";
 import { collectMaterial, createFileReader, dependencyClosure } from "../src/review-material.ts";
+import { dependencySlices } from "../src/review-slice.ts";
 import { checkLinking, cli, contract, designFile, designProject, editFile, mdx, writeFile } from "./helpers.ts";
 
 // What makes a recorded review outdated beyond the contract, its implementation statement and its test
@@ -118,6 +122,214 @@ function staleBecause(root: string): string | undefined {
   return stale && stale.message.split("\n").slice(1).map((line) => line.replace(/^- /, "")).join(", ");
 }
 
+/** @tests Cli
+ * @covers review-dependency-relevant review-dependency-isolated review-packet */
+test("dependency slices ignore unrelated declarations but include constants, helpers and matching excerpts", (t) => {
+  const rule = lines("const threshold = 0;", "function positive(n: number): boolean { return n > threshold; }", "export const hasQuota = (left: number): boolean => positive(left);", "export function unrelated(): number { return 123; }");
+  const root = quotaProject(t, { [RULE]: rule });
+  recordAdequate(root);
+  const before = packet(root).contracts[0].fingerprint;
+  editFile(root, RULE, (text) => `\n\n${text.replace("return 123", "return 456")}`);
+  assert.equal(staleBecause(root), undefined);
+  assert.equal(packet(root).contracts[0].fingerprint, before);
+  editFile(root, RULE, (text) => text.replace("threshold = 0", "threshold = 1"));
+  assert.equal(staleBecause(root), `dependency ${RULE} changed`);
+  const changed = packet(root);
+  const excerpt = changed.excerpts.find((entry) => entry.file === RULE)!;
+  assert.ok(excerpt);
+  assert.match(excerpt.pieces.map((piece) => piece.text).join("\n"), /threshold = 1/);
+  assert.doesNotMatch(excerpt.pieces.map((piece) => piece.text).join("\n"), /unrelated/);
+  const sourceLines = fs.readFileSync(path.join(root, RULE), "utf8").split("\n");
+  for (const piece of excerpt.pieces) assert.equal(piece.text, sourceLines.slice(piece.startLine - 1, piece.endLine).join("\n"));
+  const all = JSON.parse(cli(root, "review", "Quota", "--files", "all", "--format", "json").stdout) as ReviewReport;
+  assert.match(all.files.find((file) => file.path === RULE)!.text, /unrelated/);
+  const none = JSON.parse(cli(root, "review", "Quota", "--files", "none", "--format", "json").stdout) as ReviewReport;
+  assert.deepEqual(none.files, []);
+  assert.deepEqual(none.excerpts, []);
+  recordAdequate(root);
+  editFile(root, RULE, (text) => text.replace("n > threshold", "n >= threshold"));
+  assert.equal(staleBecause(root), `dependency ${RULE} changed`);
+});
+
+/** @tests Cli
+ * @covers review-dependency-relevant review-dependency-isolated */
+test("default imports and explicit re-exports follow helpers across files while local shadowing does not select an import", (t) => {
+  const helper = "src/quota/limit.ts";
+  const root = quotaProject(t, {
+    [RULE]: 'export { default as hasQuota } from "./limit.ts";\n',
+    [helper]: lines("const minimum = 0;", "export default function allows(left: number): boolean { return left > minimum; }", "export const unrelated = 123;"),
+  });
+  recordAdequate(root);
+  editFile(root, helper, (text) => text.replace("unrelated = 123", "unrelated = 456"));
+  assert.equal(staleBecause(root), undefined);
+  editFile(root, helper, (text) => text.replace("minimum = 0", "minimum = 1"));
+  assert.equal(staleBecause(root), `dependency ${helper} changed`);
+
+  const shadow = quotaProject(t, { [RULE]: lines("export const hasQuota = (left: number): boolean => left > 0;", "export const noise = 123;") });
+  editFile(shadow, IMPLEMENTATION, (text) => text.replace("{ hasQuota }", "{ hasQuota, noise }").replace("if (!hasQuota(this.left))", "const local = (noise: number) => noise;\n    if (!hasQuota(local(this.left)))"));
+  recordAdequate(shadow);
+  editFile(shadow, RULE, (text) => text.replace("noise = 123", "noise = 456"));
+  assert.equal(staleBecause(shadow), undefined);
+});
+
+/** @tests Cli
+ * @covers review-dependency-relevant */
+test("import retargeting changes root material even when both targets are already selected, including setup", (t) => {
+  const root = quotaProject(t, { [RULE]: "export const hasQuota = (left: number): boolean => left > 0;\nexport const alternate = (left: number): boolean => left > 1;\n" });
+  editFile(root, IMPLEMENTATION, (text) => text.replace("{ hasQuota }", "{ hasQuota, alternate }").replace("if (!hasQuota(this.left))", "if (!hasQuota(this.left) || !alternate(this.left))"));
+  editFile(root, TESTS, (text) => `import { hasQuota, alternate } from "./quota-rule.ts";\n${text}`.replace("quota = fresh(MemoryQuota);", "quota = fresh(MemoryQuota);\n    hasQuota(2); alternate(2);"));
+  recordAdequate(root);
+  editFile(root, IMPLEMENTATION, (text) => text.replace("{ hasQuota, alternate }", "{ alternate as hasQuota, hasQuota as alternate }"));
+  assert.equal(staleBecause(root), `implementation MemoryQuota (${IMPLEMENTATION}) changed`);
+  recordAdequate(root);
+  editFile(root, TESTS, (text) => text.replace("{ hasQuota, alternate }", "{ alternate as hasQuota, hasQuota as alternate }"));
+  assert.match(staleBecause(root)!, /test "refuses when empty"/);
+  assert.match(staleBecause(root)!, /test "takes one send"/);
+});
+
+/** @tests Cli
+ * @covers review-dependency-fallback */
+test("adding initialization effects invalidates a slice and subsequent unrelated edits invalidate the whole file", (t) => {
+  const root = quotaProject(t, { [RULE]: "export const hasQuota = (left: number): boolean => left > 0;\nexport const unrelated = 123;\n" });
+  recordAdequate(root);
+  editFile(root, RULE, (text) => `${text}console.log("initializing");\n`);
+  assert.equal(staleBecause(root), `dependency ${RULE} changed`);
+  recordAdequate(root);
+  editFile(root, RULE, (text) => text.replace("unrelated = 123", "unrelated = 456"));
+  assert.equal(staleBecause(root), `dependency ${RULE} changed`);
+});
+
+/** @tests Cli
+ * @covers review-dependency-fallback */
+test("unused value imports still carry initialization effects and fallback follows their dependencies", (t) => {
+  const effects = "src/quota/effects.ts";
+  const root = quotaProject(t, {
+    [RULE]: 'import { unused } from "./effects.ts";\nexport const hasQuota = (left: number): boolean => left > 0;\nexport const unrelated = 123;\n',
+    [effects]: 'export const unused = 0;\nconsole.log("initializing");\n',
+  });
+  recordAdequate(root);
+  editFile(root, RULE, (text) => text.replace("unrelated = 123", "unrelated = 456"));
+  assert.equal(staleBecause(root), `dependency ${RULE} changed`);
+  recordAdequate(root);
+  editFile(root, effects, (text) => text.replace("initializing", "changed"));
+  assert.equal(staleBecause(root), `dependency ${effects} changed`);
+});
+
+/** @tests Cli
+ * @covers review-dependency-relevant review-stale */
+test("module-level test setup keeps imported helpers even when the linked test never names them", (t) => {
+  const setup = "src/quota/setup.ts";
+  const root = quotaProject(t, { [setup]: "export function configure(): void { console.log('setup'); }\nexport const unrelated = 123;\n" });
+  editFile(root, TESTS, (text) => `import { configure } from "./setup.ts";\nconfigure();\n${text}`);
+  recordAdequate(root);
+  editFile(root, setup, (text) => text.replace("'setup'", "'changed'"));
+  assert.equal(staleBecause(root), `dependency ${setup} changed`);
+  recordAdequate(root);
+  editFile(root, setup, (text) => text.replace("unrelated = 123", "unrelated = 456"));
+  assert.equal(staleBecause(root), undefined);
+});
+
+/** @tests Cli
+ * @covers review-dependency-relevant review-dependency-isolated */
+test("multiple imports union their declarations, while type-only re-exports contribute no dependency", (t) => {
+  const leaf = "src/quota/leaf.ts";
+  const root = quotaProject(t, {
+    [RULE]: 'import { first } from "./leaf.ts";\nexport { type Shape } from "./types.ts";\nexport const hasQuota = (left: number): boolean => left > first;\n',
+    [STUB]: 'import { second } from "./leaf.ts";\nexport const fresh = <T>(Kind: new () => T): T => { second(); return new Kind(); };\n',
+    [leaf]: "export const first = 0;\nexport const second = () => 1;\nexport const unrelated = 123;\n",
+    "src/quota/types.ts": "export type Left = number; export interface Shape { value: number; }\n",
+  });
+  recordAdequate(root);
+  assert.deepEqual(packet(root).contracts[0].fingerprinted, [RULE, STUB, leaf]);
+  editFile(root, leaf, (text) => text.replace("unrelated = 123", "unrelated = 456"));
+  assert.equal(staleBecause(root), undefined);
+  editFile(root, leaf, (text) => text.replace("second = () => 1", "second = () => 2"));
+  assert.equal(staleBecause(root), `dependency ${leaf} changed`);
+  recordAdequate(root);
+  editFile(root, leaf, (text) => text.replace("first = 0", "first = 1"));
+  assert.equal(staleBecause(root), `dependency ${leaf} changed`);
+});
+
+test("whole-file records remain readable and become stale without rewriting or renewing their verdict", (t) => {
+  const root = quotaProject(t, { [RULE]: "export const hasQuota = (left: number): boolean => left > 0;\nexport const unrelated = 123;\n" });
+  recordAdequate(root);
+  const recordPath = path.join(root, ".cage/review.json");
+  const record = JSON.parse(fs.readFileSync(recordPath, "utf8")) as { version: 1; reviews: ReviewEntry[] };
+  const entry = record.reviews[0];
+  // Model a v1 record whose dependency part was the whole file, as older releases wrote it.
+  entry.material[`dependency ${RULE}`] = `sha256:${crypto.createHash("sha256").update(fs.readFileSync(path.join(root, RULE))).digest("hex")}`;
+  const hash = crypto.createHash("sha256");
+  for (const [key, digest] of Object.entries(entry.material)) hash.update(`${key}\n${digest}\0`);
+  entry.fingerprint = `sha256:${hash.digest("hex")}`;
+  fs.writeFileSync(recordPath, JSON.stringify(record));
+  const before = fs.readFileSync(recordPath, "utf8");
+  assert.equal(staleBecause(root), `dependency ${RULE} changed`);
+  assert.ok(!check(root).report.diagnostics.some(({ code }) => code === "E_CONFIG"));
+  assert.equal(fs.readFileSync(recordPath, "utf8"), before);
+});
+
+test("dependency snapshots are shared by collection and excerpts even when files change between contracts", (t) => {
+  const root = quotaProject(t);
+  const result = checkLinking(root);
+  const diagnostics: Diagnostic[] = [];
+  const reader = createFileReader(root, diagnostics, result.linking.sources);
+  const first = collectMaterial(result, "Quota", reader.read);
+  editFile(root, RULE, () => "export const hasQuota = () => false;\n");
+  const second = collectMaterial(result, "Quota", reader.read);
+  assert.deepEqual(second.parts, first.parts);
+  assert.match(reader.files.get(RULE)!.text, /left > 0/);
+  assert.deepEqual(diagnostics, []);
+});
+
+// The same bounded binding/proof engine must work with both supported Compiler APIs. These cases
+// complement the CLI mutations above with syntaxes a project might use even in broken source.
+/** @tests Cli
+ * @covers review-dependency-fallback review-dependency-relevant review-dependency-isolated */
+test("dependency slicing syntax and conservative boundaries under TypeScript 5.9 and 6", () => {
+  // AST objects never cross versions: each case creates and reads nodes with the same runtime.
+  for (const compiler of [ts, ts5 as unknown as typeof ts]) {
+    const slice = (dependency: string, extra: Record<string, string> = {}, root = 'import { used } from "dep";\nexport const run = () => used;') => {
+      const sources = new Map(Object.entries({ root, dep: dependency, ...extra }).map(([file, text]) => [`${file}.ts`, compiler.createSourceFile(`${file}.ts`, text, compiler.ScriptTarget.Latest, true, compiler.ScriptKind.TS)]));
+      const result = dependencySlices(compiler, sources, [{ file: "root.ts", nodes: [sources.get("root.ts")!.statements[1]] }], ["dep.ts", ...Object.keys(extra).map((file) => `${file}.ts`)], new Set(), (specifier) => `${specifier}.ts`).dependencies;
+      return new Map([...result].map(([file, slice]) => [file.slice(0, -3), slice]));
+    };
+    const base = "export const used = 1;\nexport const unused = 123;\n";
+    assert.doesNotMatch(slice(base).get("dep")!.text, /unused/);
+    for (const unsupported of [
+      "export let mutable = 1;", "export class Unused {}", "const x = new Date();", "console.log('effect');",
+      "const x = { get value() { return 1; } };", "const x = { ...used };", "const x = { [used]: 1 };",
+      'import * as ns from "leaf";', 'export * from "leaf";', 'import "leaf";', 'import x = require("leaf");',
+      'import { x } from "absent";', "const x = unknown;", "const a = b; const b = a;",
+    ]) assert.equal(slice(base + unsupported, { leaf: "export const x = 1;" }).get("dep"), undefined, unsupported);
+    assert.equal(slice(base + 'import { x } from "leaf";', { leaf: 'import { used } from "dep"; export const x = 1;' }).get("dep"), undefined, "import cycle");
+    const defaults = slice('const n = 0; export default function used() { return n; } export const unused = 123;', {}, 'import used from "dep";\nexport const run = () => used;');
+    assert.match(defaults.get("dep")!.text, /const n = 0/);
+    assert.doesNotMatch(defaults.get("dep")!.text, /unused/);
+    const alias = slice('const local = 1; export { local as used }; export const unused = 123;');
+    assert.match(alias.get("dep")!.text, /const local = 1/);
+    assert.doesNotMatch(alias.get("dep")!.text, /unused/);
+    const constants = slice('import { n } from "leaf"; export const used = n; export const unused = 123;', { leaf: "export const n = 1; export const unrelated = 999;" });
+    assert.match(constants.get("leaf")!.text, /const n = 1/);
+    assert.doesNotMatch(constants.get("leaf")!.text, /unrelated/);
+    assert.equal(slice("export function used() { return eval('unused'); } const unused = 1;").get("dep"), undefined, "dynamic lexical access");
+    assert.equal(slice("export function used() { return (eval)('unused'); } const unused = 1;").get("dep"), undefined, "parenthesized eval");
+    assert.equal(slice(base, {}, 'import * as ns from "dep";\nexport const run = () => ns.used;').get("dep"), undefined, "namespace demand makes a pure target whole");
+    assert.equal(slice(base, {}, 'import dep = require("dep");\nexport const run = () => dep.used;').get("dep"), undefined, "CommonJS demand makes a pure target whole");
+    assert.equal(slice(base, {}, 'import "dep";\nexport const run = () => 1;').get("dep"), undefined, "side-effect-only demand keeps the whole file");
+    assert.equal(slice('export { used } from "leaf";', { leaf: "export const used = 1; export class SideEffect {}" }).get("leaf"), undefined, "fallback at a re-export target");
+    for (const extension of ["js", "mjs", "cjs", "tsx"]) {
+      const dependency = `dep.${extension}`;
+      const sources = new Map([
+        ["root.ts", compiler.createSourceFile("root.ts", 'import { used } from "dep"; export const run = () => used();', compiler.ScriptTarget.Latest, true)],
+        [dependency, compiler.createSourceFile(dependency, "const helper = () => 1; export const used = () => helper(); export const unused = 123;", compiler.ScriptTarget.Latest, true)],
+      ]);
+      const result = dependencySlices(compiler, sources, [{ file: "root.ts", nodes: [sources.get("root.ts")!.statements[1]] }], [dependency], new Set(), () => dependency).dependencies.get(dependency)!;
+      assert.match(result.text, /const helper = \(\) => 1/, extension);
+      assert.doesNotMatch(result.text, /unused/, extension);
+    }
+  }
+});
+
 test("a test file edited while review runs: the material is cut from the text the check read, not from the disk", (t) => {
   const root = quotaProject(t);
   const result = checkLinking(root);
@@ -162,7 +374,9 @@ test("a stub the tests import, and the setup of their suite, are part of what th
   recordAdequate(root);
   // The suite's beforeEach belongs to both tests.
   editFile(root, TESTS, (text) => text.replace("quota = fresh(MemoryQuota);", "quota = new MemoryQuota();"));
-  assert.equal(staleBecause(root), `test "refuses when empty" (${TESTS}) changed, test "takes one send" (${TESTS}) changed`);
+  // The unused pure stub now has an empty slice: the dependency material changes along with setup.
+  assert.equal(staleBecause(root), `test "refuses when empty" (${TESTS}) changed, test "takes one send" (${TESTS}) changed, dependency ${STUB} changed`);
+  assert.ok(!packet(root).excerpts.some((excerpt) => excerpt.file === STUB), "an empty slice has no source ranges to print");
 });
 
 /** @tests Cli

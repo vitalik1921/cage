@@ -8,13 +8,14 @@ import { compareText, type Diagnostic } from "./diagnostic.ts";
 import type { ImplementationPhaseResult } from "./implementation-phase.ts";
 import { insideRoot, stripBom, toProjectPath } from "./location.ts";
 import type { Overlay, TypeScript } from "./typescript.ts";
+import { dependencySlices, sliceNodes } from "./review-slice.ts";
 
 /** A file the reviewer reads, once, whatever number of contracts it serves. Its text has `\n` line endings whatever the disk has. */
 export interface PacketFile {
   path: string;
   /**
    * "helper": a project file a test file imports, loaded because a reviewer has to see what a stub stands in for.
-   * "dependency": a fingerprinted local file, loaded whole because it changed since the recorded review.
+   * "dependency": the full snapshot behind a dependency fingerprint or excerpt.
    */
   role: "design" | "implementation" | "test" | "helper" | "dependency";
   text: string;
@@ -79,7 +80,11 @@ export function createFileReader(root: string, diagnostics: Diagnostic[], source
   const outside = new Set<string>();
   const read: FileReader = (file, role, text) => {
     const known = files.get(file);
-    if (known) return known;
+    if (known) {
+      // A dependency snapshot cached for slicing can later be requested as an implementation or test context.
+      if (known.role === "dependency" && role !== "dependency") known.role = role;
+      return known;
+    }
     // A link out of the project is not followed: what lies outside is not the project's to hand to a reviewer.
     if (text === undefined && !insideRoot(root, file)) {
       if (!outside.has(file)) {
@@ -148,6 +153,7 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
   for (const document of own.documents) parts.push({ key: `design ${document.file}`, text: proseOf(document.source, document.blocks), file: document.file });
   const textOf = (file: string) => files.find((candidate) => candidate.path === file)?.text;
   const parsed = new Map<string, ts.SourceFile>();
+  const roots: { file: string; nodes: ts.Node[]; part: MaterialPart }[] = [];
   const parse = (file: string, text: string) => {
     if (!compiler) return undefined;
     if (!parsed.has(file)) parsed.set(file, compiler.ts.createSourceFile(file, text, compiler.ts.ScriptTarget.Latest, true));
@@ -158,6 +164,7 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
     const sourceFile = text !== undefined ? parse(implementation.location.file, text) : undefined;
     const material = compiler && sourceFile ? materialAt(compiler.ts, sourceFile, implementation.location, false) : undefined;
     parts.push({ key: `implementation ${implementation.location.file}#${implementation.name}`, text: material?.text ?? text ?? "", file: implementation.location.file, line: implementation.location.line, name: implementation.name, ...(material ? { pieces: material.pieces } : {}) });
+    if (material) roots.push({ file: implementation.location.file, nodes: material.nodes, part: parts[parts.length - 1] });
   }
   const titles = new Map<string, number>();
   for (const declaration of declarations.slice().sort((a, b) => compareText(a.location.file, b.location.file) || a.location.line - b.location.line)) {
@@ -168,15 +175,26 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
     const seen = titles.get(title) ?? 0;
     titles.set(title, seen + 1);
     parts.push({ key: `test ${title}${seen > 0 ? ` (${seen + 1})` : ""}`, text: material?.text ?? text ?? "", file: declaration.location.file, line: declaration.location.line, name: declaration.title, covers: declaration.covers, ...(material ? { pieces: material.pieces } : {}) });
+    if (material) roots.push({ file: declaration.location.file, nodes: material.nodes, part: parts[parts.length - 1] });
   }
 
   // The local files the implementations and the tests import, within the bounds of the review scope.
   const ownFiles = new Set([...implementations.map((implementation) => implementation.location.file), ...testFiles]);
   const otherImplementations = new Set((linking?.implementations ?? []).map((implementation) => implementation.location.file).filter((file) => !ownFiles.has(file)));
   const closure = compiler
-    ? dependencyClosure(result.root, compiler.ts, compiler.overlay, [...ownFiles].sort(compareText).map((file) => ({ file, text: textOf(file) ?? "" })), ownFiles, otherImplementations, result.reviewScope)
+    ? dependencyClosure(result.root, compiler.ts, compiler.overlay, [...ownFiles].sort(compareText).map((file) => ({ file, text: textOf(file) ?? "" })), ownFiles, otherImplementations, result.reviewScope, (file) => read(file, "dependency")?.text)
     : { files: [], beyond: [], unreadable: [] };
-  for (const dependency of closure.files) parts.push({ key: `dependency ${dependency.file}`, text: dependency.text, file: dependency.file });
+  for (const dependency of closure.files) {
+    parse(dependency.file, dependency.text);
+    // Cache the full snapshot for excerpts and --files all. Never substitute sliced text for a file.
+    read(dependency.file, "dependency", dependency.text);
+  }
+  const slices = compiler ? dependencySlices(compiler.ts, parsed, roots, closure.files.map(({ file }) => file), otherImplementations, (specifier, file) => {
+    const resolved = compiler.overlay.resolveFrom(specifier, path.join(result.root, file));
+    return resolved ? toProjectPath(result.root, resolved) : undefined;
+  }) : undefined;
+  roots.forEach(({ part }, i) => { if (slices) Object.assign(part, slices.roots[i]); });
+  for (const dependency of closure.files) parts.push({ key: `dependency ${dependency.file}`, file: dependency.file, ...(slices?.dependencies.get(dependency.file) ?? { text: dependency.text }) });
   return {
     contract,
     own,
@@ -254,7 +272,7 @@ function expressionStatementAt(ts: TypeScript, sourceFile: ts.SourceFile, locati
  * that any of these refer to, followed transitively, in source order. `pieces` are the line ranges the text
  * was taken from, in the same order, so that a reader can be shown exactly those lines of the file.
  */
-function materialAt(ts: TypeScript, sourceFile: ts.SourceFile, location: SourceLocation, nested: boolean, hooks: readonly SourceLocation[] = []): { text: string; pieces: { startLine: number; endLine: number }[] } | undefined {
+function materialAt(ts: TypeScript, sourceFile: ts.SourceFile, location: SourceLocation, nested: boolean, hooks: readonly SourceLocation[] = []): { text: string; pieces: { startLine: number; endLine: number }[]; nodes: ts.Node[] } | undefined {
   const position = sourceFile.getPositionOfLineAndCharacter(location.line - 1, location.column - 1);
   const start: ts.Node | undefined = nested ? expressionStatementAt(ts, sourceFile, location) : sourceFile.statements.find((statement) => statement.getStart() <= position && position < statement.end);
   if (!start) return undefined;
@@ -296,15 +314,8 @@ function materialAt(ts: TypeScript, sourceFile: ts.SourceFile, location: SourceL
       }
     }
   }
-  const text = (node: ts.Node) => node.getFullText().trim();
   const nodes = [start, ...setup.sort((a, b) => a.pos - b.pos), ...referenced.sort((a, b) => a.pos - b.pos)];
-  // The lines the trimmed full text spans: from its first non-blank character (a comment before the node is part of it) to the node's end.
-  const range = (node: ts.Node) => {
-    const full = node.getFullText();
-    const first = node.pos + (full.length - full.trimStart().length);
-    return { startLine: sourceFile.getLineAndCharacterOfPosition(first).line + 1, endLine: sourceFile.getLineAndCharacterOfPosition(node.end).line + 1 };
-  };
-  return { text: nodes.map(text).join("\n\n"), pieces: nodes.map(range) };
+  return { ...sliceNodes(nodes), nodes };
 }
 
 /** The local files a file imports for their values: type-only imports and exports, and dynamic `import()` and `require()` calls, are not followed. */
@@ -317,7 +328,8 @@ function valueImports(ts: TypeScript, sourceFile: ts.SourceFile): string[] {
       const typesOnly = clause !== undefined && (clause.isTypeOnly || (!clause.name && bindings !== undefined && ts.isNamedImports(bindings) && bindings.elements.length > 0 && bindings.elements.every((element) => element.isTypeOnly)));
       if (!typesOnly) specifiers.push(statement.moduleSpecifier.text);
     } else if (ts.isExportDeclaration(statement) && statement.moduleSpecifier && ts.isStringLiteral(statement.moduleSpecifier) && !statement.isTypeOnly) {
-      specifiers.push(statement.moduleSpecifier.text);
+      const typesOnly = statement.exportClause && ts.isNamedExports(statement.exportClause) && statement.exportClause.elements.length > 0 && statement.exportClause.elements.every((element) => element.isTypeOnly);
+      if (!typesOnly) specifiers.push(statement.moduleSpecifier.text);
     } else if (ts.isImportEqualsDeclaration(statement) && ts.isExternalModuleReference(statement.moduleReference) && ts.isStringLiteral(statement.moduleReference.expression) && !statement.isTypeOnly) {
       specifiers.push(statement.moduleReference.expression.text);
     }
@@ -342,6 +354,7 @@ export function dependencyClosure(
   own: ReadonlySet<string>,
   stopAt: ReadonlySet<string>,
   scope: { depth: number; maxFiles: number; exclude: readonly string[] },
+  readDependency?: (file: string) => string | undefined,
 ): { files: { file: string; text: string }[]; beyond: { file: string; why: Beyond }[]; unreadable: { file: string; message: string }[] } {
   const files: { file: string; text: string }[] = [];
   const beyond: { file: string; why: Beyond }[] = [];
@@ -386,7 +399,9 @@ export function dependencyClosure(
         }
         let content: string;
         try {
-          content = stripBom(fs.readFileSync(path.join(root, imported), "utf8")).replace(/\r\n?/g, "\n");
+          const snapshot = readDependency ? readDependency(imported) : stripBom(fs.readFileSync(path.join(root, imported), "utf8"));
+          if (snapshot === undefined) throw new Error(`cannot read ${imported}`);
+          content = snapshot.replace(/\r\n?/g, "\n");
         } catch (cause) {
           // The system's message names the file by its full path; the report names it from the project.
           unreadable.push({ file: imported, message: (cause as Error).message.replaceAll(path.join(root, imported), imported) });
@@ -488,4 +503,3 @@ export function fingerprintOf(parts: readonly MaterialPart[]): { fingerprint: st
   for (const [key, digest] of digests) hash.update(`${key}\n${digest}\0`);
   return { fingerprint: `sha256:${hash.digest("hex")}`, digests: Object.fromEntries(digests) };
 }
-

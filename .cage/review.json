@@ -4,10 +4,10 @@
     {
       "module": "src",
       "contract": "Cli",
-      "fingerprint": "sha256:1d6fb468d1d91af0ba35da3f5ead27f3265179f9f93d39ee7855ca904006a9c9",
+      "fingerprint": "sha256:56ba240f6993a3f16a40ff1705ab6564fd4f10fbe0764646e277d3f92d1beeee",
       "material": {
-        "contract": "sha256:393d108099495e954e756981810c930f93836375f900ce19161d6e2e482bbc47",
-        "design src/cage.cage.mdx": "sha256:ada2e9323c59cee624ce11610d68416a1d0d93b6d1449e567d727b45b9f90824",
+        "contract": "sha256:0c20e1530ab8d76c186bfe2b1a12c7aa7d6c2bcb4c6ceeeb75a58fb095df8a6d",
+        "design src/cage.cage.mdx": "sha256:3e4716e80bfbd600b52875b3f4e3390464629c2b2e9f8bf7e4f6a71f969b7eb3",
         "implementation src/main.ts#runCli": "sha256:6125859ff4a4306591a75b7a23f416c0942ff0c239cc8d5ee7c2901406e3f7ce",
         "test test/accept.test.ts:review --accept records every contract in need of a review as accepted without a verdict, and check asks for none": "sha256:3f615724b19dbfb814535b5c8cf529ae1800c8364718c5493376092997bdd246",
         "test test/accept.test.ts:a change makes an acceptance outdated like a review; --accept without names renews only those, and keeps a verdict": "sha256:94dac16e5fdd0a75632be73eca5c7056ae5309e9b1bdfc49c1148dae56ef4e51",
@@ -30,13 +30,28 @@
         "test test/max-diagnostics.test.ts:the gate limits only blocking diagnostics and counts every blocker": "sha256:75238f32f909f686fa84cc13a6a7ce42415fa2189e2bba18fbd4a3f2d9dc7502",
         "test test/review-boundaries.test.ts:a finding without a reason, or without evidence where its assessment needs some, is refused with the whole verdict": "sha256:1e1c67ae3dca53c34c51d5576a83262d39318cff791e619b59a3f76b25e65f96",
         "test test/review-index.test.ts:without names review is an index: which contracts need a review, what changed and which invariants it touches": "sha256:72a93f3bc06e8364ee2c753a8af1e3ccb21ca3fb2c6c0d289c5215b9fdc4a782",
-        "test test/review-index.test.ts:a named packet carries the changed lines of an outdated review with the previous findings; --files all and none change what comes along": "sha256:929007b0a76eeeb16689522b675d8be241ba61df0cbe6d25e1dc04f693579ca1",
+        "test test/review-index.test.ts:a named packet carries the changed lines of an outdated review with the previous findings; --files all and none change what comes along": "sha256:4c77d704e3b4556dcee58046f4bb92ec1c1b39a7ddd51a2778e85b1b29218885",
         "test test/review-index.test.ts:the index keeps every error in view: a broken review file is named, not only counted": "sha256:f42559336a3058b7c0d8156e694284bfc483abc1e41c81238d8fb3bb0400d523",
         "test test/review-index.test.ts:touched is conservative where the record cannot tell: a reorder, a finding resting on a changed test, a coverage lost": "sha256:ebee256442e0db5e8511cbab143bfe6d5dd024d7128e664dd55cc45eb476af5a",
+        "test test/review-scope.test.ts:dependency slices ignore unrelated declarations but include constants, helpers and matching excerpts": "sha256:2dee5a2eac64d74ab05eb9bdd6b51a08552df654ce5f19f19df6aa581bd5424b",
+        "test test/review-scope.test.ts:default imports and explicit re-exports follow helpers across files while local shadowing does not select an import": "sha256:2f3424f8552322c2c0bb1ef469f0de96c1e164e65b4664638ef462676babf401",
+        "test test/review-scope.test.ts:import retargeting changes root material even when both targets are already selected, including setup": "sha256:2055a1a433fb8f1d39338dd93768895994d02f30ad134eabb0da26ff440187fd",
+        "test test/review-scope.test.ts:adding initialization effects invalidates a slice and subsequent unrelated edits invalidate the whole file": "sha256:258be5c780a7060759447c1bead77d88b1291173826afddc1eed99b04ec6c970",
+        "test test/review-scope.test.ts:unused value imports still carry initialization effects and fallback follows their dependencies": "sha256:046e6e603cc0be79120dcfd5786e5cff0d413986d41825136445ad053f66879c",
+        "test test/review-scope.test.ts:module-level test setup keeps imported helpers even when the linked test never names them": "sha256:8e9e3c12aa359a7709d740eb4f900790a8c48102bb6e67a3915fab63d0730159",
+        "test test/review-scope.test.ts:multiple imports union their declarations, while type-only re-exports contribute no dependency": "sha256:764d12778e4ab5b0bce4a9fbd7e23314c9612b74dff98d2fd529e1efb8dcf73d",
+        "test test/review-scope.test.ts:dependency slicing syntax and conservative boundaries under TypeScript 5.9 and 6": "sha256:4715693f1d3f42a2fd5021c42aaf669e6ad1a5f0d7428c7472585d57b759a4cb",
         "test test/review-scope.test.ts:a change in a file the implementation imports makes the review outdated (audit P0)": "sha256:cd71daf362f4a98c405bc941ded7706771627a0cdf7dea872216330999a79a49",
-        "test test/review-scope.test.ts:a stub the tests import, and the setup of their suite, are part of what the tests observe": "sha256:a3404fdafca7a82dbeba275e9c16d9543b8a7f6aac4047b723df458de26cd20a",
+        "test test/review-scope.test.ts:a stub the tests import, and the setup of their suite, are part of what the tests observe": "sha256:38a62e70a37b05ea7f235fb5095dbbb54cc867bd13f1ea068901f5feeb513fb0",
         "test test/review-scope.test.ts:a change of the module's prose makes the review outdated; another contract's declaration in the same document does not (audit P1)": "sha256:6f5a7d173cc02c1062106fe0e878ebc0aa3be65a2fc91895bb6b86888999ad14",
         "test test/review-scope.test.ts:what lies beyond the bounds is reported, never silent; exclude takes a file out deliberately": "sha256:30b64fed42e7ee1a86727bad238899f0f1e748cad44b6b2fd08e6685e453f6b4",
+        "test test/review-slice-edge.test.ts:module initialization selects imported helpers in control flow, namespaces, enums and export assignments": "sha256:ffdc17f2a5f65b122b7ce8343991ecaf2eb99486fd686f48414de575ca3e0bba",
+        "test test/review-slice-edge.test.ts:retargeting an unused value import preserves observable dependency initialization order in the fingerprint": "sha256:716294ba23d570c0af0926bdd170863d501dd83e9bde9b18490911753929640c",
+        "test test/review-slice-edge.test.ts:runner mocks and matcher setup select dependencies, while unrelated test registrations remain isolated": "sha256:cf62d40dbc3c42b96752ea7e3435c5dd3f3aa7e0baeae0ffcc1fbcdaec805093",
+        "test test/review-slice-edge.test.ts:suite registration executes setup while nested test callback dependencies remain isolated": "sha256:270f19edcfde15eb54ec03a22b3d645cec146c1a702aa5982d49b8441f9c3f76",
+        "test test/review-slice-edge.test.ts:retargeting an effectful re-export also retains the root initialization connection": "sha256:440538f93634a9f781beea7826ef4d6967aef8a406b14f56e492aebc4c31dd70",
+        "test test/review-slice-edge.test.ts:registration titles and builders retain eagerly called helpers without retaining callback bodies": "sha256:ab8fe1aa89827296332bb9db7b52c68ae983e90fb2931b3934d7dd2bc1fb8edd",
+        "test test/review-slice-edge.test.ts:eager registration helpers may synchronously invoke callback arguments": "sha256:f8f6215b195441968f86926479897553f7ecf94007eb3d57bfb8230744461ecd",
         "test test/review.test.ts:a change to the material makes the review stale, naming the file, and the old verdict cannot be recorded": "sha256:16885783bc2b58f4518ed03bb92593cf62e227797ded8e6819287f3433281f49",
         "test test/review.test.ts:a verdict is refused when it is not about the designs as they are, and then nothing is recorded": "sha256:ad7e7258f656015003e69f55db1b23315e49302880df6d2ae2268ac6906a2c14",
         "dependency src/check.ts": "sha256:d8be6b423a1380b2a642393301d4b76a29f78fb6663fd12672198c5f9ee7dd39",
@@ -49,11 +64,12 @@
         "dependency src/lock-command.ts": "sha256:3d0e1fb4667ee3bd35744849c93854406e8c4bbb8d7b161f001c6227081f0e27",
         "dependency src/report.ts": "sha256:1d88e155b1a60a84255930115b87cb4d24fa1cdf6dddaefb8f1a8140c2032d69",
         "dependency src/review-record.ts": "sha256:c9514df319a716ac78211867b578e95a4fcc6bd18a71bbd8dfe7e114418b4a23",
-        "dependency src/review.ts": "sha256:94d5c9f34d3d58067272ec09c906ddb2f1de38317c223b44ba02672c6730f844",
+        "dependency src/review.ts": "sha256:8cc91d765854218c4944c79a8bd824315e842942c583416645c8476eb40fe330",
         "dependency test/helpers.ts": "sha256:fc63b8aabc7605146efd4c83ba50ff9ef6ee1e8f46f721ba9c78e6d6e2236c95",
         "dependency src/typescript.ts": "sha256:fe7923d393c2d00b86ec2edb27b1782f07cfa9df6db38f63a69726bc376b3017",
         "dependency src/locks.ts": "sha256:b23ae4322742bed215ff7f1c15200f756ac055f9fc07b51b430e0d824a6ddf58",
-        "dependency src/review-material.ts": "sha256:9cbae761c19ee7cb915de747cf4a8a4877f5a195058c5c62dbd7b1ac847f153e",
+        "dependency src/review-material.ts": "sha256:44589c0d2fbea7976d0beb01840163ed2f943eb5e832157c176f7bf72acb03e0",
+        "dependency src/review-slice.ts": "sha256:55c51e4a38576c55c5514b2d0cf3cf9b4a52aad307b855eba4d9bc1aa8d1dc22",
         "dependency src/design-phase.ts": "sha256:63d7d9b31b2def44d5a205b5473aa3bdc22454297d37bd1a7f4d0c050a47c247",
         "dependency src/implementation-phase.ts": "sha256:f039339371f00518ebb10caef2a884fac44ab2f6e90e8910383af65e3345b411",
         "dependency src/location.ts": "sha256:5bf7111477026c949aef8c1243e46488037018ed596c52f2dadc8a4367699e3f",
@@ -95,28 +111,28 @@
           "invariant": "review-index",
           "assessment": "adequate",
           "reason": "The tests assert the entries, their statuses, the changed parts with places, the touched invariants, --all with every contract, and that a broken review file is named in full.",
-          "evidence": "test/review-index.test.ts:26; test/review-index.test.ts:170",
+          "evidence": "test/review-index.test.ts:26; test/review-index.test.ts:171",
           "suggestedChange": null
         },
         {
           "invariant": "review-packet",
           "assessment": "adequate",
-          "reason": "The test asserts the excerpt lines against the file with their numbers, the previous finding per invariant as changed or unchanged, every file when there is no record, and the files under --files all and none.",
-          "evidence": "test/review-index.test.ts:86",
+          "reason": "The packet tests assert numbered source excerpts and prior findings, connecting import ranges, selected dependency ranges against the source snapshot, full dependency context under --files all, and no file text under --files none.",
+          "evidence": "test/review-index.test.ts:86; test/review-scope.test.ts:127",
           "suggestedChange": null
         },
         {
           "invariant": "review-touched",
           "assessment": "adequate",
           "reason": "The tests assert every invariant touched after a reorder with everything included, after an implementation change, when a previous finding cites a changed test, and when a test is re-tagged away from an invariant.",
-          "evidence": "test/review-index.test.ts:26; test/review-index.test.ts:191",
+          "evidence": "test/review-index.test.ts:26; test/review-index.test.ts:192",
           "suggestedChange": null
         },
         {
           "invariant": "review-scope-silent",
           "assessment": "adequate",
           "reason": "The test asserts no REVIEW_SCOPE_LIMIT in the packet or the index and the message of check with the files and without advice.",
-          "evidence": "test/review-scope.test.ts:218",
+          "evidence": "test/review-scope.test.ts:432",
           "suggestedChange": null
         },
         {
@@ -129,8 +145,29 @@
         {
           "invariant": "review-stale",
           "assessment": "adequate",
-          "reason": "The tests assert staleness from a dependency, a stub and the suite setup, the prose, a renamed test, the contract and an implementation, each naming the part, and no staleness from a comment or another contract.",
-          "evidence": "test/review-scope.test.ts:138; test/review-scope.test.ts:157; test/review-scope.test.ts:170; test/review.test.ts:293",
+          "reason": "Mutation tests assert stale diagnostics naming the changed implementation, test, setup, prose and dependency. Module initialization helpers and effectful import/re-export retargeting also change the fingerprint; unchanged unrelated material remains current.",
+          "evidence": "test/review-scope.test.ts:220; test/review-scope.test.ts:350; test/review-scope.test.ts:369; test/review-scope.test.ts:384; test/review-slice-edge.test.ts:43; test/review-slice-edge.test.ts:106; test/review.test.ts:293",
+          "suggestedChange": null
+        },
+        {
+          "invariant": "review-dependency-relevant",
+          "assessment": "adequate",
+          "reason": "CLI mutations change used constants, transitive helpers, imported setup, re-exported defaults and aliases and assert the exact stale parts. The TS5.9/6 cases cover shared selections, module control flow, computed class initialization, mocks, eager registration helpers, callbacks invoked synchronously, and suite initialization.",
+          "evidence": "test/review-scope.test.ts:127; test/review-scope.test.ts:156; test/review-scope.test.ts:177; test/review-scope.test.ts:220; test/review-scope.test.ts:234; test/review-scope.test.ts:288; test/review-slice-edge.test.ts:24; test/review-slice-edge.test.ts:58; test/review-slice-edge.test.ts:90; test/review-slice-edge.test.ts:116; test/review-slice-edge.test.ts:143",
+          "suggestedChange": null
+        },
+        {
+          "invariant": "review-dependency-isolated",
+          "assessment": "adequate",
+          "reason": "Tests edit unrelated dependency declarations and shadowed imported names, asserting identical fingerprints and current recorded reviews. The compiler-version matrix also excludes unrelated test callback bodies while retaining eager suite and registration setup.",
+          "evidence": "test/review-scope.test.ts:127; test/review-scope.test.ts:156; test/review-scope.test.ts:234; test/review-scope.test.ts:288; test/review-slice-edge.test.ts:24; test/review-slice-edge.test.ts:58; test/review-slice-edge.test.ts:90; test/review-slice-edge.test.ts:116",
+          "suggestedChange": null
+        },
+        {
+          "invariant": "review-dependency-fallback",
+          "assessment": "adequate",
+          "reason": "CLI tests add initialization effects, then edit unrelated declarations and require stale reviews. Both compiler versions assert full-file fallback for unsupported syntax, cycles, opaque imports, namespaces, CommonJS and eval; effectful import and re-export retargeting changes root material. Existing bounded traversal, unreadable-file and symlink regressions remain in place.",
+          "evidence": "test/review-scope.test.ts:192; test/review-scope.test.ts:204; test/review-scope.test.ts:288; test/review-slice-edge.test.ts:43; test/review-slice-edge.test.ts:106",
           "suggestedChange": null
         },
         {
@@ -173,10 +210,10 @@
     {
       "module": "src",
       "contract": "Codes",
-      "fingerprint": "sha256:077ada7b850e922a9dd57612bd04cc56663faaee855351393ebf75b26d021984",
+      "fingerprint": "sha256:619e0c4485838f86d04f6e7403cd018dffe4b5ff45893bb85527c9d2ced2a7f3",
       "material": {
         "contract": "sha256:95d71c5d4dde2c0745b4e5a9c00167559a7fe78f496ff863de276b70a975634a",
-        "design src/cage.cage.mdx": "sha256:ada2e9323c59cee624ce11610d68416a1d0d93b6d1449e567d727b45b9f90824",
+        "design src/cage.cage.mdx": "sha256:3e4716e80bfbd600b52875b3f4e3390464629c2b2e9f8bf7e4f6a71f969b7eb3",
         "implementation src/codes.ts#formatCodes": "sha256:348252921efa59c1ca1015e2eb678eb12a6e06665944882853323697973c40c5",
         "test test/codes.test.ts:every code the source emits is in the legend, and the legend in the reference": "sha256:5032340391f67893f50ad106e363f8001d0ab0960ad4b4d40b37665ddbf773b1",
         "dependency test/helpers.ts": "sha256:fc63b8aabc7605146efd4c83ba50ff9ef6ee1e8f46f721ba9c78e6d6e2236c95",
@@ -212,10 +249,10 @@
     {
       "module": "src",
       "contract": "ConfigLoader",
-      "fingerprint": "sha256:27944f3adc30aed2b59a0c08eaed3eb27116ecc5d5b46e231a2153ecdf2a1af7",
+      "fingerprint": "sha256:546bc1ac4bbd5cf90c335b93d99c1f2381cca41cfe77f73efacf0dd513fcf375",
       "material": {
         "contract": "sha256:aa0a8126dd82f22a748ad81b423273f326e04b343ac6073e5c1b246b92e33397",
-        "design src/cage.cage.mdx": "sha256:ada2e9323c59cee624ce11610d68416a1d0d93b6d1449e567d727b45b9f90824",
+        "design src/cage.cage.mdx": "sha256:3e4716e80bfbd600b52875b3f4e3390464629c2b2e9f8bf7e4f6a71f969b7eb3",
         "implementation src/config.ts#loadConfig": "sha256:ff47a6f349e283baabd17a923d0eda338c2be1f987bd9a4722da2178cec1d440",
         "test test/config.test.ts:defaults apply when there is no .cage/config.json": "sha256:3582eb6d2c760275929ef7044a62c615a443f002965a8b3bd7d6fc9b68fc3a91",
         "test test/config.test.ts:.cage/config.json is found; given fields replace the defaults, the rest stay": "sha256:cb798bb79725f518a082116a7854475e965c8b9513a7c9d344870794b6156590",

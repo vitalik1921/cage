@@ -1,5 +1,7 @@
 # cage
 
+## Purpose
+
 cage keeps a TypeScript project's specs, code and tests in sync, so that a coding agent is told what drifted before it hands the work back. The specs are `*.cage.mdx` documents next to the code; a contract in them is an interface the code must implement, an invariant a rule a linked test must check, and the review a recorded verdict that the tests really check the rules. cage runs locally, makes no model calls and runs no tests: the agent judges, the test runner runs.
 
 This document is cage's own spec, checked by the published cage against this repository. The contracts are the harness's ports: the command line, the configuration and the legend of codes. Everything behind them — parsing documents, indexing designs, comparing types, reading tests, fingerprinting material — is implementation, listed in `.cageignore`.
@@ -9,8 +11,10 @@ This document is cage's own spec, checked by the published cage against this rep
 - **Design**: the `*.cage.mdx` documents of one directory, read as one module.
 - **Contract**: an exported interface marked `@contract`, implemented by code marked `@implements`.
 - **Invariant**: a rule of a contract, `@invariant id text`, linked to tests marked `@covers id`.
-- **Material**: what a review of a contract is about: its declaration, the prose of its module, its implementations, its linked tests with their setup, and the local files they import.
+- **Material**: what a review of a contract is about: its declaration, the prose of its module, its implementations, its linked tests with their setup, and the local dependency declarations or whole files included in its fingerprint.
 - **Fingerprint**: a digest of the material, part by part; a recorded verdict is tied to it.
+- **Dependency slice**: whole declarations selected from an imported local file, including the declarations they refer to transitively; it never selects individual methods of a class.
+- **Fallback**: keeping a dependency file whole when its declarations or initialization effects cannot be separated reliably, with the existing bounds on following its imports.
 - **Review**: a recorded verdict, per invariant, that the tests check the rule; an acceptance is a record without a verdict.
 - **Diagnostic**: one finding of a check, with a code (`E_…` fails the check, `W_…` does not), the thing it is about and the place.
 
@@ -25,14 +29,22 @@ This document is cage's own spec, checked by the published cage against this rep
 - A lock on a declaration is lifted only by a person, visibly, in the lock file; a lock the base branch has is never lifted on a branch.
 - Nothing cage writes for a project overwrites what a person wrote.
 
-## Out of scope
+### Dependency material
 
-Running tests, judging tests, calling models, reading test runners' reports, Jest, Windows.
+Dependencies are sliced only after a bounded check of their initialization and imported bindings. Unsupported cases keep the existing whole-file material. The implementation and tests of these rules are reviewed through the invariants below.
 
-## Open questions
+1. Dependency selection starts from the implementation statements and the linked tests, their effective setup and local helpers already selected as review material. Dependencies referenced by module-level initialization are also retained; recognized test/suite/hook registrations use the existing selection of linked tests and effective hooks. Implementations remain whole declarations, including whole classes. Shared methods and setup can therefore still make several contracts stale together.
+2. Static named and default imports, aliases and explicit re-exports select their referenced declarations by binding, not by spelling alone. Each selected declaration includes its documentation and all same-file declarations it references, transitively. Imported classes are included whole. Multiple paths to a file contribute the union of their selections; falling back on any path makes that file whole.
+3. A dependency can be sliced only when its module initialization is conservatively known to be inert. The initial supported subset is type declarations, function declarations, and `const` declarations initialized with primitive literals, function expressions or arrows, or arrays and ordinary objects composed of supported expressions. Parentheses, type assertions and unary signs on numeric literals do not change this classification. A reference to another constant is allowed only when its initializer is also in the subset. Function bodies are not executed during this classification; a selected function still brings its referenced declarations into the material.
+4. Verify this initialization condition through the module's static value imports as well, including imports whose values the selected declarations do not use. An unused import can still execute code. Cycles, unresolved or opaque value imports, namespace imports, `export *`, CommonJS, side-effect-only imports, classes, decorators, top-level calls or `new`, mutable declarations, assignments, getters, spreads, computed properties and other unsupported syntax prevent slicing the affected module. A class dependency is therefore whole in this first version. Unknown effects must never be treated as proof that an import can be dropped.
+5. Analyze only within the existing project boundary, exclusions, depth and file limit. A needed initialization proof that runs into a boundary is unavailable and requires fallback; it never authorizes reading beyond the boundary. Fallback uses the existing whole-file import traversal. Type-only imports remain excluded, and support for following dynamic imports or `require()` calls is not added in this change.
+6. Keep one `dependency <file>` part, made from selected declarations and their connecting import/export statements in source order or the whole file on fallback, and count unique dependency files against `maxFiles`. Include the connecting import statements of an implementation or test in that implementation or test's material too: retargeting an alias must not preserve a verdict just because both targets were already selected elsewhere. Value imports with unknown or observable initialization remain connecting material even when their binding is unused, since retargeting or reordering them can change initialization order. Changes to selected declarations, their helpers, their bindings or their inclusion in the material must invalidate the review. Moving to fallback after a new side effect must also invalidate it. Line-number shifts alone must not change a slice's digest.
+7. `check`, the review index, packet and recording use the same material. Changed dependency excerpts show the ranges actually fingerprinted; `--files all` still supplies whole files as context. No new warning or configuration switch is introduced. The gate's filtering of diagnostics is unchanged.
+8. Keep the review-record format and existing part keys. Old records remain readable; when the new material differs, a fresh review is required. Do not silently translate a previous verdict or acceptance into approval of a different fingerprint.
 
-- A design in a directory with many files is one module: a prose edit in any document outdates every contract's review. Splitting `src/` into directories would narrow that, at the cost of moving files.
-- `Cli` carries many more invariants than the `cage-design` skill suggests for one contract, because the command line is the one port of the harness. Splitting it into a contract per command would need the internal report types declared in the design, or methods typed `unknown`; neither checks more than this does.
+For example, importing a literal constant from an otherwise inert module does not make an unrelated function body part of the review. A module with top-level `new Logger(...)` remains whole. This first version does not promise to eliminate every broad dependency warning in an application.
+
+## Data
 
 ```ts design
 /**
@@ -115,7 +127,11 @@ export interface LoadedConfig {
   config: Config;
   diagnostics: Diagnostic[];
 }
+```
 
+## Contracts
+
+```ts design
 /**
  * @contract
  * @description The command line of the harness: runs one command for the given arguments and environment and returns the exit code. Reports go to stdout, usage errors and the gate's feedback to stderr.
@@ -127,7 +143,10 @@ export interface LoadedConfig {
  * @invariant review-touched Where the record cannot tell what a change touches — no part differs by its digest, a previous finding rests on a changed test, an invariant lost its coverage, or anything but a test changed — every invariant is touched.
  * @invariant review-scope-silent The review packet and index never name `REVIEW_SCOPE_LIMIT`; `check` reports it as a fact about the project's setting.
  * @invariant record-refuses `review --record` refuses a verdict for other material, for an unknown contract or invariant, with an invariant left unassessed, or with a finding without a reason or evidence, and then records nothing.
- * @invariant review-stale A change to a contract, the prose of its module, an implementation, a linked test, its setup, or a local file they import makes the recorded review outdated, and `check` names the changed parts.
+ * @invariant review-stale A change to a contract, the prose of its module, an implementation, a linked test, its setup, or fingerprinted dependency material makes the recorded review outdated, and `check` names the changed parts.
+ * @invariant review-dependency-relevant Changing a selected imported declaration or a helper it transitively references makes the recorded review outdated.
+ * @invariant review-dependency-isolated Changing only an unselected declaration in a dependency that remains eligible for slicing leaves the fingerprint and recorded review current.
+ * @invariant review-dependency-fallback When dependency selection or inert module initialization cannot be established under the documented rules, the dependency is fingerprinted whole within the existing traversal bounds, and changing any of its content outdates the review.
  * @invariant accept `review --accept` records the material of every contract without a fresh record as accepted without a review; `check` asks for no review until it changes and counts acceptances apart from attested ones.
  * @invariant gate `gate` exits 2 on an error or a missing or outdated review and 0 otherwise, whatever the review level; its feedback contains only blocking diagnostics, including after three blocks in one session when it lets the agent stop with the report.
  * @invariant locks `lock` records the declarations marked `@final` or `@extendable`; `check` reports a change to a recorded declaration, and `--base` refuses a lock that the base revision has and the lock file no longer does.
@@ -157,3 +176,12 @@ export interface Codes {
   (): string;
 }
 ```
+
+## Out of scope
+
+Running tests, judging tests, calling models, reading test runners' reports, Jest, Windows. Selecting individual methods of an implementation or imported class, proving arbitrary JavaScript side effects, and extending dynamic-import tracking are outside the dependency-slicing change. Internal collectors remain implementation details listed in `.cageignore`, not new public contracts.
+
+## Open questions
+
+- A design in a directory with many files is one module: a prose edit in any document outdates every contract's review. Splitting `src/` into directories would narrow that, at the cost of moving files.
+- `Cli` carries many more invariants than the `cage-design` skill suggests for one contract, because the command line is the one port of the harness. Splitting it into a contract per command would need the internal report types declared in the design, or methods typed `unknown`; neither checks more than this does.

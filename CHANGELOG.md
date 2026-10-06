@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.5.0
+
+- Review fingerprints select imported declarations and their helpers in modules with conservatively verified inert initialization. Unrelated declarations no longer stale a review in those modules; uncertain cases retain whole-file tracking. Classes, dependency limits and gate filtering are unchanged.
+- Changed review packets show the dependency ranges used by the fingerprint; `--files all` includes fingerprinted dependencies whole. Import retargeting is tracked, and fingerprints and excerpts share source snapshots.
+- Existing review records remain readable. The new material can require a fresh review after upgrading; no verdict or acceptance is automatically renewed.
+
 ## 0.4.2
 
 - `gate` shows only diagnostics that block the stop. Other warnings, including `W_REVIEW_SCOPE_LIMIT`, remain in `check`; the gate's diagnostic limit, omitted counts and error/warning totals cover only blockers, including when it lets the agent stop after three attempts.

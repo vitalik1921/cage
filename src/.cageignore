@@ -36,6 +36,7 @@ locks.ts
 lock-command.ts
 review.ts
 review-material.ts
+review-slice.ts
 review-record.ts
 record-file.ts
 gate.ts

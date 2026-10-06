@@ -109,7 +109,7 @@ test("a named packet carries the changed lines of an outdated review with the pr
       { id: "sender-error", touched: false, prior: ["adequate"] },
     ],
   );
-  // The excerpt is the test's statement with its doc comment, numbered as in the file; nothing is included whole.
+  // The excerpt is the test statement and connecting imports, numbered as in the file; nothing is included whole.
   assert.deepEqual(changed.files, []);
   assert.equal(changed.excerpts.length, 1);
   const [excerpt] = changed.excerpts;
@@ -117,7 +117,8 @@ test("a named packet carries the changed lines of an outdated review with the pr
   assert.equal(excerpt.file, SEND_TEST);
   const source = readFile(root, SEND_TEST);
   const start = find(source, "/** @covers limit */").line;
-  assert.equal(excerpt.pieces.length, 1);
+  assert.equal(excerpt.pieces.length, 5);
+  assert.deepEqual(excerpt.pieces.slice(1).map((piece) => piece.text.trim()), source.split("\n").filter((line) => line.startsWith("import ") && !line.startsWith("import type ")));
   assert.equal(excerpt.pieces[0].startLine, start);
   assert.ok(excerpt.pieces[0].endLine > start);
   assert.equal(excerpt.pieces[0].text, source.split("\n").slice(start - 1, excerpt.pieces[0].endLine).join("\n"));
@@ -129,7 +130,7 @@ test("a named packet carries the changed lines of an outdated review with the pr
   assert.match(markdown, /^## Changed\n- test "не передає повідомлення без квоти" changed \(src\/modules\/campaigns\/send\.test\.ts:\d+\)\ntouches: limit \(judge afresh\); quota, quota-error, sender-error \(confirm or revise\)$/m);
   assert.match(markdown, /^  recorded: adequate, "limit is checked\." \(src\/modules\/campaigns\/send\.test\.ts:9\), changed$/m);
   assert.match(markdown, /^  recorded: adequate, "quota is checked\." \(src\/modules\/campaigns\/send\.test\.ts:9\), unchanged$/m);
-  assert.match(markdown, new RegExp(`^### src/modules/campaigns/send\\.test\\.ts:${start}-${excerpt.pieces[0].endLine}$`, "m"));
+  assert.match(markdown, new RegExp(`^### src/modules/campaigns/send\\.test\\.ts:${start}-${excerpt.pieces[0].endLine}, `, "m"));
   // `<line> | ` and then the line as written, with its own indentation.
   assert.match(markdown, new RegExp(`^${start} \\| {3}/\\*\\* @covers limit \\*/$`, "m"));
   assert.ok(!markdown.includes("## Files"));

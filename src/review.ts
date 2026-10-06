@@ -289,7 +289,7 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
   const excerpts: Excerpt[] = [];
   for (const packet of packets) {
     const material = materialOf(packet.contract);
-    const everything = [...packet.designs, ...packet.dependencies.designs, ...packet.implementations.map((i) => i.location.file), ...packet.tests.map((t) => t.file), ...packet.helpers];
+    const everything = [...packet.designs, ...packet.dependencies.designs, ...packet.implementations.map((i) => i.location.file), ...packet.tests.map((t) => t.file), ...packet.helpers, ...packet.fingerprinted];
     if (included === "none") continue;
     // Only an outdated review has something to compare with; otherwise the reviewer reads everything. So does one whose
     // parts all match by digest and whose fingerprint still differs (the parts in another order, or the record edited).
@@ -301,7 +301,9 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
       if (change.change === "gone") continue;
       const part = material.parts.find((candidate) => candidate.key === change.part);
       if (!part) continue;
-      if (part.pieces && part.pieces.length > 0) {
+      if (part.pieces) {
+        // A dependency used only to establish inert initialization can have no selected lines.
+        if (part.pieces.length === 0) continue;
         const text = files.get(part.file)?.text;
         if (text !== undefined) excerpts.push({ part: part.key, file: part.file, pieces: part.pieces.map((piece) => ({ ...piece, text: linesOf(text, piece.startLine, piece.endLine) })) });
         else whole.add(part.file);
