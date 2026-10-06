@@ -4,7 +4,7 @@
     {
       "module": "src",
       "contract": "Cli",
-      "fingerprint": "sha256:0b04b5f557082a639dd5c8afc0d4ab196e80526b404b40fd5806db413d571a88",
+      "fingerprint": "sha256:d1d86cb6b649ef888873e1ae1d3cbb95cdf690674b61938758db2139f047fe5b",
       "material": {
         "contract": "sha256:0c20e1530ab8d76c186bfe2b1a12c7aa7d6c2bcb4c6ceeeb75a58fb095df8a6d",
         "design src/cage.cage.mdx": "sha256:3e4716e80bfbd600b52875b3f4e3390464629c2b2e9f8bf7e4f6a71f969b7eb3",
@@ -35,6 +35,10 @@
         "test test/review-index.test.ts:a named packet carries the changed lines of an outdated review with the previous findings; --files all and none change what comes along": "sha256:57e946f38c7d7316136bdd53b7edb1b285157b4004a89c4198ba32974c4373da",
         "test test/review-index.test.ts:the index keeps every error in view: a broken review file is named, not only counted": "sha256:bcf47af6d7ebaeb8228f77d88291c23589827077c7485302de05c3e376dda9d9",
         "test test/review-index.test.ts:touched is conservative where the record cannot tell: a reorder, a finding resting on a changed test, a coverage lost": "sha256:68e2c1f383c8076e13fab1c5a29ed72d9986661ea658ae0c7521d44abaecc4fc",
+        "test test/review-performance.test.ts:shared constant initializer graphs have linear proof work and retain the same selected declarations": "sha256:bc7f43bb98b469980d2b804f78dfda22248e7102626861d6c35bf3c49c0ba3e0",
+        "test test/review-performance.test.ts:multiple roots share one module setup scan while preserving each root's material": "sha256:1d89500824718dd7c93241386ea9dee49a551f3b395d2c7fbb539cea86bc83e4",
+        "test test/review-performance.test.ts:distinct test roots reuse shared setup and references without leaking private imports or changing root order": "sha256:2b63badbd4ae9ecf41a91c39d3c139d1600cde5a78672a2ec58ef0c8292cd693",
+        "test test/review-performance.test.ts:import-resolution caching keeps the declaring file in its identity": "sha256:5ace8d9bd113c03a923b1ab5ec4b26ac47d1bcce4c88dcab7b839894677fb06c",
         "test test/review-scope.test.ts:dependency slices ignore unrelated declarations but include constants, helpers and matching excerpts": "sha256:15b599007eb313ef4b63abc7e8e852f25a1b0002a99422707998a0c8b21ed570",
         "test test/review-scope.test.ts:default imports and explicit re-exports follow helpers across files while local shadowing does not select an import": "sha256:05d5710673038f7577ea68cf12b5b64d236e8db92f96d3dcef7682fa9a483e5b",
         "test test/review-scope.test.ts:import retargeting changes root material even when both targets are already selected, including setup": "sha256:95be4e460b20e9cc61a970febea3a078b35c4de9c5e840b40710f9bb938508c1",
@@ -70,8 +74,8 @@
         "dependency test/helpers.ts": "sha256:fc63b8aabc7605146efd4c83ba50ff9ef6ee1e8f46f721ba9c78e6d6e2236c95",
         "dependency src/typescript.ts": "sha256:fe7923d393c2d00b86ec2edb27b1782f07cfa9df6db38f63a69726bc376b3017",
         "dependency src/locks.ts": "sha256:b23ae4322742bed215ff7f1c15200f756ac055f9fc07b51b430e0d824a6ddf58",
+        "dependency src/review-slice.ts": "sha256:05435ba0612951a0f6a4ac521acf58dbb29d4a5eba6763bd83a0d64ce960fa24",
         "dependency src/review-material.ts": "sha256:44589c0d2fbea7976d0beb01840163ed2f943eb5e832157c176f7bf72acb03e0",
-        "dependency src/review-slice.ts": "sha256:55c51e4a38576c55c5514b2d0cf3cf9b4a52aad307b855eba4d9bc1aa8d1dc22",
         "dependency src/design-phase.ts": "sha256:63d7d9b31b2def44d5a205b5473aa3bdc22454297d37bd1a7f4d0c050a47c247",
         "dependency src/implementation-phase.ts": "sha256:f039339371f00518ebb10caef2a884fac44ab2f6e90e8910383af65e3345b411",
         "dependency src/location.ts": "sha256:5bf7111477026c949aef8c1243e46488037018ed596c52f2dadc8a4367699e3f",
@@ -91,120 +95,120 @@
         {
           "invariant": "exit-codes",
           "assessment": "adequate",
-          "reason": "Linked CLI tests assert exit 2 for invalid usage and unusable configuration/environment, exit 1 for a rule violation, and exit 0 for the warnings-only fixture check. The fixture assertion also verifies that warnings remain reported at exit 0.",
-          "evidence": "test/check.test.ts:119; test/check.test.ts:147; test/check.test.ts:286; test/cli.test.ts:30",
+          "reason": "CLI scenarios assert usage/configuration/environment failures return 2, violations return 1, and the warnings-only vertical fixture returns 0 with warnings still reported. Assertions inspect actual CLI output and structured reports rather than substituting exit results.",
+          "evidence": "test/cli.test.ts:30; test/check.test.ts:119; test/check.test.ts:147; test/check.test.ts:286",
           "suggestedChange": null
         },
         {
           "invariant": "diagnostic-line",
           "assessment": "adequate",
-          "reason": "The fixture test compares the full diagnostic output against independently located code, subject and source positions, without legend text. The duplicate-invariant scenario asserts the error line and indented related location.",
+          "reason": "The duplicate-invariant and vertical-fixture checks assert exact diagnostic subjects and independently computed source locations, including indented related details. Full output comparison would fail if legend or advice text were inserted.",
           "evidence": "test/check.test.ts:119; test/check.test.ts:286",
           "suggestedChange": null
         },
         {
           "invariant": "check-limit",
           "assessment": "adequate",
-          "reason": "The tests independently rank diagnostics, assert selections at several limits including zero/all, and retain complete exit status and totals. Gate assertions count only the 18 blockers, including omitted counts by code, and exclude nonblocking warnings from feedback and summary totals.",
+          "reason": "Independent diagnostic ranking determines expected selections, with explicit assertions for zero, partial and unlimited output, omitted counts by code and unchanged totals. Gate scenarios independently assert only blockers contribute to selection and summaries.",
           "evidence": "test/max-diagnostics.test.ts:28; test/max-diagnostics.test.ts:94",
           "suggestedChange": null
         },
         {
           "invariant": "review-index",
           "assessment": "adequate",
-          "reason": "The tests assert missing/current/outdated statuses, default omission of current contracts, --all inclusion, exact changed parts with locations and touched invariant IDs. A malformed review file is exposed in the index output rather than only counted.",
+          "reason": "Index scenarios record reviews, mutate tests and implementations, then assert needed/all selection, current/outdated statuses, changed part identities and touched invariant IDs. A malformed review file must be printed explicitly.",
           "evidence": "test/review-index.test.ts:26; test/review-index.test.ts:171",
           "suggestedChange": null
         },
         {
           "invariant": "review-packet",
           "assessment": "adequate",
-          "reason": "The packet tests assert selected changed source ranges against the file text, connecting imports, prior findings and touched flags. Initial packets contain full context; --files all retains complete dependency files, while --files none omits both file text and excerpts.",
+          "reason": "Packet assertions compare changed excerpts to independently located file ranges, preserve previous findings, and verify initial full context plus all/none modes. Dependency mutation tests require selected ranges to omit unrelated declarations while all mode includes them whole.",
           "evidence": "test/review-index.test.ts:86; test/review-scope.test.ts:127",
           "suggestedChange": null
         },
         {
           "invariant": "review-touched",
           "assessment": "adequate",
-          "reason": "The tests assert every invariant touched after implementation changes or a fingerprint reorder without differing part digests. Evidence resting on another changed test and loss of coverage are separately asserted, preserving unaffected invariant flags where the changes can be attributed.",
+          "reason": "Tests independently reorder material without changing part digests, change evidence-cited tests, and remove coverage tags. They assert conservative touched sets and full fallback context while preserving unaffected invariant flags where attribution is possible.",
           "evidence": "test/review-index.test.ts:26; test/review-index.test.ts:192",
           "suggestedChange": null
         },
         {
           "invariant": "review-scope-silent",
           "assessment": "adequate",
-          "reason": "The bounded-chain scenario asserts that check reports the dependency limit and excluded filenames as facts, while both packet and index diagnostics exclude REVIEW_SCOPE_LIMIT. Depth, file limits and deliberate exclusions also have independent fingerprint assertions.",
+          "reason": "The bounded import-chain fixture requires check to report depth/file-limit facts while packet and index diagnostics exclude REVIEW_SCOPE_LIMIT. Deliberate exclusion changes neither the relevant fingerprint nor the recorded review when excluded downstream content changes.",
           "evidence": "test/review-scope.test.ts:432",
           "suggestedChange": null
         },
         {
           "invariant": "record-refuses",
           "assessment": "adequate",
-          "reason": "The tests submit old fingerprints, unknown contracts/invariants, incomplete and duplicate verdicts, and blank reasons or missing evidence. They assert refusal, an empty recorded list and preservation of the review file, including when a sound verdict accompanies a rejected one.",
-          "evidence": "test/review-boundaries.test.ts:209; test/review.test.ts:293; test/review.test.ts:408",
+          "reason": "Invalid verdict scenarios submit stale fingerprints, unknown names, missing invariants, duplicate verdicts, blank reasons and missing evidence. They assert no entries recorded and review-file preservation, including a valid companion verdict that must also remain unrecorded.",
+          "evidence": "test/review.test.ts:293; test/review.test.ts:408; test/review-boundaries.test.ts:209",
           "suggestedChange": null
         },
         {
           "invariant": "review-stale",
           "assessment": "adequate",
-          "reason": "Mutation tests assert stale diagnostics naming changed contract declarations, implementation statements, test declarations, suite setup, module prose and fingerprinted dependencies. Old verdict recording is refused; effectful import/re-export retargeting independently changes root fingerprints.",
-          "evidence": "test/review-scope.test.ts:220; test/review-scope.test.ts:350; test/review-scope.test.ts:369; test/review-scope.test.ts:384; test/review-slice-edge.test.ts:43; test/review-slice-edge.test.ts:106; test/review.test.ts:293",
+          "reason": "Mutation scenarios exercise contract declarations, prose, implementation statements, linked tests, setup and imported helper content, asserting changed-part diagnostics and rejection of old fingerprints. Effectful import and re-export retargeting are separately observed as fingerprint changes.",
+          "evidence": "test/review.test.ts:293; test/review-scope.test.ts:220; test/review-scope.test.ts:350; test/review-scope.test.ts:369; test/review-scope.test.ts:384; test/review-slice-edge.test.ts:43; test/review-slice-edge.test.ts:106",
           "suggestedChange": null
         },
         {
           "invariant": "review-dependency-relevant",
           "assessment": "adequate",
-          "reason": "CLI mutations change used constants, transitive helpers, aliases, defaults, shared selections and imported setup, then assert the precise stale material. TS5.9/6 engine cases additionally assert changed fingerprints for module control flow, computed class names, mocks, eager registration helpers, synchronous callback arguments and suite initialization.",
-          "evidence": "test/review-scope.test.ts:127; test/review-scope.test.ts:156; test/review-scope.test.ts:177; test/review-scope.test.ts:220; test/review-scope.test.ts:234; test/review-scope.test.ts:288; test/review-slice-edge.test.ts:24; test/review-slice-edge.test.ts:58; test/review-slice-edge.test.ts:90; test/review-slice-edge.test.ts:116; test/review-slice-edge.test.ts:143",
+          "reason": "CLI mutation tests change selected constants and transitive helpers and require stale reviews. New TS5/6 tests independently assert complete selected DAG declarations, exact setup dependency text, shared helper imports and separate relative-import targets; cached work therefore cannot silently omit relevant declarations.",
+          "evidence": "test/review-scope.test.ts:127; test/review-scope.test.ts:156; test/review-scope.test.ts:177; test/review-performance.test.ts:63; test/review-performance.test.ts:93; test/review-performance.test.ts:110; test/review-performance.test.ts:151",
           "suggestedChange": null
         },
         {
           "invariant": "review-dependency-isolated",
           "assessment": "adequate",
-          "reason": "CLI tests edit unselected dependency declarations and shadowed imported names, asserting unchanged fingerprints and current recorded reviews. TS5.9/6 cases independently preserve fingerprints when unrelated dependency declarations or nested test callback bodies change, while eager initialization helpers remain selected.",
-          "evidence": "test/review-scope.test.ts:127; test/review-scope.test.ts:156; test/review-scope.test.ts:234; test/review-scope.test.ts:288; test/review-slice-edge.test.ts:24; test/review-slice-edge.test.ts:58; test/review-slice-edge.test.ts:90; test/review-slice-edge.test.ts:116",
+          "reason": "CLI and compiler-matrix mutations assert unselected declarations leave fingerprints/current records unchanged. Distinct-root performance scenarios assert private imports never leak between roots, shared helper connections remain present, reversed root ordering produces the corresponding reversed slices, and per-file resolution keeps same-spelled relative imports separate.",
+          "evidence": "test/review-scope.test.ts:127; test/review-scope.test.ts:156; test/review-scope.test.ts:234; test/review-scope.test.ts:288; test/review-performance.test.ts:93; test/review-performance.test.ts:110; test/review-performance.test.ts:151",
           "suggestedChange": null
         },
         {
           "invariant": "review-dependency-fallback",
           "assessment": "adequate",
-          "reason": "CLI tests introduce initialization effects and then edit unrelated declarations, requiring stale reviews of whole dependency files. The compiler matrix asserts whole-file fallback for unsupported syntax, cycles, opaque imports, namespace/CommonJS demands and eval; effectful root import/re-export connections cannot be silently retargeted.",
-          "evidence": "test/review-scope.test.ts:192; test/review-scope.test.ts:204; test/review-scope.test.ts:288; test/review-slice-edge.test.ts:43; test/review-slice-edge.test.ts:106",
+          "reason": "Tests add initialization effects and then mutate unrelated content, requiring whole-file stale reviews. TS5/6 boundary cases cover opaque imports, unsupported syntax, dynamic lexical access and cycles; the new memoization regression explicitly asserts whole fallback for local-constant and imported-module cycles.",
+          "evidence": "test/review-scope.test.ts:192; test/review-scope.test.ts:204; test/review-scope.test.ts:288; test/review-performance.test.ts:63",
           "suggestedChange": null
         },
         {
           "invariant": "accept",
           "assessment": "adequate",
-          "reason": "The tests inspect acceptance records and material digests, separate accepted counts from attested reviews, and assert accepted packet statuses without verdict findings. Mutations make acceptances outdated, and subsequent acceptance requests explicitly retain, renew or replace records according to names and --all.",
+          "reason": "Acceptance scenarios inspect real records, require acceptance flags without findings, and independently assert accepted counts separate from reviewed counts. Mutation makes only affected acceptances outdated; named/all renewal and retention of current verdicts are explicitly checked.",
           "evidence": "test/accept.test.ts:39; test/accept.test.ts:99",
           "suggestedChange": null
         },
         {
           "invariant": "gate",
           "assessment": "adequate",
-          "reason": "The gate tests assert errors and missing/stale reviews block, weak findings block only when required, and a clean check passes silently. Mixed-warning scenarios exclude all nonblocking codes from both blocked and released feedback; session counters release after three blocks and reset after a pass.",
+          "reason": "Gate scenarios assert errors and missing/stale records block, weak findings block only when required, and clean checks pass silently. Mixed diagnostics assert warnings remain absent from both blocked and released feedback, while session tests observe release after three blocks and reset after success.",
           "evidence": "test/gate.test.ts:27; test/gate.test.ts:76; test/gate.test.ts:113; test/gate.test.ts:157",
           "suggestedChange": null
         },
         {
           "invariant": "locks",
           "assessment": "adequate",
-          "reason": "Linked tests assert recording both final and extendable declarations, unchanged repeated records, rejected final mutations, and allowed extendable growth followed by rejected changes/removals to recorded members. Base-revision checks independently reject a lock removed from the current lock file.",
-          "evidence": "test/lock-base.test.ts:77; test/locks.test.ts:60; test/locks.test.ts:102; test/locks.test.ts:133",
+          "reason": "Lock tests inspect recorded final/extendable entries and unchanged repeated writes, reject final signature/member changes, allow extendable additions, and reject later changes/removals. A real Git base comparison detects a removed lock even when the current local check passes.",
+          "evidence": "test/locks.test.ts:60; test/locks.test.ts:102; test/locks.test.ts:133; test/lock-base.test.ts:77",
           "suggestedChange": null
         },
         {
           "invariant": "codes",
           "assessment": "adequate",
-          "reason": "The CLI test asserts codes output equals the formatter, has exactly one code-prefixed line per legend entry, includes meaning/action text and accepts global options while rejecting unsupported options. The Codes legend test separately verifies formatter content against every emitted code.",
+          "reason": "CLI assertions require one code-prefixed output line per legend entry, exact formatter output, meaning/action text and refusal of unsupported options. The separately linked Codes contract verifies emitted-code completeness and exact per-line content.",
           "evidence": "test/codes.test.ts:45",
           "suggestedChange": null
         },
         {
           "invariant": "init-safe",
           "assessment": "adequate",
-          "reason": "Linked tests assert existing configuration, settings, instructions and a person-edited skill are preserved or extended without replacement, and other hooks remain beside the new gate. Generated hooks run with paths containing substitutions, pass exact argument data, create no marker files and retain valid TOML.",
-          "evidence": "test/init-safety.test.ts:46; test/init-safety.test.ts:81; test/init.test.ts:43; test/init.test.ts:91",
+          "reason": "Init tests preserve existing configuration, edited skills, settings and prose, append the real gate beside misleading hooks, and verify idempotence. Generated hooks are executed with special-character paths; exact arguments, valid TOML and absence of injection markers are asserted.",
+          "evidence": "test/init.test.ts:43; test/init.test.ts:91; test/init-safety.test.ts:46; test/init-safety.test.ts:81",
           "suggestedChange": null
         }
       ]
@@ -242,7 +246,7 @@
         {
           "invariant": "legend",
           "assessment": "adequate",
-          "reason": "The linked test independently enumerates emitted source codes and compares both directions against CODES and the reference table. It now directly asserts exactly one output line for every emitted code with that code's complete meaning and action, so a missing, duplicated or wrongly formatted legend entry fails this contract's test.",
+          "reason": "The test independently scans emitted source codes and asserts membership in both directions against the legend and reference. It asserts output cardinality and exactly one line containing each code's complete meaning and action, catching omissions, duplicates and formatting errors.",
           "evidence": "test/codes.test.ts:25",
           "suggestedChange": null
         }
@@ -282,14 +286,14 @@
         {
           "invariant": "defaults",
           "assessment": "adequate",
-          "reason": "The tests assert default configuration without a file, custom field replacement with omitted defaults retained, and a depth-only dependency configuration preserving the default file limit and exclusions. These exercise the actual loader without a mocked return value.",
+          "reason": "Loader tests inspect actual returned configuration with no file, omitted fields, explicit replacement and a depth-only reviewDependencies object. The latter must preserve default file-count and exclusion fields, exercising the field-by-field merge directly.",
           "evidence": "test/config.test.ts:11; test/config.test.ts:18",
           "suggestedChange": null
         },
         {
           "invariant": "fields",
           "assessment": "adequate",
-          "reason": "The linked test asserts E_CONFIG and the expected problem message for invalid JSON, non-object input, missing/wrong version, invalid types and unknown fields. It now asserts defaultConfig for every invalid case, including valid custom fields mixed with an unknown field, so half-application cannot pass.",
+          "reason": "Every malformed configuration case must return defaultConfig and E_CONFIG at the expected file, with separate expected messages for each invalid field. Cases include invalid JSON, wrong shape/version/types, unknown fields and valid custom fields mixed with an unknown field to catch partial application.",
           "evidence": "test/config.test.ts:43",
           "suggestedChange": null
         }

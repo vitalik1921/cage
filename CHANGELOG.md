@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.5.1
+
+- Fix slow `check` and `gate` review fingerprinting: reuse module setup analysis, import resolution, symbol lookups and reference traversals within each contract. Memoize shared constant initializer proofs to prevent exponential work. Fingerprint selection and dependency bounds remain unchanged.
+
 ## 0.5.0
 
 - Review fingerprints select imported declarations and their helpers in modules with conservatively verified inert initialization. Unrelated declarations no longer stale a review in those modules; uncertain cases retain whole-file tracking. Classes, dependency limits and gate filtering are unchanged.

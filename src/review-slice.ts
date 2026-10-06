@@ -53,9 +53,13 @@ export function dependencySlices(
     while (node.parent && !ts.isSourceFile(node.parent)) node = node.parent;
     return node.parent && ts.isSourceFile(node.parent) ? node as ts.Statement : undefined;
   };
+  const targets = new Map<ts.ImportDeclaration | ts.ExportDeclaration, string | undefined>();
   const target = (statement: ts.ImportDeclaration | ts.ExportDeclaration): string | undefined => {
-    const specifier = statement.moduleSpecifier;
-    return specifier && ts.isStringLiteral(specifier) ? resolve(specifier.text, statement.getSourceFile().fileName) : undefined;
+    if (!targets.has(statement)) {
+      const specifier = statement.moduleSpecifier;
+      targets.set(statement, specifier && ts.isStringLiteral(specifier) ? resolve(specifier.text, statement.getSourceFile().fileName) : undefined);
+    }
+    return targets.get(statement);
   };
   const typeImport = (statement: ts.ImportDeclaration): boolean => {
     const clause = statement.importClause;
@@ -71,7 +75,11 @@ export function dependencySlices(
     if (ts.isNamespaceImport(declaration)) return { file: target(statement), name: undefined, statement };
     return undefined;
   };
-  const symbolAt = (node: ts.Identifier): ts.Symbol | undefined => ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node ? checker.getShorthandAssignmentValueSymbol(node.parent) : checker.getSymbolAtLocation(node);
+  const symbols = new Map<ts.Identifier, ts.Symbol | undefined>();
+  const symbolAt = (node: ts.Identifier): ts.Symbol | undefined => {
+    if (!symbols.has(node)) symbols.set(node, ts.isShorthandPropertyAssignment(node.parent) && node.parent.name === node ? checker.getShorthandAssignmentValueSymbol(node.parent) : checker.getSymbolAtLocation(node));
+    return symbols.get(node);
+  };
   const exported = (file: string, name: string, visiting = new Set<string>()): ts.Statement[] | undefined => {
     const key = `${file}\0${name}`;
     if (visiting.has(key)) return undefined;
@@ -106,6 +114,7 @@ export function dependencySlices(
   // Proof results include transitive initialization. A cycle or a boundary fails closed.
   const proof = new Map<string, boolean>();
   const proving = new Set<string>();
+  const expressions = new Map<ts.Expression, boolean>();
   const inert = (file: string): boolean => {
     const known = proof.get(file);
     if (known !== undefined) return known;
@@ -114,6 +123,15 @@ export function dependencySlices(
     proving.add(file);
     const constants = new Set<ts.Node>();
     const expression = (node: ts.Expression): boolean => {
+      const known = expressions.get(node);
+      if (known !== undefined) return known;
+      const safe = evaluate(node);
+      expressions.set(node, safe);
+      return safe;
+    };
+    // A shared initializer is a graph, not a tree. Cache completed expression proofs across
+    // the snapshots, while the active constant/module sets still reject recursive cycles.
+    const evaluate = (node: ts.Expression): boolean => {
       if (ts.isStringLiteral(node) || ts.isNumericLiteral(node) || ts.isBigIntLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || [ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.NullKeyword].includes(node.kind)) return true;
       if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) return true;
       if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isTypeAssertionExpression(node) || ts.isSatisfiesExpression(node)) return expression(node.expression);
@@ -184,7 +202,14 @@ export function dependencySlices(
     if (!declarations) makeWhole(file);
     else for (const declaration of declarations) select(declaration);
   };
+  const referenceStatements = new Map<ts.Node, ReadonlySet<ts.Statement>>();
   const references = (node: ts.Node, include: (node: ts.Statement) => void): void => {
+    const known = referenceStatements.get(node);
+    if (known) {
+      for (const statement of known) include(statement);
+      return;
+    }
+    const statements = new Set<ts.Statement>();
     const visit = (child: ts.Node): void => {
       if (ts.isImportDeclaration(child)) return;
       if (ts.isWithStatement(child) || (ts.isIdentifier(child) && (child.text === "eval" || child.text === "Function"))) {
@@ -201,19 +226,28 @@ export function dependencySlices(
         for (const declaration of symbol?.declarations ?? []) {
           const binding = imported(declaration);
           if (binding) {
-            include(binding.statement);
+            statements.add(binding.statement);
             demand(binding.file, binding.name);
           } else {
             const statement = top(declaration);
-            if (statement && !ts.isImportDeclaration(statement) && statement.getSourceFile() === node.getSourceFile()) include(statement);
+            if (statement && !ts.isImportDeclaration(statement) && statement.getSourceFile() === node.getSourceFile()) statements.add(statement);
           }
         }
       }
       ts.forEachChild(child, visit);
     };
     visit(node);
+    // Dependency selections only grow during this call. Reusing a traversal needs to
+    // replay its local connections, while its dependency demands have already applied.
+    referenceStatements.set(node, statements);
+    for (const statement of statements) include(statement);
   };
-  const rootSlices = roots.map(({ nodes }) => {
+  // Initialization belongs to the file, not to each implementation/test selected from it.
+  // Its dependency demands are monotonic within this collection; apply them once and reuse
+  // the connecting imports without letting a root's own imports leak into its neighbours.
+  const setupBySource = new Map<ts.SourceFile, ReadonlySet<ts.Statement>>();
+  const moduleSetup = (source: ts.SourceFile | undefined): ReadonlySet<ts.Statement> => {
+    if (source && setupBySource.has(source)) return setupBySource.get(source)!;
     const extra = new Set<ts.Statement>();
     const setupVisited = new Set<ts.Node>();
     const includeSetup = (statement: ts.Node): void => {
@@ -304,7 +338,6 @@ export function dependencySlices(
         includeSetup(node);
       } else ts.forEachChild(node, eagerRegistration);
     };
-    const source = nodes[0]?.getSourceFile();
     if (source) {
       if (program.getSyntacticDiagnostics(source).length > 0) for (const file of dependencies) makeWhole(file);
       for (const statement of source.statements) {
@@ -346,6 +379,11 @@ export function dependencySlices(
         }
       }
     }
+    if (source) setupBySource.set(source, extra);
+    return extra;
+  };
+  const rootSlices = roots.map(({ nodes }) => {
+    const extra = new Set(moduleSetup(nodes[0]?.getSourceFile()));
     for (const node of nodes) references(node, (statement) => {
       // Existing materialAt owns the local declaration/setup selection. Only connecting imports
       // are added here; walking a containing suite would accidentally include its unrelated tests.
