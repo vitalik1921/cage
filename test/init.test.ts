@@ -38,6 +38,8 @@ const CODEX_BLOCK = [
   "",
 ].join("\n");
 
+/** @tests Cli
+ * @covers init-safe */
 test("init writes the configuration with the detected runner and the Claude Code gate, once", (t) => {
   const root = repository(t);
   const first = init(root, "--agent", "claude");

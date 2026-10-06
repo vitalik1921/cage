@@ -44,6 +44,7 @@ test("an invalid configuration is reported field by field", (t) => {
   const root = copyFixture(t, "vertical");
   const check = (content: string) => {
     writeFile(root, ".cage/config.json", content);
+    assert.deepEqual(loadConfig(root).config, defaultConfig, "an invalid file must not apply any supplied fields");
     return problems(root).map(({ code, file, message }) => {
       assert.equal(code, "E_CONFIG");
       assert.equal(file, ".cage/config.json");
@@ -64,4 +65,5 @@ test("an invalid configuration is reported field by field", (t) => {
     '"exclude" must be an array of non-empty strings',
   ]);
   assert.deepEqual(check('{ "version": 1, "output": "generated", "toString": 1 }'), ['unknown field "output"', 'unknown field "toString"']);
+  assert.deepEqual(check('{ "version": 1, "tsconfig": "custom.json", "exclude": ["custom/**"], "output": "generated" }'), ['unknown field "output"']);
 });

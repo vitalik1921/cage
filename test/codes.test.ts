@@ -31,6 +31,13 @@ test("every code the source emits is in the legend, and the legend in the refere
   for (const [code, { means, then }] of Object.entries(CODES)) {
     assert.ok(reference.includes(`| \`${code}\` | ${means.replaceAll("|", "\\|")} | ${then.replaceAll("|", "\\|")} |`), `${code} is not in the reference's table as CODES has it`);
   }
+  const output = formatCodes().trimEnd().split("\n");
+  assert.equal(output.length, emitted.size);
+  for (const [code, { means, then }] of Object.entries(CODES)) {
+    const matching = output.filter((line) => line.trimStart().startsWith(`${code} `));
+    assert.equal(matching.length, 1, `${code} must occur exactly once`);
+    assert.equal(matching[0].trimStart().replace(/^\S+\s+/, ""), `${means}. Then: ${then}.`, code);
+  }
 });
 
 /** @tests Cli

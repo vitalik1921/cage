@@ -128,6 +128,8 @@ test("a @final declaration must not change: not a signature, not a member more o
   assert.equal(readFile(root, LOCK_FILE), recorded);
 });
 
+/** @tests Cli
+ * @covers locks */
 test("an @extendable declaration may grow, and what it has must stay", (t) => {
   const root = project(t);
   lock(root);

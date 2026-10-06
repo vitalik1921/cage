@@ -282,7 +282,7 @@ function fullCheck(root: string, ...args: string[]): { code: number; report: Che
 const linked = (report: CheckReport) => Object.fromEntries((report.invariants ?? []).map(({ contract, id, linkedTestCount }) => [`${contract}: ${id}`, linkedTestCount]));
 
 /** @tests Cli
- * @covers diagnostic-line */
+ * @covers diagnostic-line exit-codes */
 test("check reports the whole plan fixture: 3 implementations, 8 linked invariants", (t) => {
   const root = copyFixture(t, "vertical");
   const before = snapshot(root);
