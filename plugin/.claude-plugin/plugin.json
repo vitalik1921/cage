@@ -1,6 +1,6 @@
 {
   "name": "cage",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "A gate for agent-written code: designs as contracts next to the code, checked against implementations, tests and a recorded review before the agent may stop.",
   "author": {
     "name": "vitalik1921",
