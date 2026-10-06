@@ -121,7 +121,7 @@ export interface LoadedConfig {
  * @description The command line of the harness: runs one command for the given arguments and environment and returns the exit code. Reports go to stdout, usage errors and the gate's feedback to stderr.
  * @invariant exit-codes The exit code is 2 for a usage, configuration or environment problem, 1 when a rule is violated, 0 otherwise; warnings never change it.
  * @invariant diagnostic-line A diagnostic is printed as `CODE: what (file:line:column)` with its details on indented lines below; no line says what the code means or what to do.
- * @invariant check-limit `check` and `gate` print at most `maxDiagnostics` diagnostics, the ones that matter most, and count the rest by code; the exit code and the summary count every one.
+ * @invariant check-limit `check` and `gate` print at most `maxDiagnostics` diagnostics, the ones that matter most, and count the rest by code; `check` counts every diagnostic and `gate` every blocking diagnostic, including in the summary.
  * @invariant review-index `review` without names prints an index: the contracts without a record of their material as it is now, what changed since the recorded review and which invariants that touches; `--all` lists every contract with its status.
  * @invariant review-packet `review <Name>` carries the lines of the parts that changed since the recorded review and the previous finding of each invariant, or every file when there is no review to compare with; `--files all` includes every file whole and `--files none` the references only.
  * @invariant review-touched Where the record cannot tell what a change touches — no part differs by its digest, a previous finding rests on a changed test, an invariant lost its coverage, or anything but a test changed — every invariant is touched.
@@ -129,7 +129,7 @@ export interface LoadedConfig {
  * @invariant record-refuses `review --record` refuses a verdict for other material, for an unknown contract or invariant, with an invariant left unassessed, or with a finding without a reason or evidence, and then records nothing.
  * @invariant review-stale A change to a contract, the prose of its module, an implementation, a linked test, its setup, or a local file they import makes the recorded review outdated, and `check` names the changed parts.
  * @invariant accept `review --accept` records the material of every contract without a fresh record as accepted without a review; `check` asks for no review until it changes and counts acceptances apart from attested ones.
- * @invariant gate `gate` exits 2 on an error or a missing or outdated review and 0 otherwise, whatever the review level; after three blocks in one session it lets the agent stop with the report.
+ * @invariant gate `gate` exits 2 on an error or a missing or outdated review and 0 otherwise, whatever the review level; its feedback contains only blocking diagnostics, including after three blocks in one session when it lets the agent stop with the report.
  * @invariant locks `lock` records the declarations marked `@final` or `@extendable`; `check` reports a change to a recorded declaration, and `--base` refuses a lock that the base revision has and the lock file no longer does.
  * @invariant codes `codes` prints one line per diagnostic code the harness can emit, with what it means and what to do about it.
  * @invariant init-safe `init` never overwrites a file a person wrote, adds its gate beside other hooks, and passes every path to a hook as data.

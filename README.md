@@ -232,7 +232,7 @@ Run `npx cage check`. It reports, with file and line, every contract with no imp
 ## The loop with an agent
 
 1. The agent changes the spec, the code or a test. When it says it is done, the Stop hook runs `cage gate`.
-2. Whatever is out of sync comes back to the agent: a rule with no test, code that does not fit, an outdated review. After three returns in a session the gate lets the agent stop and leaves the report, so that a check it cannot fix does not hold the session forever.
+2. Only diagnostics that block the stop come back to the agent: a rule with no test, code that does not fit, an outdated review. Other warnings remain in `cage check`. After three returns in a session the gate lets the agent stop and leaves the report of blockers, so that a check it cannot fix does not hold the session forever.
 3. For a review: the agent runs `cage review` for the list, then `cage review <Name>` for one contract, judges the rules the change touches afresh and confirms or revises the previous verdict on the others, and records the verdict with `cage review --record`. Cage checks that the verdict is complete and is for the material as it is now; the judgement itself is the reviewer's, which may be the same agent. The verdict is tied to a fingerprint of the contract, the prose of its module's spec, its implementations and the tests linked to it — each with the code of its own file it calls and its suite's setup — and the local files they import, followed a few levels deep (`reviewDependencies`). Change any of those and the review is outdated; change something else and it is not. Where the bounds stop, Cage says so instead of staying silent.
 4. `cage check` is clean; the agent stops.
 

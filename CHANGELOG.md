@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.4.2
+
+- `gate` shows only diagnostics that block the stop. Other warnings, including `W_REVIEW_SCOPE_LIMIT`, remain in `check`; the gate's diagnostic limit, omitted counts and error/warning totals cover only blockers, including when it lets the agent stop after three attempts.
+
+## 0.4.1
+
 - Cage checks itself: `src/cage.cage.mdx` with the command line, the configuration loader and the legend of codes as contracts and the README's rules as invariants, linked to the harness's own tests and reviewed; CI runs `cage check` on the repository with the published package.
 - The rules for the agent no longer say that a packet ends with the reviewer's instruction: it ends with the verdict template, and the instruction is the `cage-review` skill's.
 

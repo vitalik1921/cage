@@ -91,7 +91,7 @@ test("check shows at most maxDiagnostics, the ones that matter most, in the orde
 
 /** @tests Cli
  * @covers check-limit */
-test("the gate's feedback is limited the same way, while what blocks is counted over everything", (t) => {
+test("the gate limits only blocking diagnostics and counts every blocker", (t) => {
   const root = noisyProject(t);
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, maxDiagnostics: 2 }));
   const gate = (...args: string[]) => cliWithStdin(root, JSON.stringify({ session_id: "max-diagnostics-test" }), "gate", ...args);
@@ -99,12 +99,19 @@ test("the gate's feedback is limited the same way, while what blocks is counted 
   assert.equal(blocked.code, 2);
   assert.equal(blocked.stderr.split("\n").filter((line) => /^E_[A-Z_]+: /.test(line)).length, 2);
   // Codes by count, equal counts by name.
-  assert.match(blocked.stderr, /^19 more not shown \(6 E_IMPLEMENTATION_MISSING, 6 W_REVIEW_MISSING, 4 E_TEST_MISSING, 3 W_NO_INVARIANTS\); --max-diagnostics all shows every one$/m);
+  assert.match(blocked.stderr, /^16 more not shown \(6 E_IMPLEMENTATION_MISSING, 6 W_REVIEW_MISSING, 4 E_TEST_MISSING\); --max-diagnostics all shows every one$/m);
+  assert.doesNotMatch(blocked.stderr, /W_NO_INVARIANTS/);
+  assert.match(blocked.stderr, /; 12 errors, 6 warnings\. TypeScript/);
   assert.match(blocked.stderr, /`cage check` is not clean \(18 blocking\)\./);
   const whole = gate("--max-diagnostics", "all");
   assert.equal(whole.code, 2);
   assert.doesNotMatch(whole.stderr, /more not shown/);
-  assert.equal(whole.stderr.split("\n").filter((line) => /^[EW]_[A-Z_]+: /.test(line)).length, 21);
+  assert.equal(whole.stderr.split("\n").filter((line) => /^[EW]_[A-Z_]+: /.test(line)).length, 18);
+  assert.doesNotMatch(whole.stderr, /W_NO_INVARIANTS/);
+  const none = gate("--max-diagnostics", "0");
+  assert.equal(none.code, 2);
+  assert.match(none.stderr, /^18 more not shown \(6 E_IMPLEMENTATION_MISSING, 6 E_TEST_MISSING, 6 W_REVIEW_MISSING\); --max-diagnostics all shows every one$/m);
+  assert.doesNotMatch(none.stderr, /W_NO_INVARIANTS/);
 });
 
 test("--max-diagnostics and maxDiagnostics take a whole number or all, for check and gate only", (t) => {

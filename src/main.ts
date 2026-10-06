@@ -47,7 +47,7 @@ Commands:
                         until it changes, and counts them apart from reviewed ones. Without names, every contract in need of a review;
                         --all for every contract, replacing recorded verdicts too
   gate                  Stop hook for an agent's environment: the full check; errors and review findings block (exit 2,
-                        report and guidance on stderr); after 3 blocks in one session the agent may stop. Reads the hook's JSON on stdin
+                        only blocking diagnostics and guidance on stderr); after 3 blocks in one session the agent may stop. Reads the hook's JSON on stdin
   codes                 What every diagnostic code means and what to do about it; a diagnostic line itself names only the thing and the place
 
 Options:

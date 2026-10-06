@@ -39,7 +39,7 @@ export interface HookInput {
 export interface GateResult {
   /** 0: the agent may stop; 2: it may not, and `feedback` says why. */
   exitCode: 0 | 2;
-  /** For stderr: the check's report and what to do, or why a failing check lets the agent go. */
+  /** For stderr: blocking diagnostics and what to do, or why a failing check lets the agent go. */
   feedback: string;
 }
 
@@ -51,11 +51,11 @@ export interface GateResult {
  * does not cover likewise blocks only under `"coverage": "require"`). A
  * project without any design yet passes, since there is nothing to hold the
  * agent to;
- * the report and the way out go to the agent as feedback. A check that
+ * only blocking diagnostics and the way out go to the agent as feedback. A check that
  * still fails after `MAX_BLOCKS` blocks in one session lets the agent stop,
  * with the report: a check the agent cannot fix must not hold the session
  * forever. Blocks are counted in a file of the temporary directory. The
- * feedback shows at most `maxDiagnostics`, the ones that matter most, so
+ * feedback shows at most `maxDiagnostics` blocking diagnostics, the ones that matter most, so
  * that a long report does not drown the agent; what blocks is counted
  * over all of them.
  */
@@ -79,7 +79,7 @@ export function runGate(options: ImplementationPhaseOptions, checkOptions: Check
     return { exitCode: 0, feedback: "cage gate: no *.cage.mdx design yet, nothing to check.\n" };
   }
 
-  const text = formatCheckReport(limitCheckReport(report, maxDiagnostics));
+  const text = formatCheckReport(limitCheckReport({ ...report, diagnostics: blocking }, maxDiagnostics));
   let blocks = 0;
   try {
     blocks = Number(fs.readFileSync(counter, "utf8")) || 0;

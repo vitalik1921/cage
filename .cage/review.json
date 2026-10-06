@@ -4,11 +4,11 @@
     {
       "module": "src",
       "contract": "Cli",
-      "fingerprint": "sha256:6faa270d3537f20d5a1a56cf06bcbdd0755223fefc91b5e59907a58bdd01feb6",
+      "fingerprint": "sha256:1d6fb468d1d91af0ba35da3f5ead27f3265179f9f93d39ee7855ca904006a9c9",
       "material": {
-        "contract": "sha256:bd6984ba22cfa93368002762acd4320860b1ad0585d8a86b4feb828209e71a28",
+        "contract": "sha256:393d108099495e954e756981810c930f93836375f900ce19161d6e2e482bbc47",
         "design src/cage.cage.mdx": "sha256:ada2e9323c59cee624ce11610d68416a1d0d93b6d1449e567d727b45b9f90824",
-        "implementation src/main.ts#runCli": "sha256:bb41564f08b445f6d65e876af41be4639edefb6c1056c42e1e5152bfc86408f1",
+        "implementation src/main.ts#runCli": "sha256:6125859ff4a4306591a75b7a23f416c0942ff0c239cc8d5ee7c2901406e3f7ce",
         "test test/accept.test.ts:review --accept records every contract in need of a review as accepted without a verdict, and check asks for none": "sha256:3f615724b19dbfb814535b5c8cf529ae1800c8364718c5493376092997bdd246",
         "test test/accept.test.ts:a change makes an acceptance outdated like a review; --accept without names renews only those, and keeps a verdict": "sha256:94dac16e5fdd0a75632be73eca5c7056ae5309e9b1bdfc49c1148dae56ef4e51",
         "test test/check.test.ts:errors are exit 1 and warnings exit 0; a diagnostic names its contract and invariant": "sha256:3347a48a817119fa6b23fa57cf1586929522e46f7c124d3bfc4f95a3af6e42be",
@@ -16,6 +16,7 @@
         "test test/check.test.ts:check reports the whole plan fixture: 3 implementations, 8 linked invariants": "sha256:70d35d2e66b7ae158bffcf0dcc745b6d128e18fe91d1cbca075b2d0ceba37e74",
         "test test/cli.test.ts:invalid arguments exit 2 with a message on stderr and nothing on stdout": "sha256:8de680dceb3e195ede6fc5610c5f6005fda09bce2d60d816c7dd2fa416d861ae",
         "test test/codes.test.ts:cage codes prints one line per code, what it means and what to do, and takes no options": "sha256:f58ace5c49fc90d0f0043c8cc45a634f8f6474abdf1c04cb5d08a642fca0c802",
+        "test test/gate.test.ts:gate feedback contains only blockers, even with scope, coverage and weak-review warnings": "sha256:daf0791c0b5d19ddd7110852bd1aa43d3d340c9cfc61bb03e8de9a3db8e8ff1b",
         "test test/gate.test.ts:the gate blocks on errors and on missing reviews, whatever the review level, and passes a clean check": "sha256:43f8e31a01a8ffa1a5a2c4fdda46e726a954b47662434121272f4b1d8fc5c726",
         "test test/gate.test.ts:a weak finding blocks the gate only where reviews are required; a missing or stale review blocks at any level": "sha256:12eefc2969c97c0769b6cfebc3326913efac063bc9e5ad10362cfb320f10e398",
         "test test/gate.test.ts:after MAX_BLOCKS blocks in one session the gate lets the agent stop, with the report; a pass resets the count": "sha256:4badef1f386f76c910fd52b2cf9d403ecd26638ee335810d03141fb4eddd563d",
@@ -26,7 +27,7 @@
         "test test/locks.test.ts:a marked declaration must be recorded; `cage lock` records it and changes nothing afterwards": "sha256:57f9a7d347cf5a72d39920c8801cc90a81a0c141816461302cf10d754823f6fa",
         "test test/locks.test.ts:a @final declaration must not change: not a signature, not a member more or less": "sha256:1ce5b90a3fdec03ea73d0b2f605481cafda56f08b722cd3a8d2533c5555740b2",
         "test test/max-diagnostics.test.ts:check shows at most maxDiagnostics, the ones that matter most, in the order of the report, and counts the rest by code": "sha256:0eb51b48a957ea1b620adbefe34c94b569bae94795e24cd118ca5d420a6e54af",
-        "test test/max-diagnostics.test.ts:the gate's feedback is limited the same way, while what blocks is counted over everything": "sha256:9f1453f86ad63f036554c5523a561c0c025d2058fddb0b52842960ea455ae776",
+        "test test/max-diagnostics.test.ts:the gate limits only blocking diagnostics and counts every blocker": "sha256:75238f32f909f686fa84cc13a6a7ce42415fa2189e2bba18fbd4a3f2d9dc7502",
         "test test/review-boundaries.test.ts:a finding without a reason, or without evidence where its assessment needs some, is refused with the whole verdict": "sha256:1e1c67ae3dca53c34c51d5576a83262d39318cff791e619b59a3f76b25e65f96",
         "test test/review-index.test.ts:without names review is an index: which contracts need a review, what changed and which invariants it touches": "sha256:72a93f3bc06e8364ee2c753a8af1e3ccb21ca3fb2c6c0d289c5215b9fdc4a782",
         "test test/review-index.test.ts:a named packet carries the changed lines of an outdated review with the previous findings; --files all and none change what comes along": "sha256:929007b0a76eeeb16689522b675d8be241ba61df0cbe6d25e1dc04f693579ca1",
@@ -43,7 +44,7 @@
         "dependency src/config.ts": "sha256:a45aa37cc39b437676f990180dc62052832a4ade047578cb67684a7498bd94d6",
         "dependency src/diagnostic.ts": "sha256:0035878f6eb70a82a842c722b69d98da2f9b214f7d8c4321e1b6fed198cc31df",
         "dependency src/discovery.ts": "sha256:25943573526770b652c6fc6e56ff7ab7196fa3d3e07991fd0c6351593d92f6c7",
-        "dependency src/gate.ts": "sha256:08af6dafbb6e76d158857ceff62d9667bb9aacda002d9a780ffa119d92af42c3",
+        "dependency src/gate.ts": "sha256:749e8ba216bb6c969c046c4ac3f0172005c9b273f1cc4e03fe0dc0cfa155b0fb",
         "dependency src/init.ts": "sha256:2378166e06cc4e2eb94f4effbcdc041bb8729014be5c3908a8906ee86a036106",
         "dependency src/lock-command.ts": "sha256:3d0e1fb4667ee3bd35744849c93854406e8c4bbb8d7b161f001c6227081f0e27",
         "dependency src/report.ts": "sha256:1d88e155b1a60a84255930115b87cb4d24fa1cdf6dddaefb8f1a8140c2032d69",
@@ -86,7 +87,7 @@
         {
           "invariant": "check-limit",
           "assessment": "adequate",
-          "reason": "The tests assert the shown lines, their rank and order against an independent ranking, the counts by code, the summary over everything, the exit code of the full report, and the gate counting what blocks over everything.",
+          "reason": "The check tests independently rank the shown diagnostics and assert full counts and exit status. The gate test asserts limits of two, all and zero over the 18 blockers only, excludes nonblocking warning codes from omitted counts, and asserts the summary totals of 12 errors and 6 blocking warnings.",
           "evidence": "test/max-diagnostics.test.ts:28; test/max-diagnostics.test.ts:94",
           "suggestedChange": null
         },
@@ -142,8 +143,8 @@
         {
           "invariant": "gate",
           "assessment": "adequate",
-          "reason": "The tests assert 2 on a missing review at any level, on a stale review, on an error and on a weak finding under require; 0 with reviews off, after a fix, and after MAX_BLOCKS with the report; and the count reset.",
-          "evidence": "test/gate.test.ts:27; test/gate.test.ts:64; test/gate.test.ts:108",
+          "reason": "The tests assert blocking on errors and missing or stale reviews, weak findings only under require, counter reset and release after MAX_BLOCKS. The mixed-warning scenario asserts that scope, coverage, weak-review and no-invariant warnings remain in check but are absent from both blocked and released gate feedback; recording the remaining reviews yields a silent pass.",
+          "evidence": "test/gate.test.ts:27; test/gate.test.ts:76; test/gate.test.ts:113; test/gate.test.ts:157",
           "suggestedChange": null
         },
         {
@@ -172,7 +173,7 @@
     {
       "module": "src",
       "contract": "Codes",
-      "fingerprint": "sha256:b2c2f26518a2cc99c4bb4c9a2466bd5dd32402d552c26df19699a4cfde453883",
+      "fingerprint": "sha256:077ada7b850e922a9dd57612bd04cc56663faaee855351393ebf75b26d021984",
       "material": {
         "contract": "sha256:95d71c5d4dde2c0745b4e5a9c00167559a7fe78f496ff863de276b70a975634a",
         "design src/cage.cage.mdx": "sha256:ada2e9323c59cee624ce11610d68416a1d0d93b6d1449e567d727b45b9f90824",
@@ -184,7 +185,7 @@
         "dependency src/diagnostic.ts": "sha256:0035878f6eb70a82a842c722b69d98da2f9b214f7d8c4321e1b6fed198cc31df",
         "dependency src/discovery.ts": "sha256:25943573526770b652c6fc6e56ff7ab7196fa3d3e07991fd0c6351593d92f6c7",
         "dependency src/implementation-phase.ts": "sha256:f039339371f00518ebb10caef2a884fac44ab2f6e90e8910383af65e3345b411",
-        "dependency src/main.ts": "sha256:b91537798089acf86c1abbeaee6afa5948933be08f5c2b08ee5a734a0cf3a86d",
+        "dependency src/main.ts": "sha256:7358d1a36df3b43e902533066bfa73e27e858527c5737ab92fa74b773b489f84",
         "dependency src/design-index.ts": "sha256:19e45c5709f7f824cb42d1c2f590b12fb3970170b24a94dde9d556b8d2426fb6",
         "dependency src/extraction.ts": "sha256:304797f5ff41928fa4d85364f3ae144d720cf2179cfe5ce62ab88b290df0f447",
         "dependency src/location.ts": "sha256:5bf7111477026c949aef8c1243e46488037018ed596c52f2dadc8a4367699e3f",
@@ -211,7 +212,7 @@
     {
       "module": "src",
       "contract": "ConfigLoader",
-      "fingerprint": "sha256:5eaffade0aaece06897330cdc3c54d2739c109af41ac49d6bbd5ba288e07e7d9",
+      "fingerprint": "sha256:27944f3adc30aed2b59a0c08eaed3eb27116ecc5d5b46e231a2153ecdf2a1af7",
       "material": {
         "contract": "sha256:aa0a8126dd82f22a748ad81b423273f326e04b343ac6073e5c1b246b92e33397",
         "design src/cage.cage.mdx": "sha256:ada2e9323c59cee624ce11610d68416a1d0d93b6d1449e567d727b45b9f90824",
@@ -225,7 +226,7 @@
         "dependency src/diagnostic.ts": "sha256:0035878f6eb70a82a842c722b69d98da2f9b214f7d8c4321e1b6fed198cc31df",
         "dependency src/discovery.ts": "sha256:25943573526770b652c6fc6e56ff7ab7196fa3d3e07991fd0c6351593d92f6c7",
         "dependency src/implementation-phase.ts": "sha256:f039339371f00518ebb10caef2a884fac44ab2f6e90e8910383af65e3345b411",
-        "dependency src/main.ts": "sha256:b91537798089acf86c1abbeaee6afa5948933be08f5c2b08ee5a734a0cf3a86d",
+        "dependency src/main.ts": "sha256:7358d1a36df3b43e902533066bfa73e27e858527c5737ab92fa74b773b489f84",
         "dependency src/design-index.ts": "sha256:19e45c5709f7f824cb42d1c2f590b12fb3970170b24a94dde9d556b8d2426fb6",
         "dependency src/extraction.ts": "sha256:304797f5ff41928fa4d85364f3ae144d720cf2179cfe5ce62ab88b290df0f447",
         "dependency src/mdx.ts": "sha256:d8b2eeaad6511ed51d124e63adfe1094b28ba921dd4d553050923d1c2014fa7e",

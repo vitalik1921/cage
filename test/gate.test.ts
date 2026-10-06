@@ -24,6 +24,55 @@ const gate = (root: string, input: object | string | undefined, ...args: string[
 
 /** @tests Cli
  * @covers gate */
+test("gate feedback contains only blockers, even with scope, coverage and weak-review warnings", (t) => {
+  const root = copyFixture(t, "vertical");
+  const id = session(t);
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "warn", reviewDependencies: { maxFiles: 0 } }));
+  writeFile(root, "src/modules/quota/helper.ts", "export const seed = 1;\n");
+  editFile(root, "src/modules/quota/memory-quota.ts", (text) => `import { seed } from "./helper.ts";\nvoid seed;\n${text}`);
+  writeFile(root, "src/modules/mail/extra.ts", "export class Extra {}\n");
+  const index = JSON.parse(cli(root, "review", "--all", "--format", "json").stdout) as { contracts: { contract: string; fingerprint: string; invariants: string[] }[] };
+  const verdicts = index.contracts.map(({ contract, fingerprint, invariants }) => ({
+    contract,
+    fingerprint,
+    findings: (invariants.length === 0 ? [null] : invariants).map((invariant) => ({
+      invariant,
+      assessment: contract === "Quota" && invariant === "accounts" ? "weak" : "adequate",
+      reason: "Judged.",
+      evidence: "src/modules/quota/quota.test.ts:9",
+      suggestedChange: null,
+    })),
+  }));
+  const record = (selected: typeof verdicts) => {
+    writeFile(root, "verdicts.json", JSON.stringify({ version: 1, verdicts: selected }));
+    assert.equal(cli(root, "review", "--record", "verdicts.json").code, 0);
+  };
+  record(verdicts.filter(({ contract }) => contract === "Quota"));
+  const checked = cli(root, "check");
+  assert.equal(checked.code, 0);
+  for (const code of ["W_REVIEW_SCOPE_LIMIT", "W_REVIEW_WEAK", "W_NOT_DESIGNED", "W_NO_INVARIANTS", "W_REVIEW_MISSING"]) assert.match(checked.stdout, new RegExp(code));
+
+  const blocked = gate(root, { session_id: id });
+  assert.equal(blocked.code, 2);
+  assert.match(blocked.stderr, /W_REVIEW_MISSING/);
+  assert.match(blocked.stderr, /\(2 blocking\)/);
+  assert.doesNotMatch(blocked.stderr, /W_REVIEW_SCOPE_LIMIT|W_REVIEW_WEAK|W_NOT_DESIGNED|W_NO_INVARIANTS/);
+  for (let attempt = 1; attempt < MAX_BLOCKS; attempt++) assert.equal(gate(root, { session_id: id, stop_hook_active: true }).code, 2);
+  const released = gate(root, { session_id: id, stop_hook_active: true });
+  assert.equal(released.code, 0);
+  assert.match(released.stderr, /letting the agent stop/);
+  assert.match(released.stderr, /W_REVIEW_MISSING/);
+  assert.doesNotMatch(released.stderr, /W_REVIEW_SCOPE_LIMIT|W_REVIEW_WEAK|W_NOT_DESIGNED|W_NO_INVARIANTS/);
+
+  record(verdicts.filter(({ contract }) => contract !== "Quota"));
+  const clean = gate(root, { session_id: id });
+  assert.equal(clean.code, 0);
+  assert.equal(clean.stderr, "");
+  assert.match(cli(root, "check").stdout, /W_REVIEW_SCOPE_LIMIT/);
+});
+
+/** @tests Cli
+ * @covers gate */
 test("the gate blocks on errors and on missing reviews, whatever the review level, and passes a clean check", (t) => {
   const root = copyFixture(t, "vertical");
   const id = session(t);
