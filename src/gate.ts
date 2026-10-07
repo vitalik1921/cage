@@ -45,9 +45,8 @@ export interface GateResult {
 
 /**
  * `cage gate`: the full check as a stop-gate for an agent's environment.
- * Errors block; so does a missing or stale review, whatever the configured
- * review level, since a change needs a fresh verdict. A weak finding blocks
- * only under `"review": "require"`, where it is an error (code the design
+ * Only errors block. Missing, stale or weak reviews block
+ * only under `"review": "require"`, where they are errors (code the design
  * does not cover likewise blocks only under `"coverage": "require"`). A
  * project without any design yet passes, since there is nothing to hold the
  * agent to;
@@ -61,9 +60,7 @@ export interface GateResult {
  */
 export function runGate(options: ImplementationPhaseOptions, checkOptions: CheckOptions, input: HookInput, maxDiagnostics: number | "all" = "all"): GateResult {
   const report = runCheck(options, "implementation", checkOptions);
-  // A missing or stale review blocks at any level: a change needs a fresh second look. A weak finding is a recorded judgement;
-  // it blocks only where the project requires reviews to be adequate, and then it is an error like any other.
-  const blocking = report.diagnostics.filter((diagnostic) => isError(diagnostic) || /REVIEW_(MISSING|STALE)$/.test(diagnostic.code));
+  const blocking = report.diagnostics.filter(isError);
   const session = (input.session_id ?? "session").replace(/[^A-Za-z0-9_-]/g, "");
   // Per project too: one session may stop at several projects of a monorepo, and each counts its own blocks.
   const project = crypto.createHash("sha256").update(path.resolve(options.root)).digest("hex").slice(0, 12);
@@ -96,7 +93,7 @@ export function runGate(options: ImplementationPhaseOptions, checkOptions: Check
   }
   const guidance = [
     `\`cage check\` is not clean (${blocking.length} blocking). Fix what it reports before stopping; \`cage codes\` explains a code.`,
-    "For REVIEW_MISSING or REVIEW_STALE: `cage review` lists what needs a review and what changed; `cage review <Name>` gives one contract's material; record the verdict with `cage review --record <file>`.",
+    ...(blocking.some((diagnostic) => /^E_REVIEW_(MISSING|STALE)$/.test(diagnostic.code)) ? ["For REVIEW_MISSING or REVIEW_STALE: `cage review` lists what needs a review and what changed; group contracts sharing a changed part with `cage review NameA NameB`; record their verdicts together with `cage review --record <file>`."] : []),
     ...(blocking.some((diagnostic) => diagnostic.code === "E_REVIEW_WEAK") ? ["For E_REVIEW_WEAK: improve the test or the design as the finding suggests, then review again."] : []),
     "Never lower an assessment, drop an invariant or change .cage/config.json to pass.",
   ];

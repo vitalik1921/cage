@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import ts from "typescript";
 import ts5 from "typescript-5";
-import { dependencySlices } from "../src/review-slice.ts";
+import { dependencySlices, sliceNodes } from "../src/review-slice.ts";
 
 /** Count public Compiler API operations so regressions fail without relying on machine speed. */
 function countingCompiler(compiler: typeof ts, symbolLimit = 10000) {
@@ -57,6 +57,49 @@ function slice(compiler: typeof ts, dependencies: Record<string, string>, rootTe
 }
 
 const compilers = [ts, ts5 as unknown as typeof ts];
+
+/** @tests Cli
+ * @covers review-code-trivia review-packet */
+test("many selected declarations share file directive discovery and cached fingerprints", (t) => {
+  for (const compiler of compilers) {
+    const measure = (size: number) => {
+      let visits = 0;
+      let walks = 0;
+      const measured = new Proxy(compiler, {
+        get(target, key, receiver) {
+          if (key === "isToken") return (node: ts.Node) => { visits++; return compiler.isToken(node); };
+          if (key === "isJSDoc") return (node: ts.Node) => { walks++; return compiler.isJSDoc(node); };
+          return Reflect.get(target, key, receiver);
+        },
+      });
+      const source = compiler.createSourceFile("many.ts", [
+        "// @ts-nocheck", "const unused = 1;",
+        ...Array.from({ length: size }, (_, index) => `/** @implements Port${index} */\nexport class Impl${index} { run() { return ${index}; } }`),
+      ].join("\n"), compiler.ScriptTarget.Latest, true);
+      const nodes = source.statements.slice(1);
+      const start = performance.now();
+      const results = nodes.map((node) => sliceNodes(measured, [node]));
+      const elapsed = performance.now() - start;
+      // Comment discovery must walk the file once, even for many distinct roots.
+      assert.ok(visits <= size * 40 + 20, `repeated file walks: ${visits} for ${size} declarations`);
+      const firstVisits = visits;
+      const firstWalks = walks;
+      for (const [index, node] of nodes.entries()) {
+        assert.ok(results[index].pieces.some((piece) => piece.startLine === 1 && piece.endLine === 1));
+        assert.deepEqual(sliceNodes(measured, [node]), results[index]);
+      }
+      assert.equal(visits, firstVisits, "cached slices must not rediscover comments");
+      assert.equal(walks, firstWalks, "cached fingerprints must not walk syntax again");
+      return { elapsed, visits };
+    };
+    measure(20); // Warm the compiler before reporting timings; correctness uses operation budgets.
+    for (const size of [100, 500, 1000]) {
+      const samples = Array.from({ length: 3 }, () => measure(size));
+      const median = samples.map(({ elapsed }) => elapsed).sort((a, b) => a - b)[1];
+      t.diagnostic(`TypeScript ${compiler.version}: ${size} declarations, median ${median.toFixed(1)} ms, ${samples[0].visits} comment-discovery visits (3 fresh snapshots)`);
+    }
+  }
+});
 
 /** @tests Cli
  * @covers review-dependency-relevant review-dependency-isolated review-dependency-fallback */

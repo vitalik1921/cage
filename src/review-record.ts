@@ -215,7 +215,7 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
     }
     const material = collectMaterial(result, contract.name, read);
     diagnostics.push(...scopeDiagnostics(material, level));
-    const { fingerprint, digests } = fingerprintOf(material.parts);
+    const { fingerprint, digests } = fingerprintOf(material.parts, entry.fingerprint);
     if (fingerprint !== entry.fingerprint) {
       const changed = Object.keys(digests).filter((key) => entry.material[key] !== digests[key]);
       const removed = Object.keys(entry.material).filter((key) => !Object.hasOwn(digests, key));
@@ -489,7 +489,7 @@ export function acceptContracts(options: ImplementationPhaseOptions, names: read
     const { fingerprint, digests } = fingerprintOf(material.parts);
     const key = keyOf({ module: contract.module, contract: contract.name });
     const prior = entries.get(key);
-    const current = prior !== undefined && prior.fingerprint === fingerprint;
+    const current = prior !== undefined && prior.fingerprint === fingerprintOf(material.parts, prior.fingerprint).fingerprint;
     const kind = prior?.accepted ? "acceptance" : "verdict";
     // A fresh verdict stands unless the contract was named; a fresh acceptance is the same record and stays as it is.
     if (prior && current && (kind === "acceptance" || names === "needed")) {

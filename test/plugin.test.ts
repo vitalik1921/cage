@@ -43,7 +43,7 @@ test("without a cage project the hooks say nothing and let the agent stop", (t) 
 
 test("the gate hook runs cage gate for each project of the repository and blocks when one blocks", (t) => {
   const repository = copyFixture(t, "vertical");
-  writeFile(repository, ".cage/config.json", JSON.stringify({ version: 1 }));
+  writeFile(repository, ".cage/config.json", JSON.stringify({ version: 1, review: "require" }));
   const id = `plugin-${process.pid}-${Date.now()}`;
   t.after(() => {
     for (const name of fs.readdirSync(os.tmpdir()).filter((entry) => entry.startsWith(`cage-gate-${id}-`))) fs.rmSync(path.join(os.tmpdir(), name), { force: true });
@@ -51,11 +51,11 @@ test("the gate hook runs cage gate for each project of the repository and blocks
   const blocked = hook("gate.sh", repository, JSON.stringify({ session_id: id, stop_hook_active: false }));
   assert.equal(blocked.code, 2);
   assert.match(blocked.stderr, new RegExp(`^cage project ${repository.replaceAll("/", "\\/")}:\\n`));
-  assert.match(blocked.stderr, /^W_REVIEW_MISSING: Send \(/m);
+  assert.match(blocked.stderr, /^E_REVIEW_MISSING: Send \(/m);
   // The hook's input reached the gate: it counted a block for this session.
   assert.equal(fs.readdirSync(os.tmpdir()).filter((entry) => entry.startsWith(`cage-gate-${id}-`)).length, 1);
 
-  writeFile(repository, ".cage/config.json", JSON.stringify({ version: 1, review: "off" }));
+  writeFile(repository, ".cage/config.json", JSON.stringify({ version: 1, review: "warn" }));
   assert.deepEqual(hook("gate.sh", repository, JSON.stringify({ session_id: id })), { code: 0, stdout: "", stderr: "" });
 });
 

@@ -174,6 +174,28 @@ try {
   log("40-verdict-rules", refusals.join("\n"));
   pass("5 complete verdicts", "blank reason, null/blank evidence and an evidence-less contract note refused; review.json byte-identical; insufficient-context with null accepted");
 
+  // File pragmas outside a selected declaration must stale its review and be visible to reviewers.
+  const pragmaFile = path.join(loop, QUOTA, "memory-quota.ts");
+  const withoutPragma = fs.readFileSync(pragmaFile, "utf8");
+  const unused = "const unrelatedHeader = 1;\n";
+  fs.writeFileSync(pragmaFile, unused + withoutPragma);
+  assert.equal(recordQuota(quotaFindings()).status, 0);
+  fs.writeFileSync(pragmaFile, `// Explanation.\n${unused}${withoutPragma}`);
+  assert.equal(packet().contracts[0].recordedReview.status, "current");
+  fs.writeFileSync(pragmaFile, `// @ts-nocheck\n${unused}${withoutPragma}`);
+  const pragmaPacket = packet();
+  assert.equal(pragmaPacket.contracts[0].recordedReview.status, "outdated");
+  const pragmaExcerpt = pragmaPacket.excerpts.find(({ file }) => file === `${QUOTA}/memory-quota.ts`);
+  assert.ok(pragmaExcerpt.pieces.some(({ startLine, text }) => startLine === 1 && text.includes("// @ts-nocheck")));
+  assert.match(cage(loop, "review", "Quota").stdout, /\/\/ @ts-nocheck/);
+  assert.equal(recordQuota(quotaFindings()).status, 0);
+  fs.writeFileSync(pragmaFile, `${unused}// @ts-nocheck\n${withoutPragma}`);
+  assert.equal(packet().contracts[0].recordedReview.status, "outdated");
+  log("41-file-pragmas", JSON.stringify(pragmaPacket, null, 2));
+  fs.writeFileSync(pragmaFile, withoutPragma);
+  assert.equal(recordQuota(quotaFindings()).status, 0);
+  pass("file pragma freshness and excerpts", "ordinary prose stays current; adding or moving @ts-nocheck invalidates; default JSON and Markdown include the directive");
+
   // ---- 2: a link out of the project, with preserveSymlinks: the sentinel is never read.
   const outside = path.join(scratch, "outside");
   fs.mkdirSync(outside);

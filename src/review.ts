@@ -148,7 +148,7 @@ export interface ReviewIndexEntry {
 
 /**
  * `cage review` without names: an index of the contracts, not their material — which need a review, what changed and
- * which invariants it touches — for a reviewer who then takes one contract at a time with `cage review <Name>`.
+ * which invariants it touches — for a reviewer who can group shared changes with `cage review <Name…>`.
  */
 export interface ReviewIndex {
   schemaVersion: 1;
@@ -194,6 +194,8 @@ export const INSTRUCTION = [
   "finding of each invariant: judge the touched ones afresh; for the others, confirm the previous finding or revise it — a verdict is",
   "complete only with every invariant. The files are named with their lines wherever the packet does not carry their text: open them in the",
   "repository.",
+  "For contracts sharing a changed part, read the common material once, then assess its effect on each contract's invariants and tests.",
+  "Each contract keeps its own previous findings and fingerprint; shared material does not make their verdicts interchangeable.",
   "When you are the agent that wrote the code or the tests under review, judge them as a stranger would: the verdict is recorded and read by others.",
   "Do not remove or soften invariants and do not rewrite business requirements to make a check pass; a missing or weak test is a recommendation",
   "for the implementers, to be run in the project's own test environment. Files listed as not loaded were imported by the material but are not",
@@ -317,7 +319,30 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
   }
   // A file another packet of this report holds is in the document; it is not "not loaded" for anyone.
   for (const packet of packets) packet.unloaded = packet.unloaded.filter((entry) => !whole.has(entry.file));
-  return report(ok, packets, [...files.values()].filter((file) => whole.has(file.path)).sort((a, b) => compareText(a.path, b.path)), excerpts);
+  return report(ok, packets, [...files.values()].filter((file) => whole.has(file.path)).sort((a, b) => compareText(a.path, b.path)), sharedExcerpts(excerpts, whole, files));
+}
+
+/** Shared parts carry the union of their source ranges; a whole file already supplies all of its excerpts. */
+function sharedExcerpts(excerpts: readonly Excerpt[], whole: ReadonlySet<string>, files: ReadonlyMap<string, PacketFile>): Excerpt[] {
+  const unique = new Map<string, Excerpt>();
+  for (const excerpt of excerpts) {
+    if (whole.has(excerpt.file)) continue;
+    const key = JSON.stringify([excerpt.file, excerpt.part]);
+    const prior = unique.get(key);
+    if (!prior) {
+      unique.set(key, excerpt);
+      continue;
+    }
+    const ranges: { startLine: number; endLine: number }[] = [];
+    for (const piece of [...prior.pieces, ...excerpt.pieces].sort((a, b) => a.startLine - b.startLine || a.endLine - b.endLine)) {
+      const last = ranges.at(-1);
+      if (last && piece.startLine <= last.endLine + 1) last.endLine = Math.max(last.endLine, piece.endLine);
+      else ranges.push({ startLine: piece.startLine, endLine: piece.endLine });
+    }
+    const text = files.get(excerpt.file)!.text;
+    unique.set(key, { ...excerpt, pieces: ranges.map((range) => ({ ...range, text: linesOf(text, range.startLine, range.endLine) })) });
+  }
+  return [...unique.values()];
 }
 
 /** Lines `from` to `to` of a text, 1-based and inclusive, without the final line break. */
@@ -328,7 +353,7 @@ function linesOf(text: string, from: number, to: number): string {
 /**
  * `cage review` without names: the index. For every contract — those without a record of their material as it is now,
  * or all of them — its status, what changed since the recorded review and which invariants that touches, so that a
- * reviewer takes one contract at a time with `cage review <Name>`.
+ * reviewer can group contracts with shared changes using `cage review <Name…>`.
  */
 export function runReviewIndex(options: ImplementationPhaseOptions, selection: "all" | "needed"): ReviewIndex {
   const { result, diagnostics, materialOf, reviews, priorOf } = prepare(options);
@@ -349,12 +374,13 @@ export function runReviewIndex(options: ImplementationPhaseOptions, selection: "
     // A dependency that cannot be read is a hole of unknown size and is said; the bounds of the scope are not: they are the
     // project's setting, reported by `check`, and a reviewer is not to be sent to the configuration.
     diagnostics.push(...scopeDiagnostics(material, "warn").filter((diagnostic) => diagnostic.code === "E_ENVIRONMENT" && !diagnostics.some((known) => known.code === diagnostic.code && known.contract === diagnostic.contract && known.file === diagnostic.file)));
-    const { fingerprint, digests } = fingerprintOf(material.parts);
+    const { fingerprint } = fingerprintOf(material.parts);
     const prior = priorOf(contract);
-    const { status } = recordedReviewOf(reviews.diagnostics.length > 0, prior, fingerprint);
+    const comparison = fingerprintOf(material.parts, prior?.fingerprint);
+    const { status } = recordedReviewOf(reviews.diagnostics.length > 0, prior, comparison.fingerprint);
     if (selection === "needed" && status !== "none" && status !== "outdated" && status !== "unknown") continue;
     const invariants = index.invariants.filter((invariant) => invariant.contract === contract.name).map((invariant) => invariant.id);
-    const changed = status === "outdated" && prior ? changesOf(material, digests, prior) : [];
+    const changed = status === "outdated" && prior ? changesOf(material, comparison.digests, prior) : [];
     const about = diagnostics.filter((diagnostic) => diagnostic.contract === contract.name);
     entries.push({
       contract: contract.name,
@@ -457,14 +483,15 @@ function packetOf(
   }
   const loaded = new Set(files.map((file) => file.path));
   const unloaded = compiler ? importsOutside(root, compiler.ts, compiler.overlay, files, loaded) : [];
-  const { fingerprint, digests } = fingerprintOf(material.parts);
-  const recordedReview = recordedReviewOf(reviewsUnusable, prior, fingerprint);
+  const { fingerprint } = fingerprintOf(material.parts);
+  const comparison = fingerprintOf(material.parts, prior?.fingerprint);
+  const recordedReview = recordedReviewOf(reviewsUnusable, prior, comparison.fingerprint);
   const priorNotes = prior ? notesOf(prior.findings) : [];
   const declaring = new Set((result.linking?.tests ?? []).map((test) => test.location.file));
   const inModule = (file: string) => contract.module === "." || file.startsWith(`${contract.module}/`);
   const untaggedTests = testFiles_.filter((file) => inModule(file) && !declaring.has(file)).sort(compareText);
   const ids = result.index!.invariants.filter((invariant) => invariant.contract === name).map((invariant) => invariant.id);
-  const changed = recordedReview.status === "outdated" && prior ? changesOf(material, digests, prior) : [];
+  const changed = recordedReview.status === "outdated" && prior ? changesOf(material, comparison.digests, prior) : [];
   const touched = recordedReview.status === "outdated" && prior ? touchedBy(material, changed, ids, prior) : null;
   const priorOf = (id: string): PriorFinding[] => (prior?.findings ?? []).filter((finding) => finding.invariant === id).map(({ assessment, reason, evidence, suggestedChange }) => ({ assessment, reason, evidence, suggestedChange }));
 

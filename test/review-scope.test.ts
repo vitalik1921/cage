@@ -9,7 +9,7 @@ import type { ReviewIndex, ReviewReport } from "../src/review.ts";
 import type { ReviewEntry } from "../src/review-record.ts";
 import ts from "typescript";
 import ts5 from "typescript-5";
-import { collectMaterial, createFileReader, dependencyClosure } from "../src/review-material.ts";
+import { collectMaterial, createFileReader, dependencyClosure, fingerprintOf } from "../src/review-material.ts";
 import { dependencySlices } from "../src/review-slice.ts";
 import { checkLinking, cli, contract, designFile, designProject, editFile, mdx, writeFile } from "./helpers.ts";
 
@@ -121,6 +121,106 @@ function staleBecause(root: string): string | undefined {
   // The parts, one a line in the message, joined as a list here.
   return stale && stale.message.split("\n").slice(1).map((line) => line.replace(/^- /, "")).join(", ");
 }
+
+/** @tests Cli
+ * @covers review-code-trivia review-packet review-stale */
+test("comments in implementations, test setup, sliced config and whole-file helpers keep reviews current and stay in packets", (t) => {
+  const root = quotaProject(t, {
+    [RULE]: "export const limits = { minimum: 0 };\nexport const hasQuota = (left: number): boolean => left > limits.minimum;\n",
+    // Mutable top-level state forces whole-file fallback.
+    [STUB]: "let calls = 0;\nexport const fresh = <T>(Kind: new () => T): T => { calls++; return new Kind(); };\n",
+  });
+  recordAdequate(root);
+  const before = packet(root).contracts[0].fingerprint;
+  const reviewBefore = fs.readFileSync(path.join(root, ".cage/review.json"), "utf8");
+  editFile(root, IMPLEMENTATION, (text) => text.replace("return left - 1;", "// Explanation in a selected helper.\n  return left - 1;").replace("left: Left = 2;", "/** Initial allowance. */\n  left: Left = 2;"));
+  editFile(root, TESTS, (text) => text.replace("quota = fresh(MemoryQuota);", "// Explanation in setup.\n    quota = fresh(MemoryQuota);").replace("assert.equal(quota.take(), true);", "/* Explain the assertion. */ assert.equal( quota.take(), true );"));
+  editFile(root, RULE, (text) => text.replace("minimum: 0", "\n  /** Explanation in config. */\n  minimum: 0\n"));
+  editFile(root, STUB, (text) => `/** Explanation in whole-file fallback. */\n${text}`);
+  assert.equal(staleBecause(root), undefined);
+  assert.equal(packet(root).contracts[0].fingerprint, before);
+  assert.deepEqual(JSON.parse(cli(root, "review", "--format", "json").stdout).contracts, []);
+  const all = JSON.parse(cli(root, "review", "Quota", "--files", "all", "--format", "json").stdout) as ReviewReport;
+  for (const file of [IMPLEMENTATION, TESTS, RULE, STUB]) assert.match(all.files.find((entry) => entry.path === file)!.text, /Explanation/);
+  assert.equal(fs.readFileSync(path.join(root, ".cage/review.json"), "utf8"), reviewBefore);
+  editFile(root, RULE, (text) => text.replace("minimum: 0", "minimum: 1"));
+  assert.equal(staleBecause(root), `dependency ${RULE} changed`);
+});
+
+/** @tests Cli
+ * @covers review-code-trivia review-stale */
+test("annotation spacing keeps a recorded review current while Node coverage exclusions invalidate it", (t) => {
+  const root = quotaProject(t);
+  recordAdequate(root);
+  const before = packet(root).contracts[0].fingerprint;
+  editFile(root, IMPLEMENTATION, (text) => text.replace("/** @implements Quota */\n", "/** @implements Quota */\n\n"));
+  editFile(root, TESTS, (text) => text.replace("/** @tests Quota */\n", "/** @tests Quota */\n\n").replace("/** @covers empty */\n", "/** @covers empty */\n\n"));
+  assert.equal(staleBecause(root), undefined);
+  assert.equal(packet(root).contracts[0].fingerprint, before);
+  assert.deepEqual(JSON.parse(cli(root, "review", "--format", "json").stdout).contracts, []);
+  editFile(root, IMPLEMENTATION, (text) => text.replace("    if (!hasQuota", "    /* node:coverage ignore next */\n    if (!hasQuota"));
+  assert.equal(staleBecause(root), `implementation MemoryQuota (${IMPLEMENTATION}) changed`);
+  assert.notEqual(packet(root).contracts[0].fingerprint, before);
+});
+
+/** @tests Cli
+ * @covers review-code-trivia review-stale review-packet */
+test("file directives outside selected declarations invalidate reviews and appear in default excerpts", (t) => {
+  const root = quotaProject(t);
+  for (const file of [IMPLEMENTATION, RULE]) editFile(root, file, (text) => `const unrelatedHeader = 1;\n${text}`);
+  recordAdequate(root);
+  for (const file of [IMPLEMENTATION, RULE]) {
+    editFile(root, file, (text) => `// @ts-nocheck\n${text}`);
+  }
+  assert.match(staleBecause(root)!, /implementation MemoryQuota/);
+  assert.match(staleBecause(root)!, /dependency .*quota-rule/);
+  const changed = packet(root);
+  for (const file of [IMPLEMENTATION, RULE]) {
+    const excerpt = changed.excerpts.find((entry) => entry.file === file)!;
+    assert.ok(excerpt.pieces.some((piece) => piece.startLine === 1 && piece.text.includes("// @ts-nocheck")));
+    assert.doesNotMatch(excerpt.pieces.map((piece) => piece.text).join("\n"), /unrelatedHeader/);
+    const sourceLines = fs.readFileSync(path.join(root, file), "utf8").split("\n");
+    for (const piece of excerpt.pieces) assert.equal(piece.text, sourceLines.slice(piece.startLine - 1, piece.endLine).join("\n"));
+  }
+  recordAdequate(root);
+  for (const file of [IMPLEMENTATION, RULE]) editFile(root, file, (text) => text.replace("// @ts-nocheck\nconst unrelatedHeader = 1;", "const unrelatedHeader = 1;\n// @ts-nocheck"));
+  assert.match(staleBecause(root)!, /implementation MemoryQuota/);
+  assert.match(staleBecause(root)!, /dependency .*quota-rule/);
+});
+
+/** @tests Cli
+ * @covers review-fingerprint-legacy */
+test("legacy reviews and acceptances stay current without migration until a new verdict is recorded", (t) => {
+  for (const accepted of [false, true]) {
+    const root = quotaProject(t);
+    recordAdequate(root);
+    const file = path.join(root, ".cage/review.json");
+    const record = JSON.parse(fs.readFileSync(file, "utf8")) as { version: 1; reviews: ReviewEntry[] };
+    const result = checkLinking(root);
+    const material = collectMaterial(result, "Quota", createFileReader(root, [], result.linking.sources).read);
+    const legacy = fingerprintOf(material.parts, "sha256:legacy");
+    Object.assign(record.reviews[0], { fingerprint: legacy.fingerprint, material: legacy.digests, ...(accepted ? { accepted: true, findings: [] } : {}) });
+    fs.writeFileSync(file, JSON.stringify(record));
+    const before = fs.readFileSync(file, "utf8");
+    assert.equal(staleBecause(root), undefined);
+    assert.deepEqual(JSON.parse(cli(root, "review", "--format", "json").stdout).contracts, []);
+    assert.equal(packet(root).contracts[0].recordedReview.status, accepted ? "accepted" : "current");
+    assert.equal(cli(root, "review", "--accept").code, 0);
+    assert.equal(fs.readFileSync(file, "utf8"), before);
+    editFile(root, IMPLEMENTATION, (text) => text.replace("return left - 1;", "/* First explanation. */ return left - 1;"));
+    assert.equal(staleBecause(root), `implementation MemoryQuota (${IMPLEMENTATION}) changed`);
+    const changed = packet(root).contracts[0];
+    assert.deepEqual(changed.changed.map((part) => part.kind), ["implementation"]);
+    // Old verdicts cannot be submitted as if they had reviewed the new algorithm's material.
+    writeFile(root, "old-verdict.json", JSON.stringify({ version: 1, verdicts: [{ contract: "Quota", fingerprint: legacy.fingerprint, findings: record.reviews[0].findings }] }));
+    assert.notEqual(cli(root, "review", "--record", "old-verdict.json").code, 0);
+    assert.equal(fs.readFileSync(file, "utf8"), before);
+    recordAdequate(root);
+    assert.match(JSON.parse(fs.readFileSync(file, "utf8")).reviews[0].fingerprint, /^sha256:code-v1:/);
+    editFile(root, IMPLEMENTATION, (text) => text.replace("First explanation", "Better explanation"));
+    assert.equal(staleBecause(root), undefined);
+  }
+});
 
 /** @tests Cli
  * @covers review-dependency-relevant review-dependency-isolated review-packet */
@@ -256,6 +356,9 @@ test("whole-file records remain readable and become stale without rewriting or r
   const recordPath = path.join(root, ".cage/review.json");
   const record = JSON.parse(fs.readFileSync(recordPath, "utf8")) as { version: 1; reviews: ReviewEntry[] };
   const entry = record.reviews[0];
+  const result = checkLinking(root);
+  const material = collectMaterial(result, "Quota", createFileReader(root, [], result.linking.sources).read);
+  entry.material = fingerprintOf(material.parts, "sha256:legacy").digests;
   // Model a v1 record whose dependency part was the whole file, as older releases wrote it.
   entry.material[`dependency ${RULE}`] = `sha256:${crypto.createHash("sha256").update(fs.readFileSync(path.join(root, RULE))).digest("hex")}`;
   const hash = crypto.createHash("sha256");

@@ -108,7 +108,7 @@ test("the review packet shows what is collected, what the test text says and wha
 
   const fresh = head(markdown());
   assert.match(fresh, /^# Send \(src\/modules\/campaigns\)$/m);
-  assert.match(fresh, /^fingerprint: sha256:[0-9a-f]{64}$/m);
+  assert.match(fresh, /^fingerprint: sha256:code-v1:[0-9a-f]{64}$/m);
   assert.match(fresh, /^tests: all 4 active$/m);
   assert.match(fresh, /^review: none$/m);
   assert.doesNotMatch(fresh, /pass(ed)?\b|adequate/);

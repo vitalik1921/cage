@@ -52,19 +52,21 @@ test("gate feedback contains only blockers, even with scope, coverage and weak-r
   assert.equal(checked.code, 0);
   for (const code of ["W_REVIEW_SCOPE_LIMIT", "W_REVIEW_WEAK", "W_NOT_DESIGNED", "W_NO_INVARIANTS", "W_REVIEW_MISSING"]) assert.match(checked.stdout, new RegExp(code));
 
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "warn", coverage: "require", reviewDependencies: { maxFiles: 0 } }));
   const blocked = gate(root, { session_id: id });
   assert.equal(blocked.code, 2);
-  assert.match(blocked.stderr, /W_REVIEW_MISSING/);
+  assert.match(blocked.stderr, /E_NOT_DESIGNED/);
   assert.match(blocked.stderr, /\(2 blocking\)/);
-  assert.doesNotMatch(blocked.stderr, /W_REVIEW_SCOPE_LIMIT|W_REVIEW_WEAK|W_NOT_DESIGNED|W_NO_INVARIANTS/);
+  assert.doesNotMatch(blocked.stderr, /W_REVIEW_SCOPE_LIMIT|W_REVIEW_WEAK|W_REVIEW_MISSING|W_NOT_DESIGNED|W_NO_INVARIANTS/);
+  assert.doesNotMatch(blocked.stderr, /For REVIEW_MISSING/);
   for (let attempt = 1; attempt < MAX_BLOCKS; attempt++) assert.equal(gate(root, { session_id: id, stop_hook_active: true }).code, 2);
   const released = gate(root, { session_id: id, stop_hook_active: true });
   assert.equal(released.code, 0);
   assert.match(released.stderr, /letting the agent stop/);
-  assert.match(released.stderr, /W_REVIEW_MISSING/);
-  assert.doesNotMatch(released.stderr, /W_REVIEW_SCOPE_LIMIT|W_REVIEW_WEAK|W_NOT_DESIGNED|W_NO_INVARIANTS/);
+  assert.match(released.stderr, /E_NOT_DESIGNED/);
+  assert.doesNotMatch(released.stderr, /W_REVIEW_SCOPE_LIMIT|W_REVIEW_WEAK|W_REVIEW_MISSING|W_NOT_DESIGNED|W_NO_INVARIANTS/);
 
-  record(verdicts.filter(({ contract }) => contract !== "Quota"));
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "warn", reviewDependencies: { maxFiles: 0 } }));
   const clean = gate(root, { session_id: id });
   assert.equal(clean.code, 0);
   assert.equal(clean.stderr, "");
@@ -73,18 +75,22 @@ test("gate feedback contains only blockers, even with scope, coverage and weak-r
 
 /** @tests Cli
  * @covers gate */
-test("the gate blocks on errors and on missing reviews, whatever the review level, and passes a clean check", (t) => {
+test("the gate blocks on errors and on missing reviews only when required", (t) => {
   const root = copyFixture(t, "vertical");
   const id = session(t);
 
-  // Warnings about reviews are not errors of `check`, and still block the gate.
+  // Review warnings stay in check; the gate is silent and creates no block counter.
   assert.equal(cli(root, "check").code, 0);
+  assert.match(cli(root, "check").stdout, /W_REVIEW_MISSING/);
+  assert.deepEqual(gate(root, { session_id: id }), { code: 0, stdout: "", stderr: "" });
+  assert.deepEqual(counters(id), []);
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "require" }));
   const blocked = gate(root, { session_id: id, stop_hook_active: false });
   assert.equal(blocked.code, 2);
   assert.equal(blocked.stdout, "");
-  assert.match(blocked.stderr, /^W_REVIEW_MISSING: Send \(src\/modules\/campaigns\/campaigns\.cage\.mdx:\d+:\d+\)$/m);
+  assert.match(blocked.stderr, /^E_REVIEW_MISSING: Send \(src\/modules\/campaigns\/campaigns\.cage\.mdx:\d+:\d+\)$/m);
   assert.match(blocked.stderr, /`cage check` is not clean \(3 blocking\)\. Fix what it reports before stopping; `cage codes` explains a code\./);
-  assert.match(blocked.stderr, /`cage review` lists what needs a review and what changed; `cage review <Name>` gives one contract's material/);
+  assert.match(blocked.stderr, /`cage review` lists what needs a review and what changed; group contracts sharing a changed part with `cage review NameA NameB`/);
 
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "off" }));
   const clean = gate(root, { session_id: id, stop_hook_active: false });
@@ -110,7 +116,7 @@ test("the gate blocks on errors and on missing reviews, whatever the review leve
 
 /** @tests Cli
  * @covers gate */
-test("a weak finding blocks the gate only where reviews are required; a missing or stale review blocks at any level", (t) => {
+test("weak and stale reviews block the gate only when required", (t) => {
   const root = copyFixture(t, "vertical");
   const id = session(t);
   // Record a verdict for every contract, with one weak finding on Send.
@@ -133,6 +139,7 @@ test("a weak finding blocks the gate only where reviews are required; a missing 
   // Under "warn" the weak finding is reported and the agent may stop.
   const warned = gate(root, { session_id: id });
   assert.equal(warned.code, 0);
+  assert.equal(warned.stderr, "");
   assert.match(cli(root, "check").stdout, /W_REVIEW_WEAK/);
 
   // Under "require" it is an error and blocks, with the hint for it.
@@ -142,20 +149,27 @@ test("a weak finding blocks the gate only where reviews are required; a missing 
   assert.match(required.stderr, /E_REVIEW_WEAK/);
   assert.match(required.stderr, /For E_REVIEW_WEAK: improve the test or the design/);
 
-  // A change to the material makes the review stale, which blocks under "warn" too.
+  // A stale review is visible in check under "warn", but only blocks under "require".
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1 }));
   editFile(root, "src/modules/campaigns/send.test.ts", (s) => s.replace("/** @covers sender-error */", "/**\n * @covers sender-error\n */"));
-  editFile(root, "src/modules/campaigns/send-service.ts", (s) => `${s}\n`.replace("export class", "/* touched */\nexport class"));
   const stale = gate(root, { session_id: id });
-  assert.equal(stale.code, 2);
-  assert.match(stale.stderr, /W_REVIEW_STALE/);
-  assert.doesNotMatch(stale.stderr, /For E_REVIEW_WEAK/);
+  assert.equal(stale.code, 0);
+  assert.equal(stale.stderr, "");
+  assert.match(cli(root, "check").stdout, /W_REVIEW_STALE/);
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "require" }));
+  const requiredStale = gate(root, { session_id: id });
+  assert.equal(requiredStale.code, 2);
+  assert.match(requiredStale.stderr, /E_REVIEW_STALE/);
+  assert.doesNotMatch(requiredStale.stderr, /For E_REVIEW_WEAK/);
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "off" }));
+  assert.deepEqual(gate(root, { session_id: id }), { code: 0, stdout: "", stderr: "" });
 });
 
 /** @tests Cli
  * @covers gate */
 test("after MAX_BLOCKS blocks in one session the gate lets the agent stop, with the report; a pass resets the count", (t) => {
   const root = copyFixture(t, "vertical");
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "require" }));
   const id = session(t);
   const attempt = (active: boolean) => gate(root, { session_id: id, stop_hook_active: active });
 
@@ -164,7 +178,7 @@ test("after MAX_BLOCKS blocks in one session the gate lets the agent stop, with 
   const released = attempt(true);
   assert.equal(released.code, 0);
   assert.match(released.stderr, new RegExp(`still fails after ${MAX_BLOCKS} attempts; letting the agent stop`));
-  assert.match(released.stderr, /W_REVIEW_MISSING/);
+  assert.match(released.stderr, /E_REVIEW_MISSING/);
   // Only a stop that follows a block counts as the agent giving up; a fresh stop blocks again.
   assert.equal(attempt(false).code, 2);
 
@@ -172,10 +186,11 @@ test("after MAX_BLOCKS blocks in one session the gate lets the agent stop, with 
   const other = session(t);
   assert.equal(gate(root, { session_id: other, stop_hook_active: true }).code, 2);
 
-  // A clean check forgets the count.
-  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "off" }));
-  assert.equal(attempt(true).code, 0);
+  // Passing with review warnings forgets the count.
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "warn" }));
+  assert.equal(attempt(true).code, 0);
+  assert.deepEqual(counters(id), []);
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "require" }));
   assert.equal(attempt(true).code, 2);
 });
 
@@ -208,6 +223,7 @@ test("a block counter of a session a day old is swept by the next run; a fresh o
 
 test("the gate reads the hook's input leniently and takes the options of check", (t) => {
   const root = copyFixture(t, "vertical");
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "require" }));
   const id = session(t);
   assert.equal(gate(root, "not json").code, 2);
   assert.equal(gate(root, undefined).code, 2);

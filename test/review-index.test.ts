@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test, type TestContext } from "node:test";
 import type { ReviewIndex, ReviewReport } from "../src/review.ts";
-import { CAMPAIGNS, cli, copyFixture, editFile, find, inFixture, MAIL, QUOTA, readFile, writeFile } from "./helpers.ts";
+import { CAMPAIGNS, cli, contract, copyFixture, designProject, editFile, find, inFixture, MAIL, mdx, QUOTA, readFile, writeFile } from "./helpers.ts";
 
 const SEND_TEST = "src/modules/campaigns/send.test.ts";
 const SEND_SERVICE = "src/modules/campaigns/send-service.ts";
@@ -21,6 +21,87 @@ function recordAdequate(root: string, names: string[] | string, evidence: (invar
   assert.equal(cli(root, "review", "--record", "verdicts.json").code, 0);
 }
 
+const SHARED = "src/consumers/shared.ts";
+
+function sharedProject(t: TestContext, distinct = false): string {
+  return designProject(t, { consumers: mdx(contract("Left", "run(): number;", "@invariant result Returns the configured value."), contract("Right", "run(): number;", "@invariant result Returns the configured value.")) }, {
+    [SHARED]: "export const shared = 1;\nexport const leftOnly = 10;\nexport const rightOnly = 20;\nexport const unrelated = 100;\n",
+    ...Object.fromEntries(["Left", "Right"].map((name) => {
+      const lower = name.toLowerCase();
+      return [`src/consumers/${lower}.ts`, `import { shared${distinct ? `, ${lower}Only` : ""} } from "./shared.ts";\n/** @implements ${name} */\nexport const ${lower} = { run: () => shared${distinct ? ` + ${lower}Only` : ""} };\n`];
+    })),
+    "src/consumers/consumers.test.ts": [
+      'import assert from "node:assert/strict";',
+      'import { it } from "node:test";',
+      'import { left } from "./left.ts";',
+      'import { right } from "./right.ts";',
+      '/** @tests Left\n * @covers result */',
+      `it("left", () => { assert.equal(left.run(), ${distinct ? 11 : 1}); });`,
+      '/** @tests Right\n * @covers result */',
+      `it("right", () => { assert.equal(right.run(), ${distinct ? 21 : 1}); });`,
+    ].join("\n"),
+    ".cage/config.json": JSON.stringify({ version: 1, coverage: "off" }),
+  });
+}
+
+/** @tests Cli
+ * @covers review-packet review-index */
+test("a shared review packet prints identical dependency excerpts once and retains each contract's verdict", (t) => {
+  const root = sharedProject(t);
+  recordAdequate(root, ["Left", "Right"]);
+  editFile(root, SHARED, (text) => text.replace("shared = 1", "shared = 2"));
+  const grouped = packet(root, "Left", "Right");
+  assert.equal(grouped.complete, true);
+  assert.equal(grouped.excerpts.filter(({ file }) => file === SHARED).length, 1);
+  for (const entry of grouped.contracts) {
+    const single = packet(root, entry.contract).contracts[0];
+    for (const field of ["fingerprint", "invariants", "changed", "touched", "recordedReview"] as const) assert.deepEqual(entry[field], single[field]);
+    assert.equal(entry.recordedReview.status, "outdated");
+    assert.ok(entry.changed.some(({ part }) => part === `dependency ${SHARED}`));
+    assert.equal(entry.invariants[0].prior[0].assessment, "adequate");
+  }
+  assert.deepEqual(packet(root, "Right", "Left").excerpts, grouped.excerpts);
+  const markdown = cli(root, "review", "Left", "Right").stdout;
+  assert.equal(markdown.split(`### ${SHARED}:`).length - 1, 1);
+  assert.equal(markdown.split("export const shared = 2;").length - 1, 1);
+  recordAdequate(root, ["Left", "Right"]);
+  assert.deepEqual(index(root).contracts, []);
+});
+
+/** @tests Cli
+ * @covers review-packet */
+test("shared dependency excerpts preserve the union of overlapping and distinct selections", (t) => {
+  const root = sharedProject(t, true);
+  recordAdequate(root, ["Left", "Right"]);
+  editFile(root, SHARED, (text) => text.replace("shared = 1", "shared = 2"));
+  const grouped = packet(root, "Left", "Right");
+  const excerpts = grouped.excerpts.filter(({ file }) => file === SHARED);
+  assert.equal(excerpts.length, 1);
+  const source = readFile(root, SHARED).split("\n");
+  assert.deepEqual(excerpts[0].pieces, [{ startLine: 1, endLine: 3, text: source.slice(0, 3).join("\n") }]);
+  assert.doesNotMatch(excerpts[0].pieces[0].text, /unrelated/);
+  const all = packet(root, "Left", "Right", "--files", "all");
+  assert.equal(all.files.filter(({ path }) => path === SHARED).length, 1);
+  assert.deepEqual(all.excerpts, []);
+  const none = packet(root, "Left", "Right", "--files", "none");
+  assert.deepEqual(none.files, []);
+  assert.deepEqual(none.excerpts, []);
+  assert.deepEqual(none.contracts.map(({ fingerprint }) => fingerprint), grouped.contracts.map(({ fingerprint }) => fingerprint));
+});
+
+/** @tests Cli
+ * @covers review-packet */
+test("whole-file context in a mixed review packet supersedes excerpts without merging review baselines", (t) => {
+  const root = sharedProject(t);
+  recordAdequate(root, "Left");
+  editFile(root, SHARED, (text) => text.replace("shared = 1", "shared = 2"));
+  const grouped = packet(root, "Left", "Right");
+  assert.deepEqual(grouped.contracts.map(({ contract, recordedReview }) => [contract, recordedReview.status]), [["Left", "outdated"], ["Right", "none"]]);
+  assert.equal(grouped.files.filter(({ path }) => path === SHARED).length, 1);
+  assert.ok(!grouped.excerpts.some(({ file }) => grouped.files.some(({ path }) => path === file)));
+  assert.equal(cli(root, "review", "Left", "Right").stdout.split("export const shared = 2;").length - 1, 1);
+});
+
 /** @tests Cli
  * @covers review-index review-touched */
 test("without names review is an index: which contracts need a review, what changed and which invariants it touches", (t) => {
@@ -36,7 +117,7 @@ test("without names review is an index: which contracts need a review, what chan
       { contract: "Quota", status: "none", invariants: ["accounts", "empty", "consume", "race"], touched: null, changed: [], files: 3 },
     ],
   );
-  assert.match(first.contracts[0].fingerprint, /^sha256:[0-9a-f]{64}$/);
+  assert.match(first.contracts[0].fingerprint, /^sha256:code-v1:[0-9a-f]{64}$/);
   const text = cli(root, "review").stdout;
   assert.match(text, /^# Review index: 3 contracts need a review\n\n- Send /);
   assert.match(text, /^- Send \(src\/modules\/campaigns\): no review; 4 invariants, 5 files$/m);
@@ -54,7 +135,7 @@ test("without names review is an index: which contracts need a review, what chan
   assert.match(cli(root, "review", "--all").stdout, /^- Send \(src\/modules\/campaigns\): reviewed, current; 4 invariants, 5 files$/m);
 
   // One test's body changes: the review of Send is outdated by that one part, which touches the invariant the test covers.
-  editFile(root, SEND_TEST, (s) => s.replace('assert.equal(await service.run("a", "hello"), "limited");', 'assert.equal(await service.run("a", "hello"), "limited"); // edited'));
+  editFile(root, SEND_TEST, (s) => s.replace('assert.equal(await service.run("a", "hello"), "limited");', 'assert.equal(await service.run("a", "hello"), "sent"); // edited'));
   const [send] = index(root).contracts;
   assert.equal(send.status, "outdated");
   assert.deepEqual(send.changed, [{ part: `test ${SEND_TEST}:не передає повідомлення без квоти`, kind: "test", change: "changed", file: SEND_TEST, line: inFixture(SEND_TEST, 'it("не передає').line, name: "не передає повідомлення без квоти" }]);
@@ -64,8 +145,7 @@ test("without names review is an index: which contracts need a review, what chan
   assert.match(outdated, /^  - test "не передає повідомлення без квоти" changed \(src\/modules\/campaigns\/send\.test\.ts:\d+\)$/m);
 
   // The implementation changes too: everything is touched; a title changes: the old test is gone, the new one is new.
-  // A comment inside the class is a change of the implementation's text; one between the tag and the class would untag it.
-  editFile(root, SEND_SERVICE, (s) => s.replace(/export class SendService([^{]*)\{/, "export class SendService$1{ // touched"));
+  editFile(root, SEND_SERVICE, (s) => s.replace('return "sent";', 'return "limited";'));
   editFile(root, SEND_TEST, (s) => s.replace('it("передає помилку транспорту"', 'it("передає помилку транспорту (renamed)"'));
   const [again] = index(root).contracts;
   assert.deepEqual(
@@ -95,7 +175,7 @@ test("a named packet carries the changed lines of an outdated review with the pr
   assert.deepEqual(fresh.contracts[0].invariants.map(({ touched, prior }) => ({ touched, prior })), Array(4).fill({ touched: null, prior: [] }));
 
   recordAdequate(root, "Send");
-  editFile(root, SEND_TEST, (s) => s.replace('assert.equal(await service.run("a", "hello"), "limited");', 'assert.equal(await service.run("a", "hello"), "limited"); // edited'));
+  editFile(root, SEND_TEST, (s) => s.replace('assert.equal(await service.run("a", "hello"), "limited");', 'assert.equal(await service.run("a", "hello"), "sent"); // edited'));
   const changed = packet(root, "Send");
   const [send] = changed.contracts;
   assert.equal(send.recordedReview.status, "outdated");
@@ -154,7 +234,7 @@ test("a named packet carries the changed lines of an outdated review with the pr
 
   // A changed design document, or dependency, comes whole: there is no smaller part to show.
   editFile(root, CAMPAIGNS, (s) => s.replace("# ", "# Campaigns: "));
-  editFile(root, CALLBACK_SENDER, (s) => `${s}\n// touched\n`);
+  editFile(root, CALLBACK_SENDER, (s) => s.replace("await this.deliver(text);", 'await this.deliver(text + "!");'));
   const whole = packet(root, "Send");
   assert.deepEqual(whole.contracts[0].changed.map(({ kind, change, file }) => ({ kind, change, file })), [
     { kind: "design", change: "changed", file: CAMPAIGNS },
@@ -219,7 +299,7 @@ test("touched is conservative where the record cannot tell: a reorder, a finding
   const own: Record<string, number> = { quota: lineOf('it("чекає'), limit: lineOf('it("не передає'), "quota-error": lineOf('it("передає помилку квоти'), "sender-error": lineOf('it("передає помилку транспорту') };
   // sender-error's evidence cites the quota test; the others cite their own.
   recordAdequate(cited, "Send", (invariant) => `${SEND_TEST}:${invariant === "sender-error" ? own.quota + 3 : own[invariant!]}`);
-  editFile(cited, SEND_TEST, (s) => s.replace('assert.deepEqual(delivered, ["hello"]);', 'assert.deepEqual(delivered, ["hello"]); // edited'));
+  editFile(cited, SEND_TEST, (s) => s.replace('assert.deepEqual(delivered, ["hello"]);', 'assert.deepEqual(delivered, []); // edited'));
   const [resting] = index(cited).contracts;
   assert.deepEqual(resting.changed.map(({ name }) => name), ["чекає на підтвердження квоти до передачі повідомлення"]);
   assert.deepEqual(resting.touched, ["quota", "sender-error"]);

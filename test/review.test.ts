@@ -44,7 +44,7 @@ test("a packet holds the contract, its design, the designs it depends on, its im
   assert.equal(packet.contract, "Send");
   assert.equal(packet.module, "src/modules/campaigns");
   assert.deepEqual(packet.designs, [CAMPAIGNS]);
-  assert.match(packet.fingerprint, /^sha256:[0-9a-f]{64}$/);
+  assert.match(packet.fingerprint, /^sha256:code-v1:[0-9a-f]{64}$/);
   assert.deepEqual(packet.dependencies, {
     uses: [
       { contract: "Quota", module: "src/modules/quota" },
@@ -313,12 +313,12 @@ test("a change to the material makes the review stale, naming the file, and the 
   const refused = record(root, verdicts);
   assert.equal(refused.code, 1);
   assert.deepEqual(refused.report.recorded, []);
-  assert.match(refused.report.diagnostics.find(({ code }) => code === "E_REVIEW_VERDICT")?.message ?? "", /^Send: fingerprint sha256:[0-9a-f]+ given, the material is sha256:[0-9a-f]+$/);
+  assert.match(refused.report.diagnostics.find(({ code }) => code === "E_REVIEW_VERDICT")?.message ?? "", /^Send: fingerprint sha256:code-v1:[0-9a-f]+ given, the material is sha256:code-v1:[0-9a-f]+$/);
   assert.equal(readFile(root, REVIEW_FILE), reviewFile);
 
   // A recorded fingerprint that does not match its own digests is stale too, and the message says so.
   const tampered = JSON.parse(reviewFile);
-  writeFile(root, REVIEW_FILE, JSON.stringify({ ...tampered, reviews: [{ ...tampered.reviews[0], fingerprint: "sha256:0" }] }));
+  writeFile(root, REVIEW_FILE, JSON.stringify({ ...tampered, reviews: [{ ...tampered.reviews[0], fingerprint: "sha256:code-v1:0" }] }));
   editFile(root, SEND_TEST, (s) => s.replace('it("не передає повідомлення без квоти (edited)"', 'it("не передає повідомлення без квоти"'));
   assert.match(reviewDiagnostics(root).find(({ contract }) => contract === "Send")?.message ?? "", /^Send: no part differs, the fingerprint does$/);
   writeFile(root, REVIEW_FILE, reviewFile);

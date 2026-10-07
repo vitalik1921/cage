@@ -9,6 +9,7 @@ import type { ImplementationPhaseResult } from "./implementation-phase.ts";
 import { insideRoot, stripBom, toProjectPath } from "./location.ts";
 import type { Overlay, TypeScript } from "./typescript.ts";
 import { dependencySlices, sliceNodes } from "./review-slice.ts";
+import { codeFingerprintText } from "./review-fingerprint.ts";
 
 /** A file the reviewer reads, once, whatever number of contracts it serves. Its text has `\n` line endings whatever the disk has. */
 export interface PacketFile {
@@ -33,6 +34,8 @@ export interface PacketFile {
 export interface MaterialPart {
   key: string;
   text: string;
+  /** Code without ordinary comment/spacing trivia; source text stays available to reviewers and legacy records. */
+  fingerprintText?: string;
   /** The file the part comes from, project-relative; every part but `contract`'s declaration text has one. */
   file: string;
   /** Where the part starts in its file: the declaration's line, for an implementation or a test. */
@@ -194,7 +197,10 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
     return resolved ? toProjectPath(result.root, resolved) : undefined;
   }) : undefined;
   roots.forEach(({ part }, i) => { if (slices) Object.assign(part, slices.roots[i]); });
-  for (const dependency of closure.files) parts.push({ key: `dependency ${dependency.file}`, file: dependency.file, ...(slices?.dependencies.get(dependency.file) ?? { text: dependency.text }) });
+  for (const dependency of closure.files) parts.push({ key: `dependency ${dependency.file}`, file: dependency.file, ...(slices?.dependencies.get(dependency.file) ?? {
+    text: dependency.text,
+    ...(compiler && parsed.has(dependency.file) ? { fingerprintText: codeFingerprintText(compiler.ts, parsed.get(dependency.file)!) } : {}),
+  }) });
   return {
     contract,
     own,
@@ -315,7 +321,7 @@ function materialAt(ts: TypeScript, sourceFile: ts.SourceFile, location: SourceL
     }
   }
   const nodes = [start, ...setup.sort((a, b) => a.pos - b.pos), ...referenced.sort((a, b) => a.pos - b.pos)];
-  return { ...sliceNodes(nodes), nodes };
+  return { ...sliceNodes(ts, nodes), nodes };
 }
 
 /** The local files a file imports for their values: type-only imports and exports, and dynamic `import()` and `require()` calls, are not followed. */
@@ -496,10 +502,12 @@ export function externalUses(
 
 export const digestOf = (text: string) => `sha256:${crypto.createHash("sha256").update(text).digest("hex")}`;
 
-/** The digest of every part of the material, by key, and of all of them together. */
-export function fingerprintOf(parts: readonly MaterialPart[]): { fingerprint: string; digests: Record<string, string> } {
-  const digests = parts.map((part) => [part.key, digestOf(part.text)] as const);
+/** New fingerprints identify their algorithm; existing unversioned records retain exact source-text checking. */
+export function fingerprintOf(parts: readonly MaterialPart[], recordedFingerprint?: string): { fingerprint: string; digests: Record<string, string> } {
+  const prefix = "sha256:code-v1:";
+  const legacy = recordedFingerprint !== undefined && !recordedFingerprint.startsWith(prefix);
+  const digests = parts.map((part) => [part.key, digestOf(legacy ? part.text : part.fingerprintText ?? part.text)] as const);
   const hash = crypto.createHash("sha256");
   for (const [key, digest] of digests) hash.update(`${key}\n${digest}\0`);
-  return { fingerprint: `sha256:${hash.digest("hex")}`, digests: Object.fromEntries(digests) };
+  return { fingerprint: `${legacy ? "sha256:" : prefix}${hash.digest("hex")}`, digests: Object.fromEntries(digests) };
 }

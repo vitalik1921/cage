@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.6.0
+
+- Gate blocks only errors. Review warnings under `review: "warn"` remain visible in `check` but are silent in the gate; required reviews still block.
+- New `code-v1` review fingerprints ignore ordinary code comments and spacing while retaining syntax, literal contents, annotations and significant tool directives. Legacy review records keep their original fingerprint rules until a new verdict is recorded.
+- File-wide compiler pragmas retain whether they occur in the file header, and fingerprinted file directives appear in changed-material excerpts. Node coverage directives retain line-sensitive attachment; blank lines after Cage declaration tags do not invalidate reviews.
+- Multi-contract review packets show shared source excerpts once and merge overlapping ranges. Gate guidance and the review skill explain how the reviewer can group contracts sharing a change; contracts are not grouped automatically.
+
 ## 0.5.1
 
 - Fix slow `check` and `gate` review fingerprinting: reuse module setup analysis, import resolution, symbol lookups and reference traversals within each contract. Memoize shared constant initializer proofs to prevent exponential work. Fingerprint selection and dependency bounds remain unchanged.

@@ -105,8 +105,11 @@ test("a change makes an acceptance outdated like a review; --accept without name
   assert.equal(stale[0].contract, "Send");
   assert.match(stale[0].message, /^Send \(accepted without a review\)\n- test "не передає повідомлення без квоти \(edited\)" \(src\/modules\/campaigns\/send\.test\.ts\) is new\n- test "не передає повідомлення без квоти" \(src\/modules\/campaigns\/send\.test\.ts\) is gone$/);
   assert.deepEqual(index(root).contracts.map(({ contract, status }) => `${contract} ${status}`), ["Send outdated"]);
-  // The gate blocks on an outdated acceptance as on an outdated review.
+  // Outdated acceptances follow the same review level as outdated verdicts.
+  assert.equal(cliWithStdin(root, JSON.stringify({ session_id: "accept-stale" }), "gate").code, 0);
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "require" }));
   assert.equal(cliWithStdin(root, JSON.stringify({ session_id: "accept-stale" }), "gate").code, 2);
+  writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "warn" }));
 
   // A real verdict for Quota replaces its acceptance.
   assert.equal(verdictFor(root, "Quota").code, 0);

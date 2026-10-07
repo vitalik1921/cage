@@ -25,7 +25,7 @@ Cage keeps the three in sync — **the spec** (what a TypeScript module promises
 - **The spec** is a Markdown file next to the code (`quota.cage.mdx`): TypeScript interfaces, and the rules they promise, written as plain sentences — `@invariant consume A successful take uses exactly one send.`
 - **The code** says which interface it implements (`@implements Quota`); **the tests** say which rules they check (`@covers consume`).
 - **Cage checks deterministically** — no model involved, the same answer on every run — that the code fits the interface (the TypeScript compiler decides), that every rule has a linked test that is not skipped, todo or empty, and that the review of those tests is up to date. **It does not run your tests**: whether they pass is your test runner's job, so CI runs both (see [In CI](#in-ci)).
-- **The review** is your agent's written verdict that the tests really check the rules: the judgement is the agent's, whether it is still up to date is Cage's. Cage stores it with a hash of what it looked at — the contract, the spec's prose, the code and tests, and their fingerprinted local dependencies — and asks for a new review, naming what changed, when any of it changes.
+- **The review** is your agent's written verdict that the tests really check the rules: the judgement is the agent's, whether it is still up to date is Cage's. Cage stores it with a hash of the contract, the spec's prose, the code and tests, and their fingerprinted local dependencies. New reviews ignore ordinary code comments and spacing; changes to code, requirements or significant annotations ask for a new review, naming what changed.
 - **When the agent says it is done** (the Stop hook of Claude Code or Codex), Cage sends whatever is out of sync back to it. After three tries in one session it lets the agent stop, with the report.
 
 Cage runs locally and makes no model calls: your agent does the judging, your test runner runs the tests. Start with one module — the bundled skills can write its spec from existing code. Node ≥ 24.11, TypeScript 5 or 6.
@@ -105,7 +105,7 @@ The agent edits the rule, then the code and its tests. Those edits make the reco
 Review the last commit in src/modules/accounts: do the tests still check what the spec promises?
 ```
 
-`cage check` names what changed since the last review — this test, that implementation, this contract — and `cage review` lists it with the rules it touches, then gives one contract at a time: the changed lines next to the previous verdict, the rest by file and line. `cage-review` reads the spec, the code, the tests and the stubs they use side by side, reports each weak spot with `file:line`, and records the verdict.
+`cage check` names what changed since the last review — this test, that implementation, this contract — and `cage review` lists it with the rules it touches. For contracts sharing a change, `cage review NameA NameB` gives one packet: shared parts appear once with the union of their source ranges, whole files supersede excerpts, and each contract keeps its previous findings and fingerprint. `cage-review` reads the common material once, checks its effect on each consumer's rules and tests, and records the separate verdicts together.
 
 **Keep agreements in CI.** Mark the contracts others rely on `@final` (no changes) or `@extendable` (additions only) and run `cage lock`. In CI, `cage check --base origin/main` fails a branch that changed or unfroze them.
 
@@ -220,11 +220,11 @@ Run `npx cage check`. It reports, with file and line, every contract with no imp
 | `cage check` | Everything: designs, implementations, test links, locks, coverage, reviews. Exit 1 on a violation. |
 | `cage check --phase design` | Specs only — while you write them. |
 | `cage review` | The reviewer's index: every contract whose review is missing or outdated, what changed since the recorded review and which rules that touches. `--all` lists every contract. |
-| `cage review <Name>` | The material of one contract: its rules, tests, code and helpers by file and line, the previous verdict on each rule, the lines that changed since it (`--files all` for every file whole, `--files none` for references only), and the verdict template. |
+| `cage review <Name…>` | One packet for the named contracts: rules, tests, code, previous findings and changed source ranges, with shared parts included once. `--files all` for whole files, `--files none` for references only. The verdict template keeps a separate entry per contract. |
 | `cage review --record <file>` | Saves the reviewer's verdict in `.cage/review.json`. From then on `check` wants an up-to-date one for every contract. |
 | `cage review --accept` | Takes the current spec, code and tests of every unreviewed contract as accepted, without a verdict: `check` asks for a review only when they change, and counts them apart from reviewed ones. For a person adopting Cage on an existing project; `--all` includes the reviewed contracts too. |
 | `cage lock` | Freezes the contracts marked `@final` (no changes) or `@extendable` (additions only); `check` refuses other changes. |
-| `cage gate` | `check` for the agent's Stop hook: errors and missing or outdated reviews go back to the agent. `init` wires it up. |
+| `cage gate` | `check` for the agent's Stop hook: only errors go back to the agent; reviews block only under `review: "require"`. `init` wires it up. |
 | `cage codes` | What every diagnostic code means and what to do about it. A diagnostic line itself names only the thing and the place. |
 
 `--root <dir>` for a project inside a monorepo; `--format json` for machines (`check`, `lock`, `init`, `review --record` and `review --accept` print `text` by default, the `review` packet `markdown`). In CI, `cage check --base origin/main` also refuses a lock that was lifted on the branch. `check` and `gate` show the 50 diagnostics that matter most and count the rest by code, so that a long report does not drown an agent: `--max-diagnostics <n|all>`, or `maxDiagnostics` in the configuration.
@@ -232,11 +232,15 @@ Run `npx cage check`. It reports, with file and line, every contract with no imp
 ## The loop with an agent
 
 1. The agent changes the spec, the code or a test. When it says it is done, the Stop hook runs `cage gate`.
-2. Only diagnostics that block the stop come back to the agent: a rule with no test, code that does not fit, an outdated review. Other warnings remain in `cage check`. After three returns in a session the gate lets the agent stop and leaves the report of blockers, so that a check it cannot fix does not hold the session forever.
-3. For a review: the agent runs `cage review` for the list, then `cage review <Name>` for one contract, judges the rules the change touches afresh and confirms or revises the previous verdict on the others, and records the verdict with `cage review --record`. Cage checks that the verdict is complete and is for the material as it is now; the judgement itself is the reviewer's, which may be the same agent. The verdict is tied to a fingerprint of the contract, the prose of its module's spec, its implementations and the tests linked to it — each with the code of its own file it calls and its suite's setup — and their fingerprinted local dependencies, followed a few levels deep (`reviewDependencies`). Change any of those and the review is outdated; change something else and it is not. Where the bounds stop, Cage says so instead of staying silent.
+2. Only errors come back to the agent: a rule with no test, code that does not fit, or a missing, outdated or weak review under `review: "require"`. Warnings remain in `cage check`. After three returns in a session the gate lets the agent stop and leaves the report of blockers, so that a check it cannot fix does not hold the session forever.
+3. For a review: the agent runs `cage review` for the list, groups contracts sharing a changed part or dependency file, then uses `cage review NameA NameB` for each group. It reads common material once, judges the touched rules of each contract afresh, confirms or revises previous findings on the others, and records the group's verdicts together with `cage review --record`. Unrelated changes can be reviewed separately. Cage checks that each verdict is complete and is for its contract's current material; the judgement itself is the reviewer's, which may be the same agent. The verdict is tied to a fingerprint of the contract, the prose of its module's spec, its implementations and the tests linked to it — each with the code of its own file it calls and its suite's setup — and their fingerprinted local dependencies, followed a few levels deep (`reviewDependencies`). Where the bounds stop, Cage says so instead of staying silent.
 4. `cage check` is clean; the agent stops.
 
 The rules the agent needs are in the `CLAUDE.md` / `AGENTS.md` section that `init` adds (or in the plugin), and in the two skills: `cage-design` — what deserves a contract and what goes to `.cageignore`, and the spec's structure (purpose, glossary, business rules, data, contracts, out of scope, open questions); `cage-review` — how to judge the tests against the rules and record the verdict.
+
+New review fingerprints (`sha256:code-v1:…`) exclude ordinary comments and spacing in implementations, tests, setup and dependencies, including dependencies kept whole. Packets still show the original source. Cage tags, annotated comments and tooling directives remain material; line-sensitive suppressions retain line layout. Literal contents and syntax affected by a newline remain significant. Contract declarations and the spec's prose are still hashed as text, and code with parse errors conservatively keeps its text fingerprint.
+
+Existing unversioned fingerprints (`sha256:…`) keep their previous source-text rules: upgrading alone does not invalidate or rewrite them. Comment edits can still stale these older records until a new verdict is recorded. There is no automatic acceptance or migration.
 
 ## Configuration
 
@@ -256,7 +260,7 @@ The rules the agent needs are in the `CLAUDE.md` / `AGENTS.md` section that `ini
 ```
 
 - `testAdapter`: `node:test` or `vitest`.
-- `review`: a contract without an up-to-date review is a warning (`warn`), an error (`require`) or nothing (`off`). The Stop hook returns a missing or outdated review to the agent either way; a weak verdict only under `require`.
+- `review`: a contract without an up-to-date review is a warning (`warn`), an error (`require`) or nothing (`off`). The Stop hook blocks on missing, outdated or weak reviews only under `require`; under `warn` they remain visible in `cage check`.
 - `coverage`: exported code of a module with a spec but without `@implements` is a warning, an error, or not looked at. A `.cageignore` next to the spec lists files that need none.
 - `maxDiagnostics`: how many diagnostics `check` and `gate` show at most (`50`, or `"all"`); errors come before warnings, missing or outdated reviews before the rest, and what is left out is counted by code. The exit code and the summary are of everything found.
 - `reviewDependencies` (`{ "depth": 3, "maxFiles": 40, "exclude": [] }` by default): how far a review's fingerprint follows local imports from the implementation and test files. Type-only imports, `node_modules`, files outside the project, declaration files and `exclude` patterns are not followed. Files beyond the bounds are reported (`REVIEW_SCOPE_LIMIT`, an error under `review: "require"`). An e2e spec that boots the whole application (a NestJS `AppModule`) reaches every file: exclude that entry point, e.g. `"exclude": ["src/app.module.ts"]`, and the fingerprint keeps to what the contract's code imports.

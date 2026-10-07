@@ -1,21 +1,33 @@
 import type ts from "typescript";
 import type { TypeScript } from "./typescript.ts";
+import { codeFingerprintText, fileDirectiveRanges } from "./review-fingerprint.ts";
 
 export interface Slice {
   text: string;
+  fingerprintText: string;
   pieces: { startLine: number; endLine: number }[];
 }
 
 /** Text and locations come from the same snapshot. Positions never enter the digest. */
-export function sliceNodes(nodes: readonly ts.Node[]): Slice {
+export function sliceNodes(ts: TypeScript, nodes: readonly ts.Node[]): Slice {
+  const pieces = nodes.map((node) => {
+    const source = node.getSourceFile();
+    const full = node.getFullText();
+    const first = node.pos + full.length - full.trimStart().length;
+    return { startLine: source.getLineAndCharacterOfPosition(first).line + 1, endLine: source.getLineAndCharacterOfPosition(node.end).line + 1 };
+  });
+  for (const source of new Set(nodes.map((node) => node.getSourceFile()))) {
+    for (const range of fileDirectiveRanges(ts, source)) {
+      const startLine = source.getLineAndCharacterOfPosition(range.pos).line + 1;
+      const endLine = source.getLineAndCharacterOfPosition(range.end).line + 1;
+      if (!pieces.some((piece) => piece.startLine <= startLine && piece.endLine >= endLine)) pieces.push({ startLine, endLine });
+    }
+  }
   return {
+    // Keep raw declaration text unchanged for legacy review fingerprints.
     text: nodes.map((node) => node.getFullText().trim()).join("\n\n"),
-    pieces: nodes.map((node) => {
-      const source = node.getSourceFile();
-      const full = node.getFullText();
-      const first = node.pos + full.length - full.trimStart().length;
-      return { startLine: source.getLineAndCharacterOfPosition(first).line + 1, endLine: source.getLineAndCharacterOfPosition(node.end).line + 1 };
-    }),
+    fingerprintText: JSON.stringify(nodes.map((node) => codeFingerprintText(ts, node))),
+    pieces,
   };
 }
 
@@ -389,9 +401,9 @@ export function dependencySlices(
       // are added here; walking a containing suite would accidentally include its unrelated tests.
       if (ts.isImportDeclaration(statement)) extra.add(statement);
     });
-    return sliceNodes([...nodes, ...[...extra].filter((node) => !nodes.includes(node)).sort((a, b) => a.pos - b.pos)]);
+    return sliceNodes(ts, [...nodes, ...[...extra].filter((node) => !nodes.includes(node)).sort((a, b) => a.pos - b.pos)]);
   });
   // A whole dependency can import a root implementation/test file. Its material is already present;
   // preserve that boundary rather than pulling another contract's implementation into this one.
-  return { roots: rootSlices, dependencies: new Map(dependencies.map((file) => [file, whole.has(file) ? undefined : sliceNodes([...selections.get(file)!].sort((a, b) => a.pos - b.pos))])) };
+  return { roots: rootSlices, dependencies: new Map(dependencies.map((file) => [file, whole.has(file) ? undefined : sliceNodes(ts, [...selections.get(file)!].sort((a, b) => a.pos - b.pos))])) };
 }
