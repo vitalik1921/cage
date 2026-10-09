@@ -36,7 +36,7 @@ Commands:
   check --phase design  Check only the designs: documents, contracts, tags, references and types
   check --base <rev>    Also require every lock recorded at that Git revision (for CI: --base origin/main)
   lock                  Record the declarations marked @final or @extendable in .cage/lock.json
-  review                An index for the reviewer: the contracts without a fresh recorded review, what changed since the
+  review                Suggested review groups and commands, plus the contracts without a fresh recorded review, what changed since the
                         recorded one and which invariants it touches; --all lists every contract. markdown (default) or json
   review <name...>      The material of the named contracts, one packet each, with the verdict template at the end;
                         --files changed (default): the lines that changed since the recorded review, everything when there
@@ -58,7 +58,7 @@ Options:
                     check, gate: show at most n diagnostics, the ones that matter most, and count the rest by code
                     (default: "maxDiagnostics" in the configuration, 50)
   --all             review: list every contract, not only those in need of a review
-  --files <mode>    review <name...>: how much text the packet carries: changed (default), all or none
+  --files <mode>    review <name...>: changed (default), context (experimental), all or none
   --agent <name>    init: claude, codex or none; may be repeated (claude and codex)
   --test-adapter <name>  init: node:test or vitest (default: vitest when package.json depends on it)
   -h, --help        Show this help
@@ -149,7 +149,7 @@ function run(argv: readonly string[], io: CliIo): number {
   if (values.record !== undefined && values.record.trim() === "") throw new UsageError("--record needs the path of a verdicts file.");
   if (command !== "review" && values.accept) throw new UsageError("--accept is an option of the review command.");
   if (values.files !== undefined && (command !== "review" || values.record !== undefined || values.accept || extra.length === 0)) throw new UsageError("--files is an option of review with the names of contracts.");
-  if (values.files !== undefined && values.files !== "all" && values.files !== "changed" && values.files !== "none") throw new UsageError(`Unknown --files mode "${values.files}"; expected changed, all or none.`);
+  if (values.files !== undefined && values.files !== "all" && values.files !== "changed" && values.files !== "context" && values.files !== "none") throw new UsageError(`Unknown --files mode "${values.files}"; expected changed, context, all or none.`);
   if (values.accept && values.record !== undefined) throw new UsageError("--accept records acceptances, --record a reviewer's verdicts; pass one of them.");
   if (command !== "check" && command !== "gate" && values["max-diagnostics"] !== undefined) throw new UsageError("--max-diagnostics is an option of the check and gate commands.");
   const maxDiagnostics = parseMaxDiagnostics(values["max-diagnostics"]);

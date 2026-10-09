@@ -4,9 +4,11 @@ import type { DesignModule } from "./design-phase.ts";
 import { compareDiagnostics, compareText, hasErrors, type Diagnostic } from "./diagnostic.ts";
 import { checkImplementationPhase, type ImplementationPhaseOptions, type ImplementationPhaseResult } from "./implementation-phase.ts";
 import { toProjectPath } from "./location.ts";
-import { collectMaterial, createFileReader, externalUses, fingerprintOf, type ExternalUse, type FileReader, type Material, type MaterialPart, type PacketFile } from "./review-material.ts";
+import { collectMaterial, createFileReader, externalUses, fingerprintOf, partsForReview, type ExternalUse, type FileReader, type Material, type MaterialPart, type PacketFile } from "./review-material.ts";
 import { ASSESSMENTS, countAssessments, findsFault, firstSentence, notesOf, readReviewFile, scopeDiagnostics, VERDICTS_SCHEMA, type Assessment, type Finding, type ReviewEntry } from "./review-record.ts";
 import type { Overlay, TypeScript } from "./typescript.ts";
+import { groupReviews, reviewCommand, type ReviewGroup } from "./review-groups.ts";
+import { reviewReferences } from "./review-references.ts";
 
 export type { PacketFile } from "./review-material.ts";
 
@@ -69,6 +71,8 @@ export interface ContractPacket {
   usedBy: ExternalUse[];
   /** The contract-level findings of the recorded review, first sentence each, led by the assessment when it is not adequate: observations that stay until the design's owner acts on them. */
   priorNotes: string[];
+  /** Full contract-level observations, retained for context-rich review packets. */
+  priorFindings: PriorFinding[];
   /** Project files the test files import, loaded into `files` as helpers: a stub or a fixture decides what a test observes. */
   helpers: string[];
   /** Local files whose content is part of the fingerprint, loaded or not: a change in any of them makes this review outdated. */
@@ -102,7 +106,7 @@ export interface ContractPacket {
 }
 
 /** How much of the material's text a packet carries; the skeleton always refers to every file by path and line. */
-export type Included = "all" | "changed" | "none";
+export type Included = "all" | "changed" | "context" | "none";
 
 export interface ReviewReport {
   schemaVersion: 1;
@@ -116,6 +120,7 @@ export interface ReviewReport {
    * "changed" (the default): for a contract with an outdated review, the lines of the parts that changed (`excerpts`) and
    * whole only the documents and dependency files that changed; for any other contract every file, as "all". "none": no text,
    * the reviewer opens the files named in the skeleton.
+   * "context" (experimental): whole designs and helpers, implementation/dependency slices and tests of touched invariants.
    */
   included: Included;
   instruction: string;
@@ -123,8 +128,11 @@ export interface ReviewReport {
   /** The same as a JSON Schema, for a reviewer that can be held to one. */
   resultSchema: typeof VERDICTS_SCHEMA;
   contracts: ContractPacket[];
+  groups: ReviewGroup[];
   files: PacketFile[];
   excerpts: Excerpt[];
+  /** Fingerprint scope boundaries still absent from an experimental context packet. */
+  contextGaps?: { contract: string; file: string; reason: "depth" | "maxFiles" | "outside" | "helper-import" }[];
   diagnostics: Diagnostic[];
 }
 
@@ -159,6 +167,8 @@ export interface ReviewIndex {
   /** "needed": the contracts without a record of their current material; the default. "all": every contract, with its status. */
   selection: "all" | "needed";
   contracts: ReviewIndexEntry[];
+  /** Suggested packets, with each contract needing review included exactly once. */
+  groups: ReviewGroup[];
   diagnostics: Diagnostic[];
 }
 
@@ -264,8 +274,22 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
     resultFormat: RESULT_FORMAT,
     resultSchema: VERDICTS_SCHEMA,
     contracts,
+    groups: groupReviews(contracts.map((packet) => ({ ...packet, status: packet.recordedReview.status }))),
     files: packetFiles,
     excerpts,
+    ...(included === "context" ? { contextGaps: contracts.flatMap((packet) => {
+      const loaded = new Set([...packetFiles.map((file) => file.path), ...excerpts.map((excerpt) => excerpt.file)]);
+      const beyond = materialOf(packet.contract).beyond.filter((entry) => !loaded.has(entry.file));
+      const helperImports = result.compiler ? packet.helpers.flatMap((helper) => {
+        const file = files.get(helper);
+        return file ? projectImports(root, result.compiler!.ts, result.compiler!.overlay, file) : [];
+      }) : [];
+      return [
+        ...beyond.map((entry) => ({ contract: packet.contract, file: entry.file, reason: entry.why })),
+        ...[...new Set(helperImports)].filter((file) => !loaded.has(file) && !beyond.some((entry) => entry.file === file))
+          .map((file) => ({ contract: packet.contract, file, reason: "helper-import" as const })),
+      ];
+    }) } : {}),
     diagnostics: diagnostics.sort(compareDiagnostics),
   });
   const { index } = result;
@@ -291,8 +315,27 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
   const excerpts: Excerpt[] = [];
   for (const packet of packets) {
     const material = materialOf(packet.contract);
+    const reviewParts = partsForReview(material.parts, priorOf(material.contract)?.fingerprint);
     const everything = [...packet.designs, ...packet.dependencies.designs, ...packet.implementations.map((i) => i.location.file), ...packet.tests.map((t) => t.file), ...packet.helpers, ...packet.fingerprinted];
     if (included === "none") continue;
+    if (included === "context") {
+      // Requirements stay whole: prose outside an invariant can qualify its promise.
+      for (const file of [...packet.designs, ...packet.dependencies.designs, ...packet.helpers]) whole.add(file);
+      const touched = packet.touched === null ? null : new Set(packet.touched);
+      const changed = new Set(packet.changed.map((change) => change.part));
+      for (const part of reviewParts) {
+        if (part.key === "contract" || part.key.startsWith("design ")) continue;
+        // Always retain changed tests; otherwise include the tests of the affected guarantees.
+        if (part.key.startsWith("test ") && touched !== null && packet.invariants.length > 0 && !changed.has(part.key) && !part.covers?.some((id) => touched.has(id))) continue;
+        if (part.pieces) {
+          const text = files.get(part.file)?.text;
+          if (text !== undefined) {
+            if (part.pieces.length > 0) excerpts.push({ part: part.key, file: part.file, pieces: part.pieces.map((piece) => ({ ...piece, text: linesOf(text, piece.startLine, piece.endLine) })) });
+          } else if (read(part.file, "dependency")) whole.add(part.file);
+        } else if (read(part.file, "dependency", part.text)) whole.add(part.file);
+      }
+      continue;
+    }
     // Only an outdated review has something to compare with; otherwise the reviewer reads everything. So does one whose
     // parts all match by digest and whose fingerprint still differs (the parts in another order, or the record edited).
     if (included === "all" || packet.recordedReview.status !== "outdated" || packet.changed.length === 0) {
@@ -301,7 +344,7 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
     }
     for (const change of packet.changed) {
       if (change.change === "gone") continue;
-      const part = material.parts.find((candidate) => candidate.key === change.part);
+      const part = reviewParts.find((candidate) => candidate.key === change.part);
       if (!part) continue;
       if (part.pieces) {
         // A dependency used only to establish inert initialization can have no selected lines.
@@ -319,6 +362,7 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
   }
   // A file another packet of this report holds is in the document; it is not "not loaded" for anyone.
   for (const packet of packets) packet.unloaded = packet.unloaded.filter((entry) => !whole.has(entry.file));
+  if (diagnostics.some((diagnostic) => diagnostic.code === "E_ENVIRONMENT")) complete = false;
   return report(ok, packets, [...files.values()].filter((file) => whole.has(file.path)).sort((a, b) => compareText(a.path, b.path)), sharedExcerpts(excerpts, whole, files));
 }
 
@@ -365,6 +409,7 @@ export function runReviewIndex(options: ImplementationPhaseOptions, selection: "
     complete: !hasErrors(diagnostics),
     selection,
     contracts,
+    groups: groupReviews(contracts),
     diagnostics: diagnostics.sort(compareDiagnostics),
   });
   if (!index) return report([]);
@@ -518,6 +563,7 @@ function packetOf(
     })),
     usedBy: compiler ? externalUses(root, compiler.ts, compiler.overlay, implementations, contract.module, contract.members.map((member) => member.name), sourceFiles) : [],
     priorNotes,
+    priorFindings: (prior?.findings ?? []).filter((finding) => finding.invariant === null).map(({ assessment, reason, evidence, suggestedChange }) => ({ assessment, reason, evidence, suggestedChange })),
     helpers: files.filter((file) => file.role === "helper").map((file) => file.path).sort(compareText),
     fingerprinted: material.dependencies,
     unloaded,
@@ -606,10 +652,17 @@ function importsOutside(
 }
 
 /** A changed part in one line: what it is, where, and what happened to it. */
-function describeChange(change: ChangedPart): string {
-  const where = change.line === undefined ? change.file : `${change.file}:${change.line}`;
+function describeChange(change: ChangedPart, file: (path: string) => string = (path) => path): string {
+  const where = change.line === undefined ? file(change.file) : `${file(change.file)}:${change.line}`;
   const what = change.kind === "contract" ? "the contract declaration" : change.kind === "design" ? "the prose of the design" : change.kind === "implementation" ? `implementation ${change.name}` : change.kind === "test" ? `test "${change.name}"` : "dependency";
   return `${what} ${change.change} (${where})`;
+}
+
+function describeGroup(group: ReviewGroup): string[] {
+  return [
+    ...group.sharedChanges.map(({ change, contracts }) => `- Shared: ${describeChange(change)} → ${contracts.join(", ")}`),
+    ...group.additionalChanges.flatMap(({ contract, changed }) => changed.map((change) => `- ${group.contracts.length > 1 ? "Additional for " : ""}${contract}: ${describeChange(change)}`)),
+  ];
 }
 
 /** The lines of an excerpt with their numbers, pieces apart. */
@@ -619,8 +672,8 @@ function numberedPieces(excerpt: Excerpt): string[] {
 }
 
 /** A diagnostic in one line of a packet or the index: the code, the thing, the place. */
-function diagnosticLine(diagnostic: Diagnostic): string {
-  const place = [diagnostic.file, diagnostic.line, diagnostic.column].filter((part) => part !== undefined).join(":");
+function diagnosticLine(diagnostic: Diagnostic, file: (path: string) => string = (path) => path): string {
+  const place = [diagnostic.file === undefined ? undefined : file(diagnostic.file), diagnostic.line, diagnostic.column].filter((part) => part !== undefined).join(":");
   return `${diagnostic.code} ${diagnostic.message.split("\n")[0]}${place === "" ? "" : ` (${place})`}`;
 }
 
@@ -642,10 +695,10 @@ function recordedLine(packet: ContractPacket): string {
   return `current: ${[invariants, whole].filter((part) => part !== "").join("; ")}`;
 }
 
-/** The verdict template for the packets of a report, with the fingerprints filled in: what `cage review --record` reads. */
-function verdictTemplate(contracts: readonly ContractPacket[]): string {
+/** One verdict schema example; the report lists each contract's fingerprint separately, once. */
+function verdictTemplate(): string {
   const finding = { invariant: "<id, or null for the contract as a whole>", assessment: "adequate | weak | unrelated | insufficient-context", reason: "<why>", evidence: "<file:line; null only for insufficient-context>", suggestedChange: "<what to change, or null>" };
-  return JSON.stringify({ version: 1, verdicts: contracts.map((packet) => ({ contract: packet.contract, fingerprint: packet.fingerprint, findings: [finding] })) });
+  return JSON.stringify({ version: 1, verdicts: [{ contract: "<name from the fingerprints below>", fingerprint: "<that contract's fingerprint>", findings: [finding] }] });
 }
 
 /**
@@ -654,31 +707,65 @@ function verdictTemplate(contracts: readonly ContractPacket[]): string {
  * and the reference's, not the packet's.
  */
 export function formatReviewMarkdown(report: ReviewReport): string {
+  // JSON retains per-part provenance; the reading view needs each source line only once.
+  const excerpts = report.included === "context" ? mergeContextExcerpts(report.excerpts, report.files) : report.excerpts;
+  const refs = reviewReferences(report.contracts.flatMap((packet) => [
+    ...packet.tests.map((test) => test.file), ...packet.fingerprinted, ...packet.helpers,
+    ...packet.designs, ...packet.dependencies.designs, ...packet.implementations.map((implementation) => implementation.location.file),
+  ]));
+  const file = refs.file;
   const texts = [...report.files.map((file) => file.text), ...report.excerpts.flatMap((excerpt) => excerpt.pieces.map((piece) => piece.text))];
   const longest = Math.max(2, ...texts.flatMap((text) => [...text.matchAll(/`+/g)].map((run) => run[0].length)));
   const fence = "`".repeat(longest + 1);
-  const at = ({ file, line }: Partial<SourceLocation>) => [file, line].filter((part) => part !== undefined).join(":");
+  const at = (location: Partial<SourceLocation>) => [location.file === undefined ? undefined : file(location.file), location.line].filter((part) => part !== undefined).join(":");
   const lines: string[] = [];
   if (!report.complete) lines.push("> The check found errors; part of the material has been rejected by the harness. They are listed with each contract.", "");
   if (report.contracts.length === 0) lines.push("No contract to review.", "");
+  if (report.included === "context") lines.push("Context prototype: full design documents, implementation slices, tests of touched invariants with their setup, helpers and fingerprinted dependency slices. Listed references beyond these are not included. Tests have not been run.", "");
+  for (const gap of report.contextGaps ?? []) lines.push(`Not included for ${gap.contract}: ${file(gap.file)} (${gap.reason === "depth" ? "dependency depth limit" : gap.reason === "maxFiles" ? "dependency file limit" : gap.reason === "helper-import" ? "imported by a test helper" : "outside the project"}).`);
+  if (report.contextGaps?.length) lines.push("");
+
+  const excerptLines = (excerpt: Excerpt): string[] => {
+    const ranges = excerpt.pieces.map((piece) => (piece.startLine === piece.endLine ? `${piece.startLine}` : `${piece.startLine}-${piece.endLine}`)).join(", ");
+    return [`### ${file(excerpt.file)}:${ranges}`, `${fence}ts`, ...numberedPieces(excerpt), fence, ""];
+  };
+  const fileLines = (file: PacketFile): string[] => {
+    const language = file.path.endsWith(".mdx") ? "mdx" : "ts";
+    const numbered = file.text.replace(/\n$/, "").split("\n");
+    const width = String(numbered.length).length;
+    return [`### ${refs.file(file.path)} (${file.role})`, `${fence}${language}`, ...numbered.map((line, index) => `${String(index + 1).padStart(width)} | ${line}`), fence, ""];
+  };
+  const sharedGroups = report.groups.filter((group) => group.sharedChanges.length > 0);
+  const sharedChanges = sharedGroups.flatMap((group) => group.sharedChanges).map((shared, index) => ({ ...shared, id: `S${index + 1}` }));
+  const sharedFiles = new Set(sharedGroups.flatMap((group) => group.sharedChanges.map(({ change }) => change.file)));
+  if (sharedGroups.length > 0) {
+    lines.push("## Shared changes", "", "Shared part/file; selected lines and previous review baselines may differ. Check each consumer's invariants and keep separate verdicts.", "");
+    for (const shared of sharedChanges) lines.push(`${shared.id}: ${describeChange(shared.change, file)} → ${shared.contracts.join(", ")}`);
+    lines.push("");
+    for (const excerpt of excerpts.filter((excerpt) => sharedFiles.has(excerpt.file))) lines.push(...excerptLines(excerpt));
+    for (const file of report.files.filter((file) => sharedFiles.has(file.path))) lines.push(...fileLines(file));
+  }
 
   for (const packet of report.contracts) {
     const declarations = packet.tests.flatMap((file) => file.declarations);
     const inactive = declarations.filter((test) => test.status !== "active").length;
     lines.push(`# ${packet.contract} (${packet.module})`);
-    lines.push(`fingerprint: ${packet.fingerprint}`);
-    lines.push(`design: ${packet.designs.join(", ")}${packet.dependencies.designs.length > 0 ? `; uses ${packet.dependencies.designs.join(", ")}` : ""}`);
+    lines.push(`design: ${packet.designs.map(file).join(", ")}${packet.dependencies.designs.length > 0 ? `; uses ${packet.dependencies.designs.map(file).join(", ")}` : ""}`);
     if (packet.description) lines.push(`description: ${packet.description}`);
     if (packet.lock) lines.push(`lock: @${packet.lock}`);
     lines.push(`review: ${recordedLine(packet)}`);
-    lines.push(`tests: ${declarations.length === 0 ? "none tagged" : inactive === 0 ? `all ${declarations.length} active` : `${inactive} of ${declarations.length} inactive (skipped, todo, empty or a broken import); not run by cage`}`);
-    if (packet.diagnostics.length > 0) lines.push(`check: ${packet.diagnostics.map(diagnosticLine).join("; ")}`);
+    lines.push(`tests: ${declarations.length === 0 ? "none tagged" : inactive === 0 ? `all ${declarations.length} active${report.included === "context" ? "; not run by cage" : ""}` : `${inactive} of ${declarations.length} inactive (skipped, todo, empty or a broken import); not run by cage`}`);
+    if (packet.diagnostics.length > 0) lines.push(`check: ${packet.diagnostics.map((diagnostic) => diagnosticLine(diagnostic, file)).join("; ")}`);
     lines.push("");
 
     if (packet.recordedReview.status === "outdated") {
       lines.push("## Changed");
       if (packet.changed.length === 0) lines.push("- no part differs by its digest; every file is included, judge every invariant afresh");
-      for (const change of packet.changed) lines.push(`- ${describeChange(change)}`);
+      const common = sharedChanges.filter((shared) => shared.contracts.includes(packet.contract));
+      if (common.length > 0) lines.push(`- shared: ${common.map(({ id }) => id).join(", ")}`);
+      for (const change of packet.changed) {
+        if (!common.some(({ change: shared }) => shared.part === change.part && shared.kind === change.kind && shared.file === change.file && shared.change === change.change)) lines.push(`- ${describeChange(change, file)}`);
+      }
       const touched = packet.touched ?? [];
       const rest = packet.invariants.map(({ id }) => id).filter((id) => !touched.includes(id));
       if (packet.invariants.length > 0 && packet.changed.length > 0) lines.push(`touches: ${touched.length === 0 ? "no invariant's tests" : touched.join(", ")}${touched.length > 0 ? " (judge afresh)" : ""}${rest.length > 0 ? `; ${rest.join(", ")} (confirm or revise)` : ""}`);
@@ -689,10 +776,11 @@ export function formatReviewMarkdown(report: ReviewReport): string {
     if (packet.invariants.length === 0) lines.push("- none: assess the contract as a whole");
     for (const invariant of packet.invariants) {
       lines.push(`- ${invariant.id}${invariant.member ? ` on ${invariant.member}` : ""} (${at(invariant.location)}): ${invariant.text}`);
-      lines.push(`  tests: ${invariant.tests.length === 0 ? "none" : invariant.tests.map((test) => `${test.file}:${test.line} "${test.title}"`).join("; ")}`);
+      lines.push(`  tests: ${invariant.tests.length === 0 ? "none" : invariant.tests.map(refs.test).join(", ")}`);
       for (const finding of invariant.prior) {
         const stands = invariant.touched === null ? "" : invariant.touched ? ", changed" : ", unchanged";
-        lines.push(`  recorded: ${finding.assessment}, "${firstSentence(finding.reason)}"${finding.evidence ? ` (${finding.evidence})` : ""}${stands}`);
+        lines.push(`  recorded: ${finding.assessment}, "${report.included === "context" ? finding.reason : firstSentence(finding.reason)}"${finding.evidence ? ` (${refs.evidence(finding.evidence)})` : ""}${stands}`);
+        if (report.included === "context" && finding.suggestedChange) lines.push(`  suggested change: ${finding.suggestedChange}`);
       }
     }
     lines.push("");
@@ -701,40 +789,61 @@ export function formatReviewMarkdown(report: ReviewReport): string {
     if (packet.implementations.length === 0) lines.push("- none tagged");
     for (const implementation of packet.implementations) lines.push(`- ${implementation.name} (${implementation.kind}, ${at(implementation.location)})${implementation.compatible ? "" : ": does not fit the contract"}`);
     if (packet.members.length > 0) lines.push(`- members: ${packet.members.map((member) => `${member.name}${member.description ? ` (${member.description})` : ""}`).join(", ")}`);
-    for (const file of packet.tests) {
-      const inactiveHere = file.declarations.filter((test) => test.status !== "active");
-      lines.push(`- tests: ${file.file}${inactiveHere.length > 0 ? `; inactive: ${inactiveHere.map((test) => `"${test.title}" ${test.inactiveBecause ?? test.status} (line ${test.line})`).join(", ")}` : ""}`);
+    for (const source of packet.tests) {
+      const inactiveHere = source.declarations.filter((test) => test.status !== "active");
+      lines.push(`- tests: ${file(source.file)}${inactiveHere.length > 0 ? `; inactive: ${inactiveHere.map((test) => `${refs.test({ ...test, file: source.file })} ${test.inactiveBecause ?? test.status}`).join(", ")}` : ""}`);
     }
-    if (packet.fingerprinted.length > 0) lines.push(`- fingerprinted: ${packet.fingerprinted.join(", ")}`);
-    if (packet.helpers.length > 0) lines.push(`- test helpers: ${packet.helpers.join(", ")}`);
+    if (packet.fingerprinted.length > 0) lines.push(`- fingerprinted: ${packet.fingerprinted.map(file).join(", ")}`);
+    if (packet.helpers.length > 0) lines.push(`- test helpers: ${packet.helpers.map(file).join(", ")}`);
     if (packet.dependencies.uses.length > 0) lines.push(`- uses: ${packet.dependencies.uses.map((edge) => `${edge.contract} (${edge.module})`).join(", ")}`);
     if (packet.dependencies.usedBy.length > 0) lines.push(`- used by: ${packet.dependencies.usedBy.map((edge) => `${edge.contract} (${edge.module})`).join(", ")}`);
-    for (const use of packet.usedBy) lines.push(`- used outside the module: ${use.file}:${use.line} imports ${use.names.join(", ")}${use.members.length > 0 ? `, calls ${use.members.join(", ")}` : ""}`);
-    for (const note of packet.priorNotes) lines.push(`- previous review note: ${note}`);
-    for (const file of packet.untaggedTests) lines.push(`- test file without tags: ${file}`);
-    for (const { file, importedBy } of packet.unloaded) lines.push(`- not loaded: ${file} (${importedBy.map((importer) => `${importer.names.join(", ")} for ${importer.file}`).join("; ")})`);
+    for (const use of packet.usedBy) lines.push(`- used outside the module: ${file(use.file)}:${use.line} imports ${use.names.join(", ")}${use.members.length > 0 ? `, calls ${use.members.join(", ")}` : ""}`);
+    if (report.included === "context") {
+      for (const finding of packet.priorFindings) lines.push(`- previous review note: ${finding.assessment}: ${finding.reason}${finding.evidence ? ` (${refs.evidence(finding.evidence)})` : ""}${finding.suggestedChange ? `; suggested change: ${finding.suggestedChange}` : ""}`);
+    } else for (const note of packet.priorNotes) lines.push(`- previous review note: ${note}`);
+    for (const path of packet.untaggedTests) lines.push(`- test file without tags: ${file(path)}`);
+    for (const { file: path, importedBy } of packet.unloaded) lines.push(`- not loaded: ${file(path)} (${importedBy.map((importer) => `${importer.names.join(", ")} for ${file(importer.file)}`).join("; ")})`);
     lines.push("");
   }
 
-  if (report.excerpts.length > 0) {
-    lines.push("## Changed material", "");
-    for (const excerpt of report.excerpts) {
-      const ranges = excerpt.pieces.map((piece) => (piece.startLine === piece.endLine ? `${piece.startLine}` : `${piece.startLine}-${piece.endLine}`)).join(", ");
-      lines.push(`### ${excerpt.file}:${ranges}`, `${fence}ts`, ...numberedPieces(excerpt), fence, "");
-    }
+  const remainingExcerpts = excerpts.filter((excerpt) => !sharedFiles.has(excerpt.file));
+  if (remainingExcerpts.length > 0) {
+    lines.push(report.included === "context" ? "## Review material (current code, including unchanged context)" : "## Changed material", "");
+    for (const excerpt of remainingExcerpts) lines.push(...excerptLines(excerpt));
   }
-  if (report.files.length > 0) {
+  const remainingFiles = report.files.filter((file) => !sharedFiles.has(file.path));
+  if (remainingFiles.length > 0) {
     lines.push("## Files", "");
-    for (const file of report.files) {
-      const language = file.path.endsWith(".mdx") ? "mdx" : "ts";
-      // Every line is numbered, so that evidence can name a line without counting.
-      const numbered = file.text.replace(/\n$/, "").split("\n");
-      const width = String(numbered.length).length;
-      lines.push(`### ${file.path} (${file.role})`, `${fence}${language}`, ...numbered.map((line, index) => `${String(index + 1).padStart(width)} | ${line}`), fence, "");
-    }
+    for (const file of remainingFiles) lines.push(...fileLines(file));
   }
-  if (report.contracts.length > 0) lines.push("## Verdict", "`cage review --record <file>` reads this shape, one finding per invariant:", verdictTemplate(report.contracts), "");
-  return `${lines.join("\n")}\n`;
+  if (report.contracts.length > 0) lines.push("## Verdict", "`cage review --record <file>` reads this shape. Add one verdict per contract, one finding per invariant (null for a contract without invariants). Use full paths in evidence:", verdictTemplate(), "", "Fingerprints:", ...report.contracts.map((packet) => `${packet.contract}: ${packet.fingerprint}`), "");
+  return `${[...refs.lines(), ...lines].join("\n")}\n`;
+}
+
+/** Union source lines across tests/parts without reading beyond the report's frozen snapshot. */
+function mergeContextExcerpts(excerpts: readonly Excerpt[], files: readonly PacketFile[]): Excerpt[] {
+  const whole = new Set(files.map((file) => file.path));
+  const byFile = new Map<string, { part: string; lines: Map<number, string> }>();
+  for (const excerpt of excerpts) {
+    if (whole.has(excerpt.file)) continue;
+    const entry = byFile.get(excerpt.file) ?? { part: excerpt.part, lines: new Map<number, string>() };
+    for (const piece of excerpt.pieces) {
+      const text = piece.text.split("\n");
+      for (let line = piece.startLine; line <= piece.endLine; line++) entry.lines.set(line, text[line - piece.startLine]);
+    }
+    byFile.set(excerpt.file, entry);
+  }
+  return [...byFile].map(([file, { part, lines }]) => {
+    const pieces: Excerpt["pieces"] = [];
+    for (const [line, text] of [...lines].sort(([a], [b]) => a - b)) {
+      const last = pieces.at(-1);
+      if (last && line === last.endLine + 1) {
+        last.endLine = line;
+        last.text += `\n${text}`;
+      } else pieces.push({ startLine: line, endLine: line, text });
+    }
+    return { file, part, pieces };
+  });
 }
 
 /** The index as Markdown: one entry per contract, its status and what changed. */
@@ -748,6 +857,11 @@ export function formatReviewIndexMarkdown(report: ReviewIndex): string {
   const needing = report.contracts.filter((entry) => entry.status === "none" || entry.status === "outdated" || entry.status === "unknown").length;
   const head = report.selection === "needed" ? (needing === 0 ? "no contract needs a review" : `${needing} ${needing === 1 ? "contract needs" : "contracts need"} a review`) : `${report.contracts.length} contracts, ${needing} in need of a review`;
   lines.push(`# Review index: ${head}`, "");
+  if (report.groups.length > 0) {
+    lines.push("## Suggested review packets", "", "Run from the project root. Each contract appears in one suggested packet; shared parts/files can have different selected lines and review baselines.", "");
+    for (const group of report.groups) lines.push(`### ${reviewCommand(group.command)}`, ...describeGroup(group), "");
+    lines.push("## Contracts", "");
+  }
   const describeStatus = (entry: ReviewIndexEntry) => {
     if (entry.status === "none") return "no review";
     if (entry.status === "unknown") return "not known (the review file cannot be used)";

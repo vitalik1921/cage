@@ -48,6 +48,19 @@ export interface MaterialPart {
   pieces?: { startLine: number; endLine: number }[];
 }
 
+// Compatibility data is private: it must not leak into packets or their equality checks.
+const previousFingerprints = new WeakMap<MaterialPart, () => Pick<MaterialPart, "text" | "fingerprintText" | "pieces">>();
+
+/** Packets must show both the current scope and material that made an older record stale. */
+export function partsForReview(parts: readonly MaterialPart[], recordedFingerprint?: string): readonly MaterialPart[] {
+  if (!recordedFingerprint || recordedFingerprint.startsWith("sha256:code-v2:")) return parts;
+  return parts.map((part) => {
+    const previous = previousFingerprints.get(part)?.();
+    if (!previous) return part;
+    return { ...part, pieces: part.pieces && previous.pieces ? [...part.pieces, ...previous.pieces] : undefined };
+  });
+}
+
 export interface Material {
   contract: Contract;
   own: DesignModule;
@@ -192,15 +205,23 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
     // Cache the full snapshot for excerpts and --files all. Never substitute sliced text for a file.
     read(dependency.file, "dependency", dependency.text);
   }
-  const slices = compiler ? dependencySlices(compiler.ts, parsed, roots, closure.files.map(({ file }) => file), otherImplementations, (specifier, file) => {
+  const slice = (members: boolean) => compiler ? dependencySlices(compiler.ts, parsed, roots, closure.files.map(({ file }) => file), otherImplementations, (specifier, file) => {
     const resolved = compiler.overlay.resolveFrom(specifier, path.join(result.root, file));
     return resolved ? toProjectPath(result.root, resolved) : undefined;
-  }) : undefined;
+  }, members) : undefined;
+  const slices = slice(true);
+  let previous: ReturnType<typeof slice>;
+  const old = () => previous ??= slice(false);
   roots.forEach(({ part }, i) => { if (slices) Object.assign(part, slices.roots[i]); });
+  roots.forEach(({ part }, i) => { if (slices) previousFingerprints.set(part, () => old()!.roots[i]); });
   for (const dependency of closure.files) parts.push({ key: `dependency ${dependency.file}`, file: dependency.file, ...(slices?.dependencies.get(dependency.file) ?? {
     text: dependency.text,
     ...(compiler && parsed.has(dependency.file) ? { fingerprintText: codeFingerprintText(compiler.ts, parsed.get(dependency.file)!) } : {}),
   }) });
+  for (const part of parts) if (part.key.startsWith("dependency ")) previousFingerprints.set(part, () => old()?.dependencies.get(part.file) ?? {
+    text: closure.files.find((file) => file.file === part.file)!.text,
+    ...(compiler && parsed.has(part.file) ? { fingerprintText: codeFingerprintText(compiler.ts, parsed.get(part.file)!) } : {}),
+  });
   return {
     contract,
     own,
@@ -504,9 +525,12 @@ export const digestOf = (text: string) => `sha256:${crypto.createHash("sha256").
 
 /** New fingerprints identify their algorithm; existing unversioned records retain exact source-text checking. */
 export function fingerprintOf(parts: readonly MaterialPart[], recordedFingerprint?: string): { fingerprint: string; digests: Record<string, string> } {
-  const prefix = "sha256:code-v1:";
-  const legacy = recordedFingerprint !== undefined && !recordedFingerprint.startsWith(prefix);
-  const digests = parts.map((part) => [part.key, digestOf(legacy ? part.text : part.fingerprintText ?? part.text)] as const);
+  const prefix = recordedFingerprint?.startsWith("sha256:code-v1:") ? "sha256:code-v1:" : "sha256:code-v2:";
+  const legacy = recordedFingerprint !== undefined && !recordedFingerprint.startsWith("sha256:code-v1:") && !recordedFingerprint.startsWith("sha256:code-v2:");
+  const digests = parts.map((part) => {
+    const material = legacy || prefix === "sha256:code-v1:" ? previousFingerprints.get(part)?.() ?? part : part;
+    return [part.key, digestOf(legacy ? material.text : material.fingerprintText ?? material.text)] as const;
+  });
   const hash = crypto.createHash("sha256");
   for (const [key, digest] of digests) hash.update(`${key}\n${digest}\0`);
   return { fingerprint: `${legacy ? "sha256:" : prefix}${hash.digest("hex")}`, digests: Object.fromEntries(digests) };

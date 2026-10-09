@@ -1,6 +1,7 @@
 import type ts from "typescript";
 import type { TypeScript } from "./typescript.ts";
 import { codeFingerprintText, fileDirectiveRanges } from "./review-fingerprint.ts";
+import { objectMembers, readMember } from "./review-members.ts";
 
 export interface Slice {
   text: string;
@@ -43,6 +44,7 @@ export function dependencySlices(
   dependencies: readonly string[],
   stopAt: ReadonlySet<string>,
   resolve: (specifier: string, file: string) => string | undefined,
+  members = true,
 ): { roots: Slice[]; dependencies: Map<string, Slice | undefined> } {
   const host: ts.CompilerHost = {
     getSourceFile: (name) => sources.get(name),
@@ -149,7 +151,7 @@ export function dependencySlices(
       if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isTypeAssertionExpression(node) || ts.isSatisfiesExpression(node)) return expression(node.expression);
       if (ts.isPrefixUnaryExpression(node)) return (node.operator === ts.SyntaxKind.PlusToken || node.operator === ts.SyntaxKind.MinusToken) && ts.isNumericLiteral(node.operand);
       if (ts.isArrayLiteralExpression(node)) return node.elements.every((element) => !ts.isSpreadElement(element) && !ts.isOmittedExpression(element) && expression(element));
-      if (ts.isObjectLiteralExpression(node)) return node.properties.every((property) => ts.isPropertyAssignment(property) && !ts.isComputedPropertyName(property.name) && expression(property.initializer));
+      if (ts.isObjectLiteralExpression(node)) return node.properties.every((property) => ts.isPropertyAssignment(property) && !ts.isComputedPropertyName(property.name) && expression(property.initializer) || members && ts.isMethodDeclaration(property) && !ts.isComputedPropertyName(property.name));
       if (!ts.isIdentifier(node)) return false;
       const symbol = symbolAt(node);
       const binding = symbol?.declarations?.map(imported).find((candidate) => candidate !== undefined);
@@ -201,18 +203,42 @@ export function dependencySlices(
   };
   for (const file of dependencies) if (!inert(file)) makeWhole(file);
 
-  const select = (statement: ts.Statement): void => {
+  const objects = members ? objectMembers(ts, sources, symbolAt, imported, exported) : undefined;
+  const partial = new Map<ts.Statement, Set<string>>();
+  const select = (statement: ts.Statement, member?: string): void => {
     const file = statement.getSourceFile().fileName;
     const selected = selections.get(file);
-    if (!selected || whole.has(file) || selected.has(statement)) return;
+    if (!selected || whole.has(file) || selected.has(statement) && !partial.has(statement)) return;
+    const object = member === undefined ? undefined : objects?.get(statement);
+    if (object && object.properties.has(member!)) {
+      const demanded = partial.get(statement) ?? new Set<string>();
+      if (demanded.has(member!)) return;
+      demanded.add(member!);
+      partial.set(statement, demanded);
+      selected.add(statement);
+      const declaration = object.statement.declarationList.declarations[0];
+      if (declaration.type) references(declaration.type, (node) => select(node));
+      let initializer = declaration.initializer!;
+      while (ts.isParenthesizedExpression(initializer) || ts.isAsExpression(initializer) || ts.isTypeAssertionExpression(initializer) || ts.isSatisfiesExpression(initializer)) {
+        if (!ts.isParenthesizedExpression(initializer)) references(initializer.type, (node) => select(node));
+        initializer = initializer.expression;
+      }
+      references(object.properties.get(member!)!, (node) => select(node));
+      return;
+    }
+    partial.delete(statement);
     selected.add(statement);
     references(statement, (node) => select(node));
   };
-  const demand = (file: string | undefined, name: string | undefined): void => {
+  const demand = (file: string | undefined, name: string | undefined, member?: string): void => {
     if (!file || !dependencySet.has(file)) return;
     const declarations = name && exported(file, name);
     if (!declarations) makeWhole(file);
-    else for (const declaration of declarations) select(declaration);
+    else for (const declaration of declarations) {
+      // Keep a named re-export's connecting syntax without broadening its target back to all members.
+      if (member !== undefined && objects?.get(declarations.at(-1)!) && ts.isExportDeclaration(declaration)) selections.get(declaration.getSourceFile().fileName)?.add(declaration);
+      else select(declaration, member);
+    }
   };
   const referenceStatements = new Map<ts.Node, ReadonlySet<ts.Statement>>();
   const references = (node: ts.Node, include: (node: ts.Statement) => void): void => {
@@ -234,15 +260,23 @@ export function dependencySlices(
         return;
       }
       if (ts.isIdentifier(child)) {
+        if (members && ts.isPropertyAccessExpression(child.parent) && child.parent.name === child) return;
         const symbol = ts.isExportSpecifier(child.parent) ? checker.getExportSpecifierLocalTargetSymbol(child.parent) : symbolAt(child);
         for (const declaration of symbol?.declarations ?? []) {
+          if (members && (declaration as ts.NamedDeclaration).name === child && !ts.isShorthandPropertyAssignment(child.parent)) continue;
+          // Bindings inside the selected method are already traversed with it. Their
+          // top-level owner is not an additional reference to the enclosing object.
+          if (members && declaration.getSourceFile() === node.getSourceFile() && declaration.pos >= node.pos && declaration.end <= node.end) continue;
           const binding = imported(declaration);
           if (binding) {
             statements.add(binding.statement);
-            demand(binding.file, binding.name);
+            demand(binding.file, binding.name, members ? readMember(ts, child) : undefined);
           } else {
             const statement = top(declaration);
-            if (statement && !ts.isImportDeclaration(statement) && statement.getSourceFile() === node.getSourceFile()) statements.add(statement);
+            if (statement && !ts.isImportDeclaration(statement) && statement.getSourceFile() === node.getSourceFile()) {
+              if (members && dependencySet.has(statement.getSourceFile().fileName) && objects?.get(statement)) select(statement, readMember(ts, child));
+              else statements.add(statement);
+            }
           }
         }
       }
@@ -405,5 +439,15 @@ export function dependencySlices(
   });
   // A whole dependency can import a root implementation/test file. Its material is already present;
   // preserve that boundary rather than pulling another contract's implementation into this one.
-  return { roots: rootSlices, dependencies: new Map(dependencies.map((file) => [file, whole.has(file) ? undefined : sliceNodes(ts, [...selections.get(file)!].sort((a, b) => a.pos - b.pos))])) };
+  return { roots: rootSlices, dependencies: new Map(dependencies.map((file) => {
+    if (whole.has(file)) return [file, undefined];
+    const selected = [...selections.get(file)!].sort((a, b) => a.pos - b.pos);
+    const slice = sliceNodes(ts, selected);
+    if (selected.some((node) => partial.has(node))) slice.fingerprintText = JSON.stringify(selected.map((node) => {
+      const demanded = partial.get(node);
+      const object = demanded && objects?.get(node);
+      return object ? [object.shell, ...[...demanded!].sort().map((name) => [name, codeFingerprintText(ts, object.properties.get(name)!)])] : codeFingerprintText(ts, node);
+    }));
+    return [file, slice];
+  })) };
 }

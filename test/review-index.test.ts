@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
 import type { ReviewIndex, ReviewReport } from "../src/review.ts";
-import { CAMPAIGNS, cli, contract, copyFixture, designProject, editFile, find, inFixture, MAIL, mdx, QUOTA, readFile, writeFile } from "./helpers.ts";
+import { CAMPAIGNS, cli, contract, copyFixture, designProject, editFile, find, inFixture, MAIL, mdx, QUOTA, readFile, reviewFileId, writeFile } from "./helpers.ts";
 
 const SEND_TEST = "src/modules/campaigns/send.test.ts";
 const SEND_SERVICE = "src/modules/campaigns/send-service.ts";
@@ -62,10 +62,43 @@ test("a shared review packet prints identical dependency excerpts once and retai
   }
   assert.deepEqual(packet(root, "Right", "Left").excerpts, grouped.excerpts);
   const markdown = cli(root, "review", "Left", "Right").stdout;
-  assert.equal(markdown.split(`### ${SHARED}:`).length - 1, 1);
+  assert.ok(markdown.indexOf("export const shared = 2;") < markdown.indexOf("# Left ("));
+  assert.match(markdown, /Shared part\/file; selected lines and previous review baselines may differ/);
+  assert.equal(markdown.split(`### ${reviewFileId(markdown, SHARED)}:`).length - 1, 1);
   assert.equal(markdown.split("export const shared = 2;").length - 1, 1);
+  assert.equal(markdown.split(`dependency changed (${reviewFileId(markdown, SHARED)})`).length - 1, 1);
+  assert.match(markdown, /^S1: dependency changed \(F\d+\) → Left, Right$/m);
+  assert.equal(markdown.split("- shared: S1").length - 1, 2);
   recordAdequate(root, ["Left", "Right"]);
   assert.deepEqual(index(root).contracts, []);
+  assert.deepEqual(index(root).groups, []);
+});
+
+/** @tests Cli
+ * @covers review-index review-packet */
+test("review suggests executable shared packets, keeps extra edits visible and excludes fresh consumers", (t) => {
+  const root = sharedProject(t, true);
+  assert.deepEqual(index(root).groups.map(({ contracts }) => contracts), [["Left"], ["Right"]]);
+  recordAdequate(root, ["Left", "Right"]);
+  editFile(root, SHARED, (text) => text.replace("leftOnly = 10", "leftOnly = 11"));
+  assert.deepEqual(index(root, "--all").groups.map(({ contracts }) => contracts), [["Left"]]);
+  editFile(root, SHARED, (text) => text.replace("shared = 1", "shared = 2"));
+  editFile(root, "src/consumers/left.ts", (text) => text.replace("shared + leftOnly", "shared + leftOnly + 1"));
+  const [group] = index(root).groups;
+  assert.deepEqual(group.command, ["cage", "review", "Left", "Right"]);
+  assert.deepEqual(group.sharedChanges.map(({ change, contracts }) => [change.part, contracts]), [[`dependency ${SHARED}`, ["Left", "Right"]]]);
+  assert.ok(group.additionalChanges.some(({ contract, changed }) => contract === "Left" && changed.some(({ kind }) => kind === "implementation")));
+  const suggested = cli(root, ...group.command.slice(1), "--format", "json");
+  assert.equal(suggested.code, 0);
+  const report = JSON.parse(suggested.stdout) as ReviewReport;
+  assert.deepEqual(report.groups, [group]);
+  assert.deepEqual(report.contracts.map(({ contract }) => contract), ["Left", "Right"]);
+  const markdown = cli(root, "review").stdout;
+  assert.match(markdown, /cage review Left Right/);
+  assert.match(markdown, /Shared: dependency changed .*shared\.ts.* → Left, Right/);
+  assert.match(markdown, /Additional for Left: implementation left changed/);
+  recordAdequate(root, "Right");
+  assert.deepEqual(index(root).groups.map(({ contracts }) => contracts), [["Left"]]);
 });
 
 /** @tests Cli
@@ -117,9 +150,9 @@ test("without names review is an index: which contracts need a review, what chan
       { contract: "Quota", status: "none", invariants: ["accounts", "empty", "consume", "race"], touched: null, changed: [], files: 3 },
     ],
   );
-  assert.match(first.contracts[0].fingerprint, /^sha256:code-v1:[0-9a-f]{64}$/);
+  assert.match(first.contracts[0].fingerprint, /^sha256:code-v2:[0-9a-f]{64}$/);
   const text = cli(root, "review").stdout;
-  assert.match(text, /^# Review index: 3 contracts need a review\n\n- Send /);
+  assert.match(text, /^# Review index: 3 contracts need a review\n\n## Suggested review packets/);
   assert.match(text, /^- Send \(src\/modules\/campaigns\): no review; 4 invariants, 5 files$/m);
   assert.match(text, /^- Sender \(src\/modules\/mail\): no review; 0 invariants, 2 files; W_NO_INVARIANTS$/m);
   // No file text in the index.
@@ -206,18 +239,21 @@ test("a named packet carries the changed lines of an outdated review with the pr
   assert.ok(excerpt.pieces[0].text.trimEnd().endsWith("});"));
 
   const markdown = cli(root, "review", "Send").stdout;
+  const testRef = reviewFileId(markdown, SEND_TEST);
   assert.match(markdown, /^review: outdated, 1 part changed, touching 1 of 4 invariants$/m);
-  assert.match(markdown, /^## Changed\n- test "не передає повідомлення без квоти" changed \(src\/modules\/campaigns\/send\.test\.ts:\d+\)\ntouches: limit \(judge afresh\); quota, quota-error, sender-error \(confirm or revise\)$/m);
-  assert.match(markdown, /^  recorded: adequate, "limit is checked\." \(src\/modules\/campaigns\/send\.test\.ts:9\), changed$/m);
-  assert.match(markdown, /^  recorded: adequate, "quota is checked\." \(src\/modules\/campaigns\/send\.test\.ts:9\), unchanged$/m);
-  assert.match(markdown, new RegExp(`^### src/modules/campaigns/send\\.test\\.ts:${start}-${excerpt.pieces[0].endLine}, `, "m"));
+  assert.match(markdown, new RegExp(`^## Changed\\n- test "не передає повідомлення без квоти" changed \\(${testRef}:\\d+\\)\\ntouches: limit \\(judge afresh\\); quota, quota-error, sender-error \\(confirm or revise\\)$`, "m"));
+  assert.ok(markdown.includes(`  recorded: adequate, "limit is checked." (${testRef}:9), changed`));
+  assert.ok(markdown.includes(`  recorded: adequate, "quota is checked." (${testRef}:9), unchanged`));
+  assert.match(markdown, new RegExp(`^### ${testRef}:${start}-${excerpt.pieces[0].endLine}, `, "m"));
   // `<line> | ` and then the line as written, with its own indentation.
   assert.match(markdown, new RegExp(`^${start} \\| {3}/\\*\\* @covers limit \\*/$`, "m"));
   assert.ok(!markdown.includes("## Files"));
-  assert.ok(!markdown.includes(`### ${SEND_TEST} (test)`));
-  // No instruction in the packet: that is the skill's. The verdict template closes it, with the fingerprint filled in.
+  assert.ok(!markdown.includes(`### ${testRef} (test)`));
+  // One verdict schema example, with each real fingerprint listed separately once.
   assert.ok(!markdown.includes("You are reviewing"));
-  assert.match(markdown, new RegExp(`^## Verdict\\n.*\\n\\{"version":1,"verdicts":\\[\\{"contract":"Send","fingerprint":"${send.fingerprint}"`, "m"));
+  assert.match(markdown, /^## Verdict\n.*\n\{"version":1,"verdicts":/m);
+  assert.ok(markdown.includes(`\nSend: ${send.fingerprint}\n`));
+  assert.equal(markdown.split(send.fingerprint).length - 1, 1);
 
   // --files all: every file whole, no excerpts; --files none: neither.
   const all = packet(root, "Send", "--files", "all");
@@ -257,13 +293,13 @@ test("the index keeps every error in view: a broken review file is named, not on
   assert.match(run.stdout, /^- E_CONFIG review file not usable: .* \(\.cage\/review\.json\)$/m);
 });
 
-test("--files goes with the names of contracts only, and takes changed, all or none", (t) => {
+test("--files goes with the names of contracts only, and takes changed, context, all or none", (t) => {
   const root = copyFixture(t, "vertical");
   assert.match(cli(root, "review", "--files", "all").stderr, /--files is an option of review with the names of contracts\./);
   assert.match(cli(root, "review", "--all", "--files", "all").stderr, /--files is an option of review with the names of contracts\./);
   assert.match(cli(root, "review", "--record", "v.json", "--files", "all").stderr, /--files is an option of review with the names of contracts\./);
   assert.match(cli(root, "check", "--files", "all").stderr, /--files is an option of review with the names of contracts\./);
-  assert.match(cli(root, "review", "Send", "--files", "some").stderr, /Unknown --files mode "some"; expected changed, all or none\./);
+  assert.match(cli(root, "review", "Send", "--files", "some").stderr, /Unknown --files mode "some"; expected changed, context, all or none\./);
   assert.equal(cli(root, "review", "Send", "--files", "changed").code, 0);
 });
 

@@ -6,7 +6,7 @@ import { test, type TestContext } from "node:test";
 import type { InitReport } from "../src/init.ts";
 import { runCli } from "../src/main.ts";
 import type { ReviewIndex, ReviewReport } from "../src/review.ts";
-import { cli, copyFixture, designProject, editFile, writeFile } from "./helpers.ts";
+import { cli, copyFixture, designProject, editFile, reviewFileId, writeFile } from "./helpers.ts";
 
 const SEND_TEST = "src/modules/campaigns/send.test.ts";
 
@@ -104,11 +104,11 @@ test("init without --agent and without a terminal fails and says what to pass; w
 test("the review packet shows what is collected, what the test text says and what is recorded as separate facts", (t) => {
   const root = copyFixture(t, "vertical");
   const markdown = () => cli(root, "review", "Send").stdout;
-  const head = (text: string) => text.slice(0, text.indexOf("\n## "));
+  const head = (text: string) => { const start = text.indexOf("# Send ("); return text.slice(start, text.indexOf("\n## ", start)); };
 
   const fresh = head(markdown());
   assert.match(fresh, /^# Send \(src\/modules\/campaigns\)$/m);
-  assert.match(fresh, /^fingerprint: sha256:code-v1:[0-9a-f]{64}$/m);
+  assert.match(markdown(), /^Send: sha256:code-v2:[0-9a-f]{64}$/m);
   assert.match(fresh, /^tests: all 4 active$/m);
   assert.match(fresh, /^review: none$/m);
   assert.doesNotMatch(fresh, /pass(ed)?\b|adequate/);
@@ -136,7 +136,8 @@ test("the review packet shows what is collected, what the test text says and wha
   const changed = markdown();
   assert.match(head(changed), /^tests: 1 of 4 inactive \(skipped, todo, empty or a broken import\); not run by cage$/m);
   assert.match(head(changed), /^review: outdated, 1 part changed, touching 1 of 4 invariants$/m);
-  assert.match(changed, /^- tests: src\/modules\/campaigns\/send\.test\.ts; inactive: "не передає повідомлення без квоти" skipped by `\.skip` \(line \d+\)$/m);
+  assert.match(changed, new RegExp(`^- tests: ${reviewFileId(changed, SEND_TEST)}; inactive: T\\d+ skipped by \\x60\\.skip\\x60$`, "m"));
+  assert.match(changed, /^T\d+ F\d+:\d+:\d+ "не передає повідомлення без квоти"$/m);
   const declarations = json().contracts[0].tests[0].declarations;
   assert.deepEqual(declarations.map(({ status }) => status), ["active", "skipped", "active", "active"]);
   assert.equal(json().contracts[0].recordedReview.status, "outdated");

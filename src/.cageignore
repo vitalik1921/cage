@@ -35,9 +35,12 @@ diagnostic.ts
 locks.ts
 lock-command.ts
 review.ts
+review-groups.ts
+review-references.ts
 review-material.ts
 review-fingerprint.ts
 review-slice.ts
+review-members.ts
 review-record.ts
 record-file.ts
 gate.ts

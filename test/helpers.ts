@@ -55,6 +55,13 @@ export function writeFile(root: string, file: string, text: string): void {
 
 export const readFile = (root: string, file: string) => fs.readFileSync(path.join(root, file), "utf8");
 
+/** Resolve the packet's displayed file ID independently from its dictionary. */
+export function reviewFileId(markdown: string, file: string): string {
+  const entry = [...markdown.matchAll(/^(F\d+) (".*")$/gm)].find((match) => JSON.parse(match[2]) === file);
+  assert.ok(entry, `No reference for ${file}`);
+  return entry[1];
+}
+
 export function editFile(root: string, file: string, edit: (text: string) => string): string {
   const before = readFile(root, file);
   const after = edit(before);

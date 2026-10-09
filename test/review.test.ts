@@ -5,7 +5,7 @@ import { test } from "node:test";
 import type { ReviewReport } from "../src/review.ts";
 import type { CheckReport } from "../src/check.ts";
 import { REVIEW_FILE, type Finding, type RecordReport } from "../src/review-record.ts";
-import { CAMPAIGNS, cli, copyFixture, editFile, inFixture, isError, MAIL, QUOTA, readFile, snapshot, writeFile } from "./helpers.ts";
+import { CAMPAIGNS, cli, copyFixture, editFile, inFixture, isError, MAIL, QUOTA, readFile, reviewFileId, snapshot, writeFile } from "./helpers.ts";
 
 const SEND_SERVICE = "src/modules/campaigns/send-service.ts";
 const SEND_TEST = "src/modules/campaigns/send.test.ts";
@@ -44,7 +44,7 @@ test("a packet holds the contract, its design, the designs it depends on, its im
   assert.equal(packet.contract, "Send");
   assert.equal(packet.module, "src/modules/campaigns");
   assert.deepEqual(packet.designs, [CAMPAIGNS]);
-  assert.match(packet.fingerprint, /^sha256:code-v1:[0-9a-f]{64}$/);
+  assert.match(packet.fingerprint, /^sha256:code-v2:[0-9a-f]{64}$/);
   assert.deepEqual(packet.dependencies, {
     uses: [
       { contract: "Quota", module: "src/modules/quota" },
@@ -70,7 +70,8 @@ test("a packet holds the contract, its design, the designs it depends on, its im
   assert.deepEqual(packet.usedBy, []);
   writeFile(root, "src/modules/mail/digest.ts", 'import { SendService } from "../campaigns/send-service.ts";\n\nexport const digest = (service: SendService) => service.run("a", "text");\n');
   assert.deepEqual(review(root, "Send").report.contracts[0].usedBy, [{ file: "src/modules/mail/digest.ts", line: 1, names: ["SendService"], members: ["run"] }]);
-  assert.ok(cli(root, "review", "Send").stdout.includes("- used outside the module: src/modules/mail/digest.ts:1 imports SendService, calls run"));
+  const usedByMarkdown = cli(root, "review", "Send").stdout;
+  assert.ok(usedByMarkdown.includes(`- used outside the module: ${reviewFileId(usedByMarkdown, "src/modules/mail/digest.ts")}:1 imports SendService, calls run`));
   fs.rmSync(path.join(root, "src/modules/mail/digest.ts"));
 
   // What the test file imports from the project is loaded with it, as a helper; what the implementation imports is only listed.
@@ -124,17 +125,18 @@ test("the markdown document lists the contracts and every file once, in fences l
   editFile(root, SEND_TEST, (s) => `${s}// a comment with \`\`\`\` four backticks\n`);
   const { code, stdout } = cli(root, "review", "Send", "Quota");
   assert.equal(code, 0);
-  assert.ok(stdout.startsWith("# Send (src/modules/campaigns)\n"));
+  assert.ok(stdout.startsWith("## References\n"));
+  assert.ok(stdout.includes("# Send (src/modules/campaigns)\n"));
   assert.equal(stdout.match(/^# /gm)?.length, 2);
   assert.deepEqual(
-    stdout.match(/^### src\/.*$/gm),
-    [`### ${CAMPAIGNS} (design)`, `### ${SEND_SERVICE} (implementation)`, `### ${SEND_TEST} (test)`, `### ${CALLBACK_SENDER} (helper)`, `### ${MAIL} (design)`, "### src/modules/quota/memory-quota.ts (implementation)", `### ${QUOTA} (design)`, "### src/modules/quota/quota.test.ts (test)"],
+    stdout.match(/^### F\d+ .*$/gm),
+    [[CAMPAIGNS, "design"], [SEND_SERVICE, "implementation"], [SEND_TEST, "test"], [CALLBACK_SENDER, "helper"], [MAIL, "design"], ["src/modules/quota/memory-quota.ts", "implementation"], [QUOTA, "design"], ["src/modules/quota/quota.test.ts", "test"]].map(([file, role]) => `### ${reviewFileId(stdout, file)} (${role})`),
   );
   assert.ok(stdout.includes("\n`````ts\n"), "fences are five backticks");
   assert.ok(!stdout.includes("\n````ts\n"));
   assert.ok(stdout.includes("- uses: Quota (src/modules/quota), Sender (src/modules/mail)"));
   assert.ok(stdout.includes("## Verdict"));
-  assert.ok(stdout.includes(`- test helpers: ${CALLBACK_SENDER}`), "the helper the test imports is loaded and listed");
+  assert.ok(stdout.includes(`- test helpers: ${reviewFileId(stdout, CALLBACK_SENDER)}`), "the helper the test imports is loaded and listed");
   // Files are printed with line numbers, so that evidence can name a line.
   assert.match(stdout, /\n\s*1 \| # Відправлення\n/);
   assert.match(stdout, /\n\s*1 \| import assert from "node:assert\/strict";\n/);
@@ -313,12 +315,12 @@ test("a change to the material makes the review stale, naming the file, and the 
   const refused = record(root, verdicts);
   assert.equal(refused.code, 1);
   assert.deepEqual(refused.report.recorded, []);
-  assert.match(refused.report.diagnostics.find(({ code }) => code === "E_REVIEW_VERDICT")?.message ?? "", /^Send: fingerprint sha256:code-v1:[0-9a-f]+ given, the material is sha256:code-v1:[0-9a-f]+$/);
+  assert.match(refused.report.diagnostics.find(({ code }) => code === "E_REVIEW_VERDICT")?.message ?? "", /^Send: fingerprint sha256:code-v2:[0-9a-f]+ given, the material is sha256:code-v2:[0-9a-f]+$/);
   assert.equal(readFile(root, REVIEW_FILE), reviewFile);
 
   // A recorded fingerprint that does not match its own digests is stale too, and the message says so.
   const tampered = JSON.parse(reviewFile);
-  writeFile(root, REVIEW_FILE, JSON.stringify({ ...tampered, reviews: [{ ...tampered.reviews[0], fingerprint: "sha256:code-v1:0" }] }));
+  writeFile(root, REVIEW_FILE, JSON.stringify({ ...tampered, reviews: [{ ...tampered.reviews[0], fingerprint: "sha256:code-v2:0" }] }));
   editFile(root, SEND_TEST, (s) => s.replace('it("не передає повідомлення без квоти (edited)"', 'it("не передає повідомлення без квоти"'));
   assert.match(reviewDiagnostics(root).find(({ contract }) => contract === "Send")?.message ?? "", /^Send: no part differs, the fingerprint does$/);
   writeFile(root, REVIEW_FILE, reviewFile);

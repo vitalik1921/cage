@@ -216,10 +216,96 @@ test("legacy reviews and acceptances stay current without migration until a new 
     assert.notEqual(cli(root, "review", "--record", "old-verdict.json").code, 0);
     assert.equal(fs.readFileSync(file, "utf8"), before);
     recordAdequate(root);
-    assert.match(JSON.parse(fs.readFileSync(file, "utf8")).reviews[0].fingerprint, /^sha256:code-v1:/);
+    assert.match(JSON.parse(fs.readFileSync(file, "utf8")).reviews[0].fingerprint, /^sha256:code-v2:/);
     editFile(root, IMPLEMENTATION, (text) => text.replace("First explanation", "Better explanation"));
     assert.equal(staleBecause(root), undefined);
   }
+});
+
+/** @tests Cli
+ * @covers review-fingerprint-legacy review-dependency-relevant review-dependency-isolated */
+test("member fingerprints keep v1 records current and apply narrower scope only after a new verdict", (t) => {
+  const root = quotaProject(t, { [RULE]: "export const limits = { used: 0, spare: 20 }; export const hasQuota = (left: number) => left > limits.used;" });
+  recordAdequate(root);
+  const file = path.join(root, ".cage/review.json");
+  const record = JSON.parse(fs.readFileSync(file, "utf8"));
+  const result = checkLinking(root);
+  const material = collectMaterial(result, "Quota", createFileReader(root, [], result.linking.sources).read);
+  const v1 = fingerprintOf(material.parts, "sha256:code-v1:previous");
+  Object.assign(record.reviews[0], { fingerprint: v1.fingerprint, material: v1.digests });
+  fs.writeFileSync(file, JSON.stringify(record));
+  const bytes = fs.readFileSync(file, "utf8");
+  assert.equal(staleBecause(root), undefined);
+  assert.equal(fs.readFileSync(file, "utf8"), bytes);
+  editFile(root, RULE, (text) => text.replace("spare: 20", "spare: 30"));
+  assert.equal(staleBecause(root), `dependency ${RULE} changed`);
+  recordAdequate(root);
+  editFile(root, RULE, (text) => text.replace("spare: 30", "spare: 40"));
+  assert.equal(staleBecause(root), undefined);
+  editFile(root, RULE, (text) => text.replace("used: 0", "used: 1"));
+  assert.equal(staleBecause(root), `dependency ${RULE} changed`);
+  assert.match(packet(root).excerpts.find((entry) => entry.file === RULE)!.pieces.map((piece) => piece.text).join("\n"), /used: 1/);
+});
+
+/** @tests Cli
+ * @covers review-dependency-relevant review-dependency-fallback review-dependency-isolated review-packet */
+test("CLI reviews track nested state mutators and isolate parameterized methods on TS5/6", (t) => {
+  for (const compiler of ["typescript", "typescript-5"]) {
+    const nested = "export const config = { values: [1], used() { return config.values[0]; }, update() { config.values.splice(0, 1, 2); } };\nexport const hasQuota = (left: number) => left > config.used();\n";
+    const root = quotaProject(t, { [RULE]: nested });
+    fs.mkdirSync(path.join(root, "node_modules"), { recursive: true });
+    fs.symlinkSync(path.resolve(import.meta.dirname, "../node_modules", compiler), path.join(root, "node_modules/typescript"), "dir");
+    recordAdequate(root);
+    editFile(root, RULE, (text) => text.replace("1, 2", "1, 3"));
+    assert.equal(staleBecause(root), `dependency ${RULE} changed`, compiler);
+    assert.match(packet(root).excerpts.find((entry) => entry.file === RULE)!.pieces.map((piece) => piece.text).join("\n"), /splice\(0, 1, 3\)/);
+
+    for (const helpers of [false, true]) {
+      const shared = helpers
+        ? "const values = [0]; function read() { return values[0]; } function write(n: number) { values.splice(0, 1, n); } export const config = { used() { return read(); }, update() { write(2); } };"
+        : "const values = [0]; export const config = { used() { return values[0]; }, update() { values.splice(0, 1, 2); } };";
+      writeFile(root, RULE, `${shared}\nexport const hasQuota = (left: number) => left > config.used();\n`);
+      recordAdequate(root);
+      editFile(root, RULE, (text) => text.replace(/\b2\b/, "3"));
+      assert.equal(staleBecause(root), `dependency ${RULE} changed`, compiler);
+      const changedText = packet(root).excerpts.find((entry) => entry.file === RULE)!.pieces.map((piece) => piece.text).join("\n");
+      assert.match(changedText, helpers ? /write\(3\)/ : /splice\(0, 1, 3\)/);
+      assert.match(changedText, /const values = \[0\]/);
+    }
+
+    for (const method of ["used(n: number) { return n + 1; }", "used() { const config = 2; return config + 1; }"]) {
+      writeFile(root, RULE, `export const config = { ${method}, spare() { return 20; } };\nexport const hasQuota = (left: number) => left > config.used(${method.includes("n: number") ? "0" : ""});\n`);
+      recordAdequate(root);
+      editFile(root, RULE, (text) => text.replace("return 20", "return 30"));
+      assert.equal(staleBecause(root), undefined, compiler);
+      editFile(root, RULE, (text) => text.replace("+ 1", "+ 2"));
+      assert.equal(staleBecause(root), `dependency ${RULE} changed`, compiler);
+    }
+  }
+});
+
+/** @tests Cli
+ * @covers review-fingerprint-legacy review-packet */
+test("packets retain changed material from an older broader fingerprint", (t) => {
+  const root = quotaProject(t, { [RULE]: "export const limits = { used: 0, spare() { return 2; } };\nexport const hasQuota = (left: number) => left > limits.used;\nexport function unrelated() { return 20; }\n" });
+  recordAdequate(root);
+  const file = path.join(root, ".cage/review.json");
+  const record = JSON.parse(fs.readFileSync(file, "utf8"));
+  const result = checkLinking(root);
+  const material = collectMaterial(result, "Quota", createFileReader(root, [], result.linking.sources).read);
+  const v1 = fingerprintOf(material.parts, "sha256:code-v1:previous");
+  Object.assign(record.reviews[0], { fingerprint: v1.fingerprint, material: v1.digests });
+  fs.writeFileSync(file, JSON.stringify(record));
+  editFile(root, RULE, (text) => text.replace("return 20", "return 30"));
+  assert.equal(staleBecause(root), `dependency ${RULE} changed`);
+  for (const included of ["changed", "context"]) {
+    const report = JSON.parse(cli(root, "review", "Quota", "--files", included, "--format", "json").stdout) as ReviewReport;
+    const text = [...report.files.map((file) => file.text), ...report.excerpts.flatMap((excerpt) => excerpt.pieces.map((piece) => piece.text))].join("\n");
+    assert.match(text, /unrelated\(\) \{ return 30/);
+  }
+  recordAdequate(root);
+  editFile(root, RULE, (text) => text.replace("return 30", "return 40"));
+  assert.equal(staleBecause(root), undefined);
 });
 
 /** @tests Cli

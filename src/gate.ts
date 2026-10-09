@@ -93,7 +93,7 @@ export function runGate(options: ImplementationPhaseOptions, checkOptions: Check
   }
   const guidance = [
     `\`cage check\` is not clean (${blocking.length} blocking). Fix what it reports before stopping; \`cage codes\` explains a code.`,
-    ...(blocking.some((diagnostic) => /^E_REVIEW_(MISSING|STALE)$/.test(diagnostic.code)) ? ["For REVIEW_MISSING or REVIEW_STALE: `cage review` lists what needs a review and what changed; group contracts sharing a changed part with `cage review NameA NameB`; record their verdicts together with `cage review --record <file>`."] : []),
+    ...(blocking.some((diagnostic) => /^E_REVIEW_(MISSING|STALE)$/.test(diagnostic.code)) ? ["For REVIEW_MISSING or REVIEW_STALE: `cage review` suggests grouped packets with ready-to-run commands and lists each contract's additional changes; run the suggested commands, then record their verdicts together with `cage review --record <file>`."] : []),
     ...(blocking.some((diagnostic) => diagnostic.code === "E_REVIEW_WEAK") ? ["For E_REVIEW_WEAK: improve the test or the design as the finding suggests, then review again."] : []),
     "Never lower an assessment, drop an invariant or change .cage/config.json to pass.",
   ];

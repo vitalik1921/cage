@@ -57,6 +57,9 @@ function outsideLink(t: TestContext, preserveSymlinks: boolean): void {
   const json = packetJson(root);
   const markdown = cli(root, "review", "Quota");
   for (const output of [json.stdout, json.stderr, markdown.stdout, markdown.stderr]) assert.ok(!output.includes(SENTINEL));
+  const context = cli(root, "review", "Quota", "--files", "context", "--format", "json");
+  assert.ok(!context.stdout.includes(SENTINEL));
+  assert.ok(!context.stderr.includes(SENTINEL));
   // The outside file cannot even be opened now: had cage tried to read it, it would say so.
   if (process.getuid?.() !== 0) {
     fs.chmodSync(secret, 0o000);

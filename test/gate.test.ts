@@ -90,7 +90,7 @@ test("the gate blocks on errors and on missing reviews only when required", (t) 
   assert.equal(blocked.stdout, "");
   assert.match(blocked.stderr, /^E_REVIEW_MISSING: Send \(src\/modules\/campaigns\/campaigns\.cage\.mdx:\d+:\d+\)$/m);
   assert.match(blocked.stderr, /`cage check` is not clean \(3 blocking\)\. Fix what it reports before stopping; `cage codes` explains a code\./);
-  assert.match(blocked.stderr, /`cage review` lists what needs a review and what changed; group contracts sharing a changed part with `cage review NameA NameB`/);
+  assert.match(blocked.stderr, /`cage review` suggests grouped packets with ready-to-run commands and lists each contract's additional changes/);
 
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "off" }));
   const clean = gate(root, { session_id: id, stop_hook_active: false });
