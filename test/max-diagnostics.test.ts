@@ -101,8 +101,8 @@ test("the gate limits only blocking diagnostics and counts every blocker", (t) =
   // Codes by count, equal counts by name.
   assert.match(blocked.stderr, /^10 more not shown \(6 E_IMPLEMENTATION_MISSING, 4 E_TEST_MISSING\); --max-diagnostics all shows every one$/m);
   assert.doesNotMatch(blocked.stderr, /W_NO_INVARIANTS|W_REVIEW_MISSING/);
-  assert.match(blocked.stderr, /; 12 errors, 0 warnings\. TypeScript/);
-  assert.match(blocked.stderr, /`cage check` is not clean \(12 blocking\)\./);
+  assert.doesNotMatch(blocked.stderr, /^check:/m);
+  assert.match(blocked.stderr, /^cage gate: blocked — 12 other errors/);
   const whole = gate("--max-diagnostics", "all");
   assert.equal(whole.code, 2);
   assert.doesNotMatch(whole.stderr, /more not shown/);

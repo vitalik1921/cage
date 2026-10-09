@@ -60,7 +60,7 @@ export function limitCheckReport(report: CheckReport, max: number | "all"): Chec
 }
 
 /** The line that stands for the diagnostics a limit left out: how many, of which codes, and how to see them. */
-function formatOmitted({ omitted }: CheckReport): string[] {
+export function formatOmitted({ omitted }: CheckReport): string[] {
   if (omitted.count === 0) return [];
   const codes = Object.entries(omitted.byCode).map(([code, count]) => `${count} ${code}`).join(", ");
   return [`${omitted.count} more not shown (${codes}); --max-diagnostics all shows every one`];

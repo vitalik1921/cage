@@ -44,4 +44,5 @@ review-members.ts
 review-record.ts
 record-file.ts
 gate.ts
+gate-report.ts
 init.ts

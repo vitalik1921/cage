@@ -5,7 +5,7 @@ import path from "node:path";
 import { runCheck, type CheckOptions } from "./check.ts";
 import { isError } from "./diagnostic.ts";
 import type { ImplementationPhaseOptions } from "./implementation-phase.ts";
-import { formatCheckReport, limitCheckReport } from "./report.ts";
+import { formatGateReport } from "./gate-report.ts";
 
 /** How many times in one session the gate blocks before it lets the agent stop with the report. */
 export const MAX_BLOCKS = 3;
@@ -76,7 +76,7 @@ export function runGate(options: ImplementationPhaseOptions, checkOptions: Check
     return { exitCode: 0, feedback: "cage gate: no *.cage.mdx design yet, nothing to check.\n" };
   }
 
-  const text = formatCheckReport(limitCheckReport({ ...report, diagnostics: blocking }, maxDiagnostics));
+  const blockers = { ...report, diagnostics: blocking };
   let blocks = 0;
   try {
     blocks = Number(fs.readFileSync(counter, "utf8")) || 0;
@@ -84,20 +84,14 @@ export function runGate(options: ImplementationPhaseOptions, checkOptions: Check
     // No block in this session yet.
   }
   if (input.stop_hook_active && blocks >= MAX_BLOCKS) {
-    return { exitCode: 0, feedback: `cage gate: \`cage check\` still fails after ${MAX_BLOCKS} attempts; letting the agent stop.\n${text}` };
+    return { exitCode: 0, feedback: `cage gate: \`cage check\` still fails after ${MAX_BLOCKS} attempts; letting the agent stop.\n${formatGateReport(blockers, maxDiagnostics, true)}` };
   }
   try {
     fs.writeFileSync(counter, String(blocks + 1));
   } catch {
     // Without the counter the gate blocks every time; that is the safer failure.
   }
-  const guidance = [
-    `\`cage check\` is not clean (${blocking.length} blocking). Fix what it reports before stopping; \`cage codes\` explains a code.`,
-    ...(blocking.some((diagnostic) => /^E_REVIEW_(MISSING|STALE)$/.test(diagnostic.code)) ? ["For REVIEW_MISSING or REVIEW_STALE: `cage review` suggests grouped packets with ready-to-run commands and lists each contract's additional changes; run the suggested commands, then record their verdicts together with `cage review --record <file>`."] : []),
-    ...(blocking.some((diagnostic) => diagnostic.code === "E_REVIEW_WEAK") ? ["For E_REVIEW_WEAK: improve the test or the design as the finding suggests, then review again."] : []),
-    "Never lower an assessment, drop an invariant or change .cage/config.json to pass.",
-  ];
-  return { exitCode: 2, feedback: `${text}\n${guidance.join(" ")}\n` };
+  return { exitCode: 2, feedback: formatGateReport(blockers, maxDiagnostics) };
 }
 
 /** The hook's input from stdin, when there is any; a missing or malformed input changes nothing. */

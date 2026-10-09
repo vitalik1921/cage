@@ -58,7 +58,7 @@ test("gate feedback contains only blockers, even with bounded scope, coverage an
   assert.equal(blocked.code, 2);
   assert.match(blocked.stderr, /E_NOT_DESIGNED/);
   // The standalone scalar `seed` needs no contract; only the extra class blocks.
-  assert.match(blocked.stderr, /\(1 blocking\)/);
+  assert.match(blocked.stderr, /cage gate: blocked — 1 other error/);
   assert.doesNotMatch(blocked.stderr, /NOT_DESIGNED: const seed/);
   assert.doesNotMatch(blocked.stderr, /W_REVIEW_SCOPE_LIMIT|W_REVIEW_WEAK|W_REVIEW_MISSING|W_NOT_DESIGNED|W_NO_INVARIANTS/);
   assert.doesNotMatch(blocked.stderr, /For REVIEW_MISSING/);
@@ -92,8 +92,10 @@ test("the gate blocks on errors and on missing reviews only when required", (t) 
   assert.equal(blocked.code, 2);
   assert.equal(blocked.stdout, "");
   assert.match(blocked.stderr, /^E_REVIEW_MISSING: Send \(src\/modules\/campaigns\/campaigns\.cage\.mdx:\d+:\d+\)$/m);
-  assert.match(blocked.stderr, /`cage check` is not clean \(3 blocking\)\. Fix what it reports before stopping; `cage codes` explains a code\./);
-  assert.match(blocked.stderr, /`cage review` suggests grouped packets with ready-to-run commands and lists each contract's additional changes/);
+  assert.match(blocked.stderr, /^cage gate: blocked — 3 missing reviews/);
+  assert.match(blocked.stderr, /    cage review Send/);
+  assert.match(blocked.stderr, /cage review --record <file>/);
+  assert.doesNotMatch(blocked.stderr, /check: 3 designs/);
 
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "off" }));
   const clean = gate(root, { session_id: id, stop_hook_active: false });
@@ -114,7 +116,7 @@ test("the gate blocks on errors and on missing reviews only when required", (t) 
   const error = gate(root, { session_id: id, stop_hook_active: false });
   assert.equal(error.code, 2);
   assert.match(error.stderr, /E_TEST_MISSING/);
-  assert.match(error.stderr, /\(1 blocking\)/);
+  assert.match(error.stderr, /cage gate: blocked — 1 other error/);
 });
 
 /** @tests Cli
@@ -150,7 +152,9 @@ test("weak and stale reviews block the gate only when required", (t) => {
   const required = gate(root, { session_id: id });
   assert.equal(required.code, 2);
   assert.match(required.stderr, /E_REVIEW_WEAK/);
-  assert.match(required.stderr, /For E_REVIEW_WEAK: improve the test or the design/);
+  assert.match(required.stderr, /Recorded finding: judged\./);
+  assert.match(required.stderr, /cage review Send --files context/);
+  assert.match(required.stderr, /fix the implementation or test as needed/);
 
   // A stale review is visible in check under "warn", but only blocks under "require".
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1 }));
@@ -163,6 +167,7 @@ test("weak and stale reviews block the gate only when required", (t) => {
   const requiredStale = gate(root, { session_id: id });
   assert.equal(requiredStale.code, 2);
   assert.match(requiredStale.stderr, /E_REVIEW_STALE/);
+  assert.match(requiredStale.stderr, /Changed: 1 test in src\/modules\/campaigns\/send.test.ts/);
   assert.doesNotMatch(requiredStale.stderr, /For E_REVIEW_WEAK/);
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "off" }));
   assert.deepEqual(gate(root, { session_id: id }), { code: 0, stdout: "", stderr: "" });

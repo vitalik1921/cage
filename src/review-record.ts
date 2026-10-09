@@ -197,6 +197,7 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
         code: code("STALE"),
         severity,
         message: `${record}${outside}`,
+        review: { changes: [...changed.map(part => ({ part, change: Object.hasOwn(entry.material, part) ? "changed" as const : "new" as const })), ...removed.map(part => ({ part, change: "gone" as const }))] },
         ...contract.location,
         contract: contract.name,
       });
@@ -212,6 +213,7 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
         code: code("WEAK"),
         severity,
         message: `${contract.name}${finding.invariant === null ? " (the contract as a whole)" : `.${finding.invariant}`} ${finding.assessment}\n${finding.reason}${suggestion}`,
+        review: { finding: { assessment: finding.assessment, reason: finding.reason } },
         ...(invariant?.location ?? contract.location),
         contract: contract.name,
         ...(finding.invariant === null ? {} : { invariant: finding.invariant }),

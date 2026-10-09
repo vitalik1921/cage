@@ -29,6 +29,11 @@ export interface Diagnostic {
   contract?: string;
   invariant?: string;
   related?: RelatedLocation[];
+  /** Structured review evidence for compact gate feedback; message retains the full check explanation. */
+  review?: {
+    changes?: { part: string; change: "changed" | "new" | "gone" }[];
+    finding?: { assessment: string; reason: string };
+  };
 }
 
 export const isError = (diagnostic: Diagnostic) => diagnostic.severity === "error";
