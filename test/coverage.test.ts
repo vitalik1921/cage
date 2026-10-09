@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import type { Diagnostic } from "../src/diagnostic.ts";
 import { test, type TestContext } from "node:test";
 import { IGNORE_FILE, ownerOf, readModuleScopes } from "../src/coverage.ts";
+import { readImplementations } from "../src/implementations.ts";
+import ts from "typescript";
+import ts5 from "typescript-5";
 import { checkDesigns, checkLinking, cli, contract, designProject, inFile, mdx, writeFile } from "./helpers.ts";
 
 const STORE = contract("Store", "get(key: string): string;", "@invariant hit Повертає значення.");
@@ -49,8 +52,6 @@ test("exported code of a module that its design does not cover is a warning", (t
   assert.deepEqual(uncovered(root), [
     { severity: "warning", what: 'class Controller', ...inFile(root, "src/m/controller.ts", "Controller") },
     { severity: "warning", what: 'function handle', ...inFile(root, "src/m/controller.ts", "handle") },
-    { severity: "warning", what: 'const limit', ...inFile(root, "src/m/controller.ts", "limit") },
-    { severity: "warning", what: 'const retries', ...inFile(root, "src/m/controller.ts", "retries") },
     { severity: "warning", what: 'const helper', ...inFile(root, "src/m/controller.ts", "helper") },
     { severity: "warning", what: 'class Worker', ...inFile(root, "src/m/deep/nested/worker.ts", "Worker") },
   ]);
@@ -67,7 +68,7 @@ test("exported code of a module that its design does not cover is a warning", (t
   const required = cli(root, "check", "--format", "json");
   assert.equal(required.code, 1);
   const found = (JSON.parse(required.stdout) as { diagnostics: Diagnostic[] }).diagnostics.filter(({ code }) => code.endsWith("NOT_DESIGNED"));
-  assert.equal(found.length, 6);
+  assert.equal(found.length, 4);
   assert.ok(found.every(({ code, severity }) => code === "E_NOT_DESIGNED" && severity === "error"));
   assert.equal(found[0].message, "class Controller in src/m");
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, coverage: "off" }));
@@ -76,6 +77,73 @@ test("exported code of a module that its design does not cover is a warning", (t
   assert.deepEqual((JSON.parse(off.stdout) as { diagnostics: Diagnostic[] }).diagnostics.filter(({ code }) => code.endsWith("NOT_DESIGNED")), []);
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, coverage: "maybe" }));
   assert.match(cli(root, "check").stdout, /"coverage" must be "off", "warn" or "require"/);
+});
+
+test("standalone scalar constants need no design under warn or require, including literal expressions", (t) => {
+  const root = project(t, {
+    "src/m/constants.ts": [
+      'export const LIMIT = 300, LABEL = "ready";',
+      'export const ENABLED = true, EMPTY = null;',
+      'export const NEGATIVE = -1, BIG = 3n;',
+      'export const TIMEOUT = 60 * 1_000;',
+      'export const WRAPPED = ((300 as const) satisfies number);',
+      'export const TITLE = `limit ${300}`;',
+      'export const CHOICE = true ? 300 : 400;',
+    ].join("\n"),
+  });
+  for (const coverage of ["warn", "require"]) {
+    writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, coverage }));
+    const result = cli(root, "check", "--format", "json");
+    assert.equal(result.code, 0, result.stdout);
+    assert.doesNotMatch(result.stdout, /NOT_DESIGNED/);
+  }
+});
+
+test("const functions, objects, arrays and opaque values still need design coverage", (t) => {
+  const root = project(t, {
+    "src/m/values.ts": [
+      'const makeService = () => ({ run() {} });',
+      'export const fn = (() => 300) as unknown as number;',
+      'export const object = { run() {} };',
+      'export const config = { limit: 300 };',
+      'export const array = [300];',
+      'export const service = makeService();',
+      'export const mixed = true ? 300 : (() => 400);',
+      'export const scalar = 300, callable = () => 300;',
+    ].join("\n"),
+  });
+  assert.deepEqual(uncovered(root).map(({ what }) => what), ['const fn', 'const object', 'const config', 'const array', 'const service', 'const mixed', 'const callable']);
+});
+
+test("an explicit implements on a scalar constant is still validated", (t) => {
+  const root = project(t, { "src/m/bad.ts": '/** @implements Missing */\nexport const LIMIT = 300;\n' });
+  assert.ok(checkLinking(root).errors.some(({ code }) => code === "E_REFERENCE_UNKNOWN"));
+  writeFile(root, "src/m/bad.ts", '/** @implements Store */\nexport const LIMIT = 300;\n');
+  assert.ok(checkLinking(root).errors.some(({ code }) => code === "E_TYPE_MISMATCH"));
+});
+
+test("scalar coverage classification works with TS 5 and 6 and does not trust a function's type assertion", () => {
+  const text = 'export const value = ((-300) satisfies number), fn = (() => 300) as unknown as number; export const object = { value: 300 };';
+  for (const compiler of [ts5 as unknown as typeof ts, ts]) {
+    const source = compiler.createSourceFile("values.ts", text, compiler.ScriptTarget.Latest, true);
+    assert.deepEqual(readImplementations(compiler, source, "values.ts", false).exported.map(({ name }) => name), ["fn", "object"]);
+  }
+});
+
+test("a scalar exempt from design coverage still changes its consumer's review fingerprint", (t) => {
+  const root = project(t, {
+    "src/m/limit.ts": 'export const LIMIT = 300;\n',
+    "src/m/memory-store.ts": 'import { LIMIT } from "./limit.ts";\n' + IMPLEMENTATION.replace('return key;', 'return `${LIMIT}:${key}`;'),
+  });
+  const fingerprint = () => {
+    const result = cli(root, "review", "Store", "--format", "json");
+    assert.equal(result.code, 0, result.stdout);
+    return (JSON.parse(result.stdout) as { contracts: { fingerprint: string }[] }).contracts[0].fingerprint;
+  };
+  const before = fingerprint();
+  writeFile(root, "src/m/limit.ts", 'export const LIMIT = 301;\n');
+  assert.notEqual(fingerprint(), before);
+  assert.deepEqual(uncovered(root), []);
 });
 
 test("a module's ignore file lists the files and folders that need no design", (t) => {

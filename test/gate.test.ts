@@ -57,7 +57,9 @@ test("gate feedback contains only blockers, even with bounded scope, coverage an
   const blocked = gate(root, { session_id: id });
   assert.equal(blocked.code, 2);
   assert.match(blocked.stderr, /E_NOT_DESIGNED/);
-  assert.match(blocked.stderr, /\(2 blocking\)/);
+  // The standalone scalar `seed` needs no contract; only the extra class blocks.
+  assert.match(blocked.stderr, /\(1 blocking\)/);
+  assert.doesNotMatch(blocked.stderr, /NOT_DESIGNED: const seed/);
   assert.doesNotMatch(blocked.stderr, /W_REVIEW_SCOPE_LIMIT|W_REVIEW_WEAK|W_REVIEW_MISSING|W_NOT_DESIGNED|W_NO_INVARIANTS/);
   assert.doesNotMatch(blocked.stderr, /For REVIEW_MISSING/);
   for (let attempt = 1; attempt < MAX_BLOCKS; attempt++) assert.equal(gate(root, { session_id: id, stop_hook_active: true }).code, 2);

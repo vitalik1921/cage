@@ -18,7 +18,7 @@ export interface FoundImplementation {
 
 const SUPPORTED = "`@implements` needs an exported, named class, function or const";
 
-/** An exported class, function or const: something a design could describe. */
+/** An exported class, function or non-scalar const: something a design could describe. */
 export interface ExportedDeclaration {
   name: string;
   kind: "class" | "function" | "const";
@@ -29,7 +29,7 @@ export interface ExportedDeclaration {
 
 export interface ImplementationsOfFile {
   found: FoundImplementation[];
-  /** Every exported class, function and const of the file, for the question of what the designs leave out. */
+  /** Exported declarations that need design coverage; plain scalar constants are data. */
   exported: ExportedDeclaration[];
   /** Contract names in `@implements` tags that were rejected: such a contract was given an implementation, only not a valid one. */
   rejected: string[];
@@ -59,14 +59,14 @@ export function readImplementations(ts: TypeScript, sourceFile: ts.SourceFile, f
     };
   };
 
-  /** The names a statement exports as code: a class, a function with a body, the names of a const statement. */
+  /** Exported behaviour, leaving standalone scalar constants out of design coverage. */
   const exportedBy = (statement: ts.Statement): { name: ts.Identifier; kind: ExportedDeclaration["kind"] }[] => {
     const { exported, declared } = modifiersOf(statement);
     if (!exported || declared) return [];
     if (ts.isClassDeclaration(statement) && statement.name) return [{ name: statement.name, kind: "class" }];
     if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) return [{ name: statement.name, kind: "function" }];
     if (ts.isVariableStatement(statement) && (statement.declarationList.flags & ts.NodeFlags.Const) !== 0) {
-      return statement.declarationList.declarations.flatMap((declaration) => (ts.isIdentifier(declaration.name) ? [{ name: declaration.name, kind: "const" as const }] : []));
+      return statement.declarationList.declarations.flatMap((declaration) => (ts.isIdentifier(declaration.name) && !scalarConstant(ts, declaration.initializer) ? [{ name: declaration.name, kind: "const" as const }] : []));
     }
     return [];
   };
@@ -139,4 +139,27 @@ export function readImplementations(ts: TypeScript, sourceFile: ts.SourceFile, f
   const accepted = new Set(found.map((implementation) => implementation.contract));
   const written = comments.flatMap((comment) => comment.tags.filter((candidate) => candidate.name === "implements").flatMap((candidate) => parseNames(candidate.text) ?? []));
   return { found, exported, rejected: written.filter((name) => !accepted.has(name)), diagnostics };
+}
+
+/** Only syntax that visibly computes a scalar value; opaque expressions still need coverage. */
+function scalarConstant(ts: TypeScript, node: ts.Expression | undefined): boolean {
+  if (!node) return false;
+  if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isTypeAssertionExpression(node) || ts.isSatisfiesExpression(node)) return scalarConstant(ts, node.expression);
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node) || ts.isNumericLiteral(node) || ts.isBigIntLiteral(node)) return true;
+  if ([ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword, ts.SyntaxKind.NullKeyword].includes(node.kind)) return true;
+  if (ts.isPrefixUnaryExpression(node)) return [ts.SyntaxKind.PlusToken, ts.SyntaxKind.MinusToken, ts.SyntaxKind.ExclamationToken, ts.SyntaxKind.TildeToken].includes(node.operator) && scalarConstant(ts, node.operand);
+  if (ts.isBinaryExpression(node)) {
+    const scalarOperators = [
+      ts.SyntaxKind.PlusToken, ts.SyntaxKind.MinusToken, ts.SyntaxKind.AsteriskToken, ts.SyntaxKind.AsteriskAsteriskToken, ts.SyntaxKind.SlashToken, ts.SyntaxKind.PercentToken,
+      ts.SyntaxKind.LessThanLessThanToken, ts.SyntaxKind.GreaterThanGreaterThanToken, ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken,
+      ts.SyntaxKind.AmpersandToken, ts.SyntaxKind.BarToken, ts.SyntaxKind.CaretToken,
+      ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken,
+      ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken,
+      ts.SyntaxKind.LessThanToken, ts.SyntaxKind.LessThanEqualsToken, ts.SyntaxKind.GreaterThanToken, ts.SyntaxKind.GreaterThanEqualsToken,
+    ];
+    return scalarOperators.includes(node.operatorToken.kind) && scalarConstant(ts, node.left) && scalarConstant(ts, node.right);
+  }
+  if (ts.isConditionalExpression(node)) return scalarConstant(ts, node.condition) && scalarConstant(ts, node.whenTrue) && scalarConstant(ts, node.whenFalse);
+  if (ts.isTemplateExpression(node)) return node.templateSpans.every(span => scalarConstant(ts, span.expression));
+  return false;
 }

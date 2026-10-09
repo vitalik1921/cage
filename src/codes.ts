@@ -42,7 +42,7 @@ export const CODES: Record<string, { means: string; then: string }> = {
   W_TEST_INACTIVE: { means: "an inactive test covers invariants that other, active tests also cover", then: "enable it or remove it" },
   E_TEST_CONTEXT: { means: "@covers without a contract: no @tests on the test or an enclosing suite", then: "add @tests Name" },
   // Coverage.
-  W_NOT_DESIGNED: { means: "an exported class, function or const of a designed module has no @implements", then: "describe its contract in the design, or list the file in the module's .cageignore" },
+  W_NOT_DESIGNED: { means: "an exported class, function or non-scalar const of a designed module has no @implements", then: "describe its contract in the design, or list the file in the module's .cageignore" },
   E_NOT_DESIGNED: { means: "the same, as an error under coverage: require", then: "the same" },
   // Locks.
   E_LOCK_MISSING: { means: "a declaration is @final or @extendable but not recorded in .cage/lock.json", then: "run cage lock" },

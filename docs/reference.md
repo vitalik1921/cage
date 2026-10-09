@@ -114,7 +114,7 @@ In ordinary files only JSDoc comments that contain a binding tag (`@implements`,
 
 ### What the design does not cover: `W_NOT_DESIGNED` and `.cageignore`
 
-`cage check` finds the code of a module that its design does not describe: every exported `class`, `function` or `const` in a module with a design that carries no `@implements`. For a person or an LLM this is the list of what still needs a contract. The level is `"coverage"` in the configuration: `"warn"` (the default) — a `W_NOT_DESIGNED` warning, `check` and `cage gate` let it pass; `"require"` — an `E_NOT_DESIGNED` error, exit code 1 and the gate blocks; `"off"` — not checked. So the project decides whether a gap in design coverage stops the agent or is only shown.
+`cage check` finds the code of a module that its design does not describe: every exported `class`, `function` or non-scalar `const` in a module with a design that carries no `@implements`. Standalone scalar constants — number, string, boolean, bigint and null literals, including literal-only arithmetic, logical, conditional and template expressions — need no contract. Parentheses, type assertions and `satisfies` do not change this rule. Functions, objects, arrays and opaque initializers still need coverage. An explicit `@implements` is always validated, even on a scalar; these constants also remain part of consumers’ review fingerprints. For a person or an LLM this is the list of what still needs a contract. The level is `"coverage"` in the configuration: `"warn"` (the default) — a `W_NOT_DESIGNED` warning, `check` and `cage gate` let it pass; `"require"` — an `E_NOT_DESIGNED` error, exit code 1 and the gate blocks; `"off"` — not checked. So the project decides whether a gap in design coverage stops the agent or is only shown.
 
 A file belongs to the nearest module above it. Code outside modules with a design, tests, types (`interface`, `type`), `enum`, default exports and `declare` are not checked.
 
@@ -285,7 +285,7 @@ What every diagnostic means and what to do about it; `cage codes` prints the sam
 | `E_TEST_INACTIVE` | every test of the invariant is skipped, todo, empty or in a file with a broken import | enable one, give it a body, or fix the import |
 | `W_TEST_INACTIVE` | an inactive test covers invariants that other, active tests also cover | enable it or remove it |
 | `E_TEST_CONTEXT` | @covers without a contract: no @tests on the test or an enclosing suite | add @tests Name |
-| `W_NOT_DESIGNED` | an exported class, function or const of a designed module has no @implements | describe its contract in the design, or list the file in the module's .cageignore |
+| `W_NOT_DESIGNED` | an exported class, function or non-scalar const of a designed module has no @implements | describe its contract in the design, or list the file in the module's .cageignore |
 | `E_NOT_DESIGNED` | the same, as an error under coverage: require | the same |
 | `E_LOCK_MISSING` | a declaration is @final or @extendable but not recorded in .cage/lock.json | run cage lock |
 | `E_LOCK_VIOLATION` | a locked declaration changed; the changes follow | revert the change, or lift the lock deliberately by removing its record |

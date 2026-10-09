@@ -275,7 +275,7 @@ Existing `code-v1` fingerprints keep their declaration-level scope; unversioned 
 
 - `testAdapter`: `node:test` or `vitest`.
 - `review`: a contract without an up-to-date review is a warning (`warn`), an error (`require`) or nothing (`off`). The Stop hook blocks on missing, outdated or weak reviews only under `require`; under `warn` they remain visible in `cage check`.
-- `coverage`: exported code of a module with a spec but without `@implements` is a warning, an error, or not looked at. A `.cageignore` next to the spec lists files that need none.
+- `coverage`: exported code of a module with a spec but without `@implements` is a warning, an error, or not looked at. Standalone scalar constants such as `const LIMIT = 300` need no contract. A `.cageignore` next to the spec lists files that need none.
 - `maxDiagnostics`: how many diagnostics `check` and `gate` show at most (`50`, or `"all"`); errors come before warnings, missing or outdated reviews before the rest, and what is left out is counted by code. The exit code and the summary are of everything found.
 - `reviewDependencies` (`{ "depth": 3, "maxFiles": 40, "exclude": [] }` by default): how far a review's fingerprint follows local imports from the implementation and test files. Type-only imports, `node_modules`, files outside the project, declaration files and `exclude` patterns are not followed. Files beyond the bounds are not fingerprinted and do not produce diagnostics, regardless of review policy. An e2e spec that boots the whole application (a NestJS `AppModule`) reaches every file: exclude that entry point, e.g. `"exclude": ["src/app.module.ts"]`, and the fingerprint keeps to what the contract's code imports.
 
