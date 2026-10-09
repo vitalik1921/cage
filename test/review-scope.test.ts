@@ -618,38 +618,27 @@ test("another contract's implementation is fingerprinted, not followed: what it 
 
 /** @tests Cli
  * @covers review-scope-silent */
-test("what lies beyond the bounds is reported, never silent; exclude takes a file out deliberately", (t) => {
+test("configured scope limits stay silent under both policies; exclude takes a file out deliberately", (t) => {
   const chain = {
     [RULE]: 'import { a } from "./a.ts";\nexport const hasQuota = (left: number): boolean => left > a;\n',
     "src/quota/a.ts": 'import { b } from "./b.ts";\nexport const a = b;\n',
     "src/quota/b.ts": 'import { c } from "./c.ts";\nexport const b = c;\n',
     "src/quota/c.ts": "export const c = 0;\n",
   };
-  // Depth 2: the rule and a.ts are followed; b.ts is two imports from the implementation's file... and three from the tests'.
-  const shallow = quotaProject(t, chain, { reviewDependencies: { depth: 2 } });
-  recordAdequate(shallow, false);
-  const warned = check(shallow).report.diagnostics.find((diagnostic) => diagnostic.code === "E_REVIEW_SCOPE_LIMIT");
-  // Under "review": "require" the limit is an error, so that it cannot pass unnoticed in CI.
-  assert.ok(warned);
-  assert.match(warned.message, /^Quota, 3 dependency files fingerprinted\n- src\/quota\/b\.ts \(past the depth\)$/);
-  // The message states the fact; it sends nobody to the configuration, because an agent reads it.
-  assert.doesNotMatch(warned.message, /config\.json|Raise|exclude/);
-  assert.deepEqual(packet(shallow).contracts[0].fingerprinted, [RULE, STUB, "src/quota/a.ts"]);
-  // The packet and the index do not carry it at all: the fingerprinted files say what is covered.
-  assert.ok(!packet(shallow).contracts[0].diagnostics.some((diagnostic) => diagnostic.code.endsWith("REVIEW_SCOPE_LIMIT")));
-  assert.ok(!(JSON.parse(cli(shallow, "review", "--all", "--format", "json").stdout) as ReviewIndex).diagnostics.some((diagnostic) => diagnostic.code.endsWith("REVIEW_SCOPE_LIMIT")));
-
-  const few = quotaProject(t, chain, { review: "warn", reviewDependencies: { maxFiles: 1 } });
-  const limited = check(few).report.diagnostics.find((diagnostic) => diagnostic.code === "W_REVIEW_SCOPE_LIMIT");
-  assert.equal(limited, undefined, "nothing is recorded yet: the limit is about a recorded review");
-  assert.deepEqual(packet(few).contracts[0].fingerprinted, [RULE]);
-  recordAdequate(few);
-  assert.ok(check(few).report.diagnostics.some((diagnostic) => diagnostic.code === "W_REVIEW_SCOPE_LIMIT" && diagnostic.message.includes(`${STUB} (past the file limit)`)));
-
-  // check reports a contract's own limit, not another's from the same document.
-  const two = quotaProject(t, { ...chain, [DESIGN]: mdx(QUOTA, contract("Ledger", "note(): void;", "@invariant noted A take is noted.")), "src/quota/ledger.ts": "/** @implements Ledger */\nexport const ledger = { note: (): void => {} };\n", "src/quota/ledger.test.ts": lines('import assert from "node:assert/strict";', 'import { it } from "node:test";', "/** @tests Ledger", " * @covers noted */", 'it("notes", () => { assert.ok(true); });') }, { reviewDependencies: { depth: 1 } });
-  recordAdequate(two, false);
-  assert.deepEqual(check(two).report.diagnostics.filter((diagnostic) => diagnostic.code.endsWith("REVIEW_SCOPE_LIMIT")).map((diagnostic) => diagnostic.contract), ["Quota"]);
+  for (const review of ["warn", "require"] as const) {
+    for (const reviewDependencies of [{ depth: 2 }, { maxFiles: 1 }]) {
+      const root = quotaProject(t, chain, { review, reviewDependencies });
+      recordAdequate(root);
+      const checked = check(root);
+      assert.equal(checked.code, 0, JSON.stringify(checked.report.diagnostics));
+      assert.ok(!checked.report.diagnostics.some(({ code }) => code.endsWith("REVIEW_SCOPE_LIMIT")));
+      assert.doesNotMatch(cli(root, "check", "--max-diagnostics", "all").stdout, /REVIEW_SCOPE_LIMIT/);
+      const reviewed = packet(root);
+      assert.deepEqual(reviewed.contracts[0].fingerprinted, "depth" in reviewDependencies ? [RULE, STUB, "src/quota/a.ts"] : [RULE]);
+      assert.ok(!reviewed.diagnostics.some(({ code }) => code.endsWith("REVIEW_SCOPE_LIMIT")));
+      assert.ok(!(JSON.parse(cli(root, "review", "--all", "--format", "json").stdout) as ReviewIndex).diagnostics.some(({ code }) => code.endsWith("REVIEW_SCOPE_LIMIT")));
+    }
+  }
 
   const excluded = quotaProject(t, chain, { reviewDependencies: { exclude: ["src/quota/a.ts"] } });
   recordAdequate(excluded);

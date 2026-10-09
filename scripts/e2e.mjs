@@ -231,16 +231,16 @@ try {
   log("50-outside-link", [`diagnostics: ${JSON.stringify(linked.diagnostics, null, 2)}`, `helpers: ${JSON.stringify(linked.helpers)}`, `fingerprinted: ${JSON.stringify(linked.fingerprinted)}`, `sentinel in any output: ${outputs.some((text) => text.includes(SENTINEL))}`, `with the outside file unreadable: ${JSON.stringify(unopened.diagnostics.map(({ code }) => code))}`].join("\n"));
   assert.ok(!outputs.some((text) => text.includes(SENTINEL)));
   assert.ok(linked.diagnostics.some(({ code }) => code === "W_OUTSIDE_ROOT"));
-  // The packet does not name the bounds of the fingerprint (a reviewer is not sent to the configuration); check does, once the review is recorded.
+  // Neither the packet nor check reports configured fingerprint bounds.
   assert.ok(!linked.diagnostics.some(({ code }) => code.endsWith("REVIEW_SCOPE_LIMIT")));
-  // Reviews are required here, so the hole is an error.
-  assert.ok(json(cage(loop, "check", "--format", "json")).diagnostics.some(({ code, message }) => code === "E_REVIEW_SCOPE_LIMIT" && message.includes("a link out of the project")));
+  // Reviews are required here; the boundary is still not a scope error.
+  assert.ok(!json(cage(loop, "check", "--format", "json")).diagnostics.some(({ code }) => code.endsWith("REVIEW_SCOPE_LIMIT")));
   assert.ok(!unopened.diagnostics.some(({ code }) => code === "E_ENVIRONMENT"));
   fs.writeFileSync(path.join(loop, TESTS), testText);
   fs.writeFileSync(implementation, implementationText);
   fs.writeFileSync(path.join(loop, "tsconfig.json"), JSON.stringify(tsconfig));
   fs.rmSync(path.join(loop, QUOTA, "linked.ts"));
-  pass("2 link out of the project", "review's leak.ts case and a preserveSymlinks case: sentinel absent from packet JSON/Markdown, review.json and check; W_OUTSIDE_ROOT and scope-limit hole; unreadable target never opened");
+  pass("2 link out of the project", "review's leak.ts case and a preserveSymlinks case: sentinel absent from packet JSON/Markdown, review.json and check; W_OUTSIDE_ROOT, no scope-limit diagnostics; unreadable target never opened");
 
   // ---- 3: setup in a block and a loop around a test.
   fs.writeFileSync(

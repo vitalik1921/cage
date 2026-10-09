@@ -15,7 +15,6 @@ function emittedCodes(): Set<string> {
     const text = fs.readFileSync(path.join(repository, "src", name), "utf8");
     for (const match of text.matchAll(/"([EW]_[A-Z_]+)"/g)) codes.add(match[1]);
     for (const match of text.matchAll(/code\("([A-Z_]+)"\)/g)) for (const level of ["E", "W"]) codes.add(`${level}_REVIEW_${match[1]}`);
-    if (text.includes("_REVIEW_SCOPE_LIMIT")) for (const level of ["E", "W"]) codes.add(`${level}_REVIEW_SCOPE_LIMIT`);
   }
   return codes;
 }

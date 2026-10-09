@@ -79,14 +79,14 @@ function outsideLink(t: TestContext, preserveSymlinks: boolean): void {
 
   const recorded = record(root, adequate(), packet.fingerprint);
   assert.equal(recorded.code, 0, JSON.stringify(recorded.report.diagnostics));
+  const advisory = cli(root, "check", "--format", "json");
+  assert.doesNotMatch(advisory.stdout, /REVIEW_SCOPE_LIMIT/);
   assert.ok(!fs.readFileSync(path.join(root, REVIEW_FILE), "utf8").includes(SENTINEL));
   assert.ok(!Object.keys(JSON.parse(fs.readFileSync(path.join(root, REVIEW_FILE), "utf8")).reviews.find((entry: { contract: string }) => entry.contract === "Quota").material).some((key) => key.includes("linked.ts")));
-  // The hole stays: a verdict is recorded against what cage could read, and where reviews are required check
-  // does not let the hole through, as for any part the fingerprint leaves out.
+  // Required reviews also accept the configured boundary; outside files are still never read.
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "require" }));
   const required = JSON.parse(cli(root, "check", "--format", "json").stdout) as CheckReport;
-  assert.ok(required.diagnostics.some(({ code, contract: name, message }) => code === "E_REVIEW_SCOPE_LIMIT" && name === "Quota" && message.includes("a link out of the project")));
-  assert.equal(required.ok, false);
+  assert.ok(!required.diagnostics.some(({ code }) => code.endsWith("REVIEW_SCOPE_LIMIT")));
   assert.ok(!JSON.stringify(required).includes(SENTINEL));
 }
 

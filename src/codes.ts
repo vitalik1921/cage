@@ -57,8 +57,6 @@ export const CODES: Record<string, { means: string; then: string }> = {
   E_REVIEW_STALE: { means: "the same, as an error under review: require", then: "the same" },
   W_REVIEW_WEAK: { means: "the recorded review found an invariant or the contract weak, unrelated or lacking context", then: "improve the test or the design, then review again; never lower the assessment" },
   E_REVIEW_WEAK: { means: "the same, as an error under review: require", then: "the same" },
-  W_REVIEW_SCOPE_LIMIT: { means: "the review fingerprint stops at the bounds of reviewDependencies; a change in the listed files would not outdate the review", then: "nothing for the agent: the bounds are the project's setting" },
-  E_REVIEW_SCOPE_LIMIT: { means: "the same, as an error under review: require", then: "a person revisits reviewDependencies" },
   E_REVIEW_VERDICT: { means: "a verdict cannot be recorded: other material, an unknown or unassessed invariant, no reason or evidence", then: "fix the verdicts file; nothing was recorded" },
   W_OUTSIDE_ROOT: { means: "a symbolic link leads out of the project; cage does not read the file", then: "move the file into the project" },
   // Agent setup.

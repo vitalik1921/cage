@@ -371,7 +371,7 @@ function valueImports(ts: TypeScript, sourceFile: ts.SourceFile): string[] {
  * material already. A file of another contract's implementation is fingerprinted but not followed: what
  * it imports is that contract's material. Files past `scope.depth` levels, past `scope.maxFiles`, or
  * whose real path leaves the project through a symbolic link (checked before anything is read) are
- * returned as `beyond`, so that the hole is reported rather than silent.
+ * returned as `beyond` for context packets to describe their omitted dependencies.
  */
 export function dependencyClosure(
   root: string,

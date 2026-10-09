@@ -125,45 +125,9 @@ function describePart(key: string): string {
   return key;
 }
 
-/**
- * What the bounds of the review scope left out of a contract's fingerprint, and what could not be read:
- * a change there would not make the review outdated, so it is said, never left silent. The level is the
- * review level's: under "require" a fingerprint with holes is an error. The message states the fact and
- * names the setting; it gives no advice, because the agent reads it and the bounds are the project's to set.
- * `check` reports it; the review packet and index do not, so that a reviewer is not sent to the configuration.
- */
-export function scopeDiagnostics(material: Material, level: "warn" | "require"): Diagnostic[] {
-  // A dependency that cannot be read is a hole of unknown size: the material cannot be established.
-  const diagnostics: Diagnostic[] = material.unreadable.map(({ file, message }) => ({ code: "E_ENVIRONMENT", severity: "error" as const, message: `cannot read a dependency of ${material.contract.name}: ${message}`, file, contract: material.contract.name }));
-  // One file a line, five at most: the message is read, not parsed.
-  const listed = (entries: Material["beyond"], why: (entry: Material["beyond"][number]) => string) => {
-    const shown = entries.slice(0, 5).map((entry) => `- ${entry.file} (${why(entry)})`);
-    return `${shown.join("\n")}${entries.length > shown.length ? `\n- and ${entries.length - shown.length} more` : ""}`;
-  };
-  const limit = (message: string): Diagnostic => ({
-    code: `${level === "require" ? "E" : "W"}_REVIEW_SCOPE_LIMIT`,
-    severity: level === "require" ? "error" : "warning",
-    message,
-    ...material.contract.location,
-    contract: material.contract.name,
-  });
-  const bounded = material.beyond.filter(({ why }) => why !== "outside");
-  if (bounded.length > 0) {
-    diagnostics.push(
-      limit(
-        `${material.contract.name}, ${material.dependencies.length} dependency files fingerprinted\n${listed(bounded, ({ why }) => (why === "depth" ? "past the depth" : "past the file limit"))}`,
-      ),
-    );
-  }
-  const outside = material.beyond.filter(({ why }) => why === "outside");
-  if (outside.length > 0) {
-    diagnostics.push(
-      limit(
-        `${material.contract.name}, files outside the project\n${listed(outside, () => "a link out of the project")}`,
-      ),
-    );
-  }
-  return diagnostics;
+/** Unreadable dependencies prevent a complete fingerprint, independently of the review policy. */
+export function materialErrors(material: Material): Diagnostic[] {
+  return material.unreadable.map(({ file, message }) => ({ code: "E_ENVIRONMENT", severity: "error", message: `cannot read a dependency of ${material.contract.name}: ${message}`, file, contract: material.contract.name }));
 }
 
 /** What is recorded about a contract, as `check` sees it: a fresh verdict with its findings, a fresh acceptance, or none. */
@@ -214,7 +178,7 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
       continue;
     }
     const material = collectMaterial(result, contract.name, read);
-    diagnostics.push(...scopeDiagnostics(material, level));
+    diagnostics.push(...materialErrors(material));
     const { fingerprint, digests } = fingerprintOf(material.parts, entry.fingerprint);
     if (fingerprint !== entry.fingerprint) {
       const changed = Object.keys(digests).filter((key) => entry.material[key] !== digests[key]);
@@ -359,7 +323,7 @@ export function recordVerdicts(options: ImplementationPhaseOptions, verdictsFile
     const material = collectMaterial(result, contract.name, read);
     // A fingerprint with a dependency that could not be read is not the material: nothing is recorded against it.
     if (material.unreadable.length > 0) {
-      diagnostics.push(...scopeDiagnostics(material, "warn").filter((diagnostic) => diagnostic.code === "E_ENVIRONMENT").map((diagnostic) => ({ ...diagnostic, message: `${diagnostic.message}; nothing recorded` })));
+      diagnostics.push(...materialErrors(material).map((diagnostic) => ({ ...diagnostic, message: `${diagnostic.message}; nothing recorded` })));
       continue;
     }
     const { fingerprint, digests } = fingerprintOf(material.parts);
@@ -483,7 +447,7 @@ export function acceptContracts(options: ImplementationPhaseOptions, names: read
     const material = collectMaterial(result, contract.name, read);
     // A fingerprint with a dependency that could not be read is not the material: nothing is recorded against it.
     if (material.unreadable.length > 0) {
-      diagnostics.push(...scopeDiagnostics(material, "warn").filter((diagnostic) => diagnostic.code === "E_ENVIRONMENT").map((diagnostic) => ({ ...diagnostic, message: `${diagnostic.message}; not accepted` })));
+      diagnostics.push(...materialErrors(material).map((diagnostic) => ({ ...diagnostic, message: `${diagnostic.message}; not accepted` })));
       continue;
     }
     const { fingerprint, digests } = fingerprintOf(material.parts);

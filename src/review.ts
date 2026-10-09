@@ -5,7 +5,7 @@ import { compareDiagnostics, compareText, hasErrors, type Diagnostic } from "./d
 import { checkImplementationPhase, type ImplementationPhaseOptions, type ImplementationPhaseResult } from "./implementation-phase.ts";
 import { toProjectPath } from "./location.ts";
 import { collectMaterial, createFileReader, externalUses, fingerprintOf, partsForReview, type ExternalUse, type FileReader, type Material, type MaterialPart, type PacketFile } from "./review-material.ts";
-import { ASSESSMENTS, countAssessments, findsFault, firstSentence, notesOf, readReviewFile, scopeDiagnostics, VERDICTS_SCHEMA, type Assessment, type Finding, type ReviewEntry } from "./review-record.ts";
+import { ASSESSMENTS, countAssessments, findsFault, firstSentence, notesOf, readReviewFile, materialErrors, VERDICTS_SCHEMA, type Assessment, type Finding, type ReviewEntry } from "./review-record.ts";
 import type { Overlay, TypeScript } from "./typescript.ts";
 import { groupReviews, reviewCommand, type ReviewGroup } from "./review-groups.ts";
 import { reviewReferences } from "./review-references.ts";
@@ -416,9 +416,8 @@ export function runReviewIndex(options: ImplementationPhaseOptions, selection: "
   const entries: ReviewIndexEntry[] = [];
   for (const contract of [...index.contracts].sort((a, b) => compareText(a.module, b.module) || compareText(a.name, b.name))) {
     const material = materialOf(contract.name);
-    // A dependency that cannot be read is a hole of unknown size and is said; the bounds of the scope are not: they are the
-    // project's setting, reported by `check`, and a reviewer is not to be sent to the configuration.
-    diagnostics.push(...scopeDiagnostics(material, "warn").filter((diagnostic) => diagnostic.code === "E_ENVIRONMENT" && !diagnostics.some((known) => known.code === diagnostic.code && known.contract === diagnostic.contract && known.file === diagnostic.file)));
+    // Unreadable dependencies are errors; configured scope bounds are not diagnostics.
+    diagnostics.push(...materialErrors(material).filter((diagnostic) => !diagnostics.some((known) => known.code === diagnostic.code && known.contract === diagnostic.contract && known.file === diagnostic.file)));
     const { fingerprint } = fingerprintOf(material.parts);
     const prior = priorOf(contract);
     const comparison = fingerprintOf(material.parts, prior?.fingerprint);
@@ -512,7 +511,7 @@ function packetOf(
   // A dependency that cannot be read leaves a hole in the packet and is said. The bounds of the fingerprint are not said here:
   // they are the project's `reviewDependencies` setting, reported by `check`; a packet that named them would send the reviewer
   // to the configuration instead of the material. The fingerprinted files are listed, so what is covered is in view.
-  diagnostics.push(...scopeDiagnostics(material, "warn").filter((diagnostic) => diagnostic.code === "E_ENVIRONMENT" && !diagnostics.some((known) => known.code === diagnostic.code && known.contract === diagnostic.contract && known.file === diagnostic.file)));
+  diagnostics.push(...materialErrors(material).filter((diagnostic) => !diagnostics.some((known) => known.code === diagnostic.code && known.contract === diagnostic.contract && known.file === diagnostic.file)));
   const name = contract.name;
   // What the tests import from the project is part of what they prove: a stub decides whether a test observes anything.
   // Loaded one level deep, test files only; what the implementations import stays listed, not loaded.

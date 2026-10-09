@@ -24,7 +24,7 @@ const gate = (root: string, input: object | string | undefined, ...args: string[
 
 /** @tests Cli
  * @covers gate */
-test("gate feedback contains only blockers, even with scope, coverage and weak-review warnings", (t) => {
+test("gate feedback contains only blockers, even with bounded scope, coverage and weak-review warnings", (t) => {
   const root = copyFixture(t, "vertical");
   const id = session(t);
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "warn", reviewDependencies: { maxFiles: 0 } }));
@@ -50,7 +50,8 @@ test("gate feedback contains only blockers, even with scope, coverage and weak-r
   record(verdicts.filter(({ contract }) => contract === "Quota"));
   const checked = cli(root, "check");
   assert.equal(checked.code, 0);
-  for (const code of ["W_REVIEW_SCOPE_LIMIT", "W_REVIEW_WEAK", "W_NOT_DESIGNED", "W_NO_INVARIANTS", "W_REVIEW_MISSING"]) assert.match(checked.stdout, new RegExp(code));
+  for (const code of ["W_REVIEW_WEAK", "W_NOT_DESIGNED", "W_NO_INVARIANTS", "W_REVIEW_MISSING"]) assert.match(checked.stdout, new RegExp(code));
+  assert.doesNotMatch(checked.stdout, /REVIEW_SCOPE_LIMIT/);
 
   writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "warn", coverage: "require", reviewDependencies: { maxFiles: 0 } }));
   const blocked = gate(root, { session_id: id });
@@ -70,7 +71,7 @@ test("gate feedback contains only blockers, even with scope, coverage and weak-r
   const clean = gate(root, { session_id: id });
   assert.equal(clean.code, 0);
   assert.equal(clean.stderr, "");
-  assert.match(cli(root, "check").stdout, /W_REVIEW_SCOPE_LIMIT/);
+  assert.doesNotMatch(cli(root, "check").stdout, /REVIEW_SCOPE_LIMIT/);
 });
 
 /** @tests Cli
