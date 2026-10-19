@@ -19,7 +19,7 @@ export interface Config {
   /** How far a review's fingerprint follows the local files that implementations and tests import. */
   reviewDependencies: ReviewDependencies;
   /**
-   * How many diagnostics the report of `check` and the feedback of `gate` show at most; the rest is counted by code. What
+   * How many groups text `check` and `gate` show at most (JSON limits individual diagnostics); omitted violations are counted by code. What
    * matters most is kept: configuration and environment errors, then errors, then missing or outdated reviews. `"all"`
    * shows every one.
    */
@@ -30,7 +30,7 @@ export interface Config {
  * The bounds of the dependency part of a review's fingerprint. `depth`: import levels followed from an
  * implementation or test file (1 = its direct imports). `maxFiles`: dependency files fingerprinted per
  * contract. `exclude`: glob patterns of files neither fingerprinted nor followed, on top of `exclude`.
- * Whatever lies beyond the bounds is reported, never silently dropped.
+ * Configured bounds emit no scope-limit diagnostic; unreadable in-scope files remain errors.
  */
 export interface ReviewDependencies {
   depth: number;

@@ -23,8 +23,8 @@ Cage keeps the three in sync — **the spec** (what a TypeScript module promises
 </p>
 
 - **The spec** is a Markdown file next to the code (`quota.cage.mdx`): TypeScript interfaces, and the rules they promise, written as plain sentences — `@invariant consume A successful take uses exactly one send.`
-- **The code** says which interface it implements (`@implements Quota`); **the tests** say which rules they check (`@covers consume`).
-- **Cage checks deterministically** — no model involved, the same answer on every run — that the code fits the interface (the TypeScript compiler decides), that every rule has a linked test that is not skipped, todo or empty, and that the review of those tests is up to date. **It does not run your tests**: whether they pass is your test runner's job, so CI runs both (see [In CI](#in-ci)).
+- **The code** binds one contract per API surface (`@implements Quota`); **the tests** say which rules they check (`@covers consume`).
+- **Cage checks deterministically** — no model involved, the same answer on every run — that public methods, fields and signatures match the declared contracts exactly (using TypeScript types), that every rule has a linked test with a body or an explicit skip/todo, and that the review of those tests is up to date. **It does not run your tests**: whether they pass is your test runner's job, so CI runs both (see [In CI](#in-ci)).
 - **The review** is your agent's written verdict that the tests really check the rules: the judgement is the agent's, whether it is still up to date is Cage's. Cage stores it with a hash of the contract, the spec's prose, the code and tests, and their fingerprinted local dependencies. New reviews ignore ordinary code comments and spacing; changes to code, requirements or significant annotations ask for a new review, naming what changed.
 - **When the agent says it is done** (the Stop hook of Claude Code or Codex), Cage sends whatever is out of sync back to it. After three tries in one session it lets the agent stop, with the report.
 
@@ -34,8 +34,8 @@ Cage runs locally and makes no model calls: your agent does the judging, your te
 
 | Green means | It does not mean |
 | --- | --- |
-| Every contract has an implementation the TypeScript compiler accepts in its place | That the implementation behaves as the rules say |
-| Every rule (`@invariant`) has a linked test (`@covers`), and at least one of them is active: not `skip`/`todo` (its own or its suite's), not without a callback or with an empty one, not in a file whose import of a project file is broken (a missing file or export) | That the test asserts the rule, or that it passes — Cage reads tests, it never runs them; a test can also be skipped at run time |
+| Every contract has an implementation with matching public members and signatures; extra public instance/static members are errors | That the implementation behaves as the rules say |
+| Every rule (`@invariant`) has a linked test (`@covers`), and at least one has a body or is explicitly `skip`/`todo` (its own or its suite's), with no broken import of a project file; skip/todo stays inactive in counts | That the test asserts the rule, or that it passes — Cage reads tests, it never runs them; a test can also be skipped at run time |
 | With `review: "require"`, every contract has a recorded verdict for its material as it is now | That the verdict is right: it is a reviewer's attestation, often the coding agent's own |
 
 ## What it catches
@@ -205,6 +205,8 @@ export interface Quota {
 
 `@contract` marks an interface the code must implement, `@invariant` a rule it promises (an id, then a sentence), `@data` a type it uses. Prose outside the `ts design` blocks is for people.
 
+Share an API through `extends`: a reusable `@data` interface needs no implementation; extending a `@contract` also inherits its invariants. Each contract has one direct implementation, with one `@implements` name per API surface. Designs can import types from installed packages whose entry points resolve to declarations; Cage includes those declarations in review material.
+
 Tag the implementation and the tests:
 
 ```ts
@@ -239,7 +241,7 @@ Run `npx cage check`. It reports, with file and line, every contract with no imp
 | `cage gate` | `check` for the agent's Stop hook: only errors go back to the agent; reviews block only under `review: "require"`. `init` wires it up. |
 | `cage codes` | What every diagnostic code means and what to do about it. A diagnostic line itself names only the thing and the place. |
 
-`--root <dir>` for a project inside a monorepo; `--format json` for machines (`check`, `lock`, `init`, `review --record` and `review --accept` print `text` by default, the `review` packet `markdown`). In CI, `cage check --base origin/main` also refuses a lock that was lifted on the branch. `check` and `gate` show the 50 diagnostics that matter most and count the rest by code, so that a long report does not drown an agent: `--max-diagnostics <n|all>`, or `maxDiagnostics` in the configuration.
+`--root <dir>` for a project inside a monorepo; `--format json` for machines (`check`, `lock`, `init`, `review --record` and `review --accept` print `text` by default, the `review` packet `markdown`). In CI, `cage check --base origin/main` also refuses a lock that was lifted on the branch. `check` and `gate` group structural errors with a proven shared cause, show the 50 groups that matter most and count omitted violations by code, so that a long report does not drown an agent: `--max-diagnostics <n|all>`, or `maxDiagnostics` in the configuration.
 
 ## The loop with an agent
 
@@ -276,7 +278,7 @@ Existing `code-v1` fingerprints keep their declaration-level scope; unversioned 
 - `testAdapter`: `node:test` or `vitest`.
 - `review`: a contract without an up-to-date review is a warning (`warn`), an error (`require`) or nothing (`off`). The Stop hook blocks on missing, outdated or weak reviews only under `require`; under `warn` they remain visible in `cage check`.
 - `coverage`: exported code of a module with a spec but without `@implements` is a warning, an error, or not looked at. Standalone scalar constants such as `const LIMIT = 300` need no contract. A `.cageignore` next to the spec lists files that need none.
-- `maxDiagnostics`: how many diagnostics `check` and `gate` show at most (`50`, or `"all"`); errors come before warnings, missing or outdated reviews before the rest, and what is left out is counted by code. The exit code and the summary are of everything found.
+- `maxDiagnostics`: how many groups text `check` and `gate` show at most (JSON limits individual diagnostics) (`50`, or `"all"`); errors come before warnings, missing or outdated reviews before the rest, and what is left out is counted by code. The exit code and the summary are of everything found.
 - `reviewDependencies` (`{ "depth": 3, "maxFiles": 40, "exclude": [] }` by default): how far a review's fingerprint follows local imports from the implementation and test files. Type-only imports, `node_modules`, files outside the project, declaration files and `exclude` patterns are not followed. Files beyond the bounds are not fingerprinted and do not produce diagnostics, regardless of review policy. An e2e spec that boots the whole application (a NestJS `AppModule`) reaches every file: exclude that entry point, e.g. `"exclude": ["src/app.module.ts"]`, and the fingerprint keeps to what the contract's code imports.
 
 Commit `.cage/` (config, frozen contracts, reviews) and `.cageignore` with the specs.
@@ -305,6 +307,17 @@ jobs:
 ```
 
 `cage check` exits 1 on any violation and 2 on a configuration or environment problem. Use `cage check`, not `cage gate`, in CI: the gate lets an agent stop after three attempts. Tests skipped at run time (a condition, an environment) are only visible to the runner: make it fail on them if that matters to you.
+
+## Upgrading to 0.8
+
+Cage 0.8 checks the complete public API. A project that passed 0.7 can now report structural mismatches.
+
+1. Replace bindings such as `@implements Reads Writes` with one contract per implementation surface. Compose shared API with `extends`; use `@data` for reusable bases that need no implementation of their own. Each `@contract` has one direct implementation.
+2. Describe public fields and inherited members as well as methods. Static API uses a separate `@implements-static` contract. Private/protected helpers remain outside the public contract.
+3. Match parameter and result types, optional/rest parameters and readonly fields. Import real installed package types where needed; `unknown` does not stand in for a narrower public type. Correct the code or the design according to the intended API.
+4. Run `cage check`, the project's tests, and review the affected contracts. Explicit skipped/todo tests satisfy linkage but remain inactive; Cage does not claim they ran.
+
+Text diagnostics now group violations with a shared cause, so `maxDiagnostics` limits groups in text and individual diagnostics in JSON. See [the reference](https://github.com/vitalik1921/cage/blob/main/docs/reference.md) for inheritance, package types and the new structural diagnostics.
 
 ## More
 

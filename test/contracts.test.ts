@@ -131,11 +131,14 @@ test("a contract is an interface with methods, or with one call signature", (t) 
   );
 });
 
+test("contracts describe properties, optional methods and callable properties", (t) => {
+  for (const body of ["get?(key: string): string;", "size: number;", "read: (key: string) => string;"]) {
+    assert.deepEqual(errorsOf(t, contract("Shape", body)).errors, [], body);
+  }
+});
+
 test("unsupported contract shapes are rejected, each where it is declared", (t) => {
   const cases: [body: string, needle: string][] = [
-    ["get?(key: string): string;", "get?("],
-    ["size: number;", "size: number"],
-    ["read: (key: string) => string;", "read: ("],
     ["[key: string]: unknown;", "[key: string]"],
     ['"quoted-name"(): void;', '"quoted-name"'],
     ["new (key: string): object;", "new (key"],
@@ -151,9 +154,7 @@ test("unsupported contract shapes are rejected, each where it is declared", (t) 
 
   const header = (declaration: string) => contract("Shape").replace("export interface Shape {", declaration);
   assert.deepEqual(errorsOf(t, header("export interface Shape<T> {")).errors.map((error) => error.code), ["E_UNSUPPORTED_DECLARATION"]);
-  assert.deepEqual(errorsOf(t, data("Base", "{ a: string }").replace("type Base =", "interface Base"), header("export interface Shape extends Base {")).errors.map((error) => error.code), [
-    "E_UNSUPPORTED_DECLARATION",
-  ]);
+  assert.deepEqual(errorsOf(t, data("Base", "{ a: string }").replace("type Base =", "interface Base"), header("export interface Shape extends Base {")).errors, []);
   const empty = errorsOf(t, contract("Shape", ""));
   assert.deepEqual(empty.errors, [empty.here("E_UNSUPPORTED_DECLARATION", "interface Shape", "interface ".length)]);
   const alias = errorsOf(t, contract("Shape").replace(/export interface Shape \{[^}]*\}/, "export type Shape = { run(): void };"));
@@ -369,8 +370,8 @@ test("a tag with punctuation after its name is a malformed tag, not prose", (t) 
 
 test("one mistake is one diagnostic", (t) => {
   // The tags on an unsupported member are not reported on top of the member itself.
-  const member = errorsOf(t, contract("Thing", "/** @description Розмір. */\n  size: number;\n  run(): void;"));
-  assert.deepEqual(member.errors, [member.here("E_UNSUPPORTED_DECLARATION", "size: number")]);
+  const member = errorsOf(t, contract("Thing", "/** @description Розмір. */\n  [key: string]: unknown;\n  run(): void;"));
+  assert.deepEqual(member.errors, [member.here("E_UNSUPPORTED_DECLARATION", "[key: string]")]);
 
   // Two contracts of one name keep their own invariants: only the name is a duplicate.
   const twice = errorsOf(t, contract("Store", "run(): void;", "@invariant ok Перший."), contract("Store", "stop(): void;", "@invariant ok Другий."));

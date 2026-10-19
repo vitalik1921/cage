@@ -17,6 +17,8 @@ function withImports(t: TestContext, imports: string, files: Record<string, stri
 }
 const quotaStatuses = (root: string) => checkLinking(root).linking.tests.filter((test) => test.contract === "Quota").map((test) => test.status);
 
+/** @tests Cli
+ * @covers test-linkage */
 test("a test file whose project import names something the file does not export runs none of its tests: they are broken-import", (t) => {
   const root = withImports(t, 'import { quotaWith } from "./quota-fixture.ts";');
   // In order, the import is nothing to report.

@@ -1,9 +1,10 @@
 import type ts from "typescript";
 import type { Diagnostic } from "./diagnostic.ts";
-import { emptyIndex, type Contract, type ContractMember, type DesignIndex, type LockedDeclaration, type LockLevel, type SourceLocation } from "./design-model.ts";
+import { emptyIndex, type Contract, type ContractMember, type DesignIndex, type LockedDeclaration, type LockLevel, type PackageImport, type SourceLocation } from "./design-model.ts";
 import { findModuleCycles } from "./graph.ts";
 import { collectComments, docCommentBefore, readAllowedTags } from "./doc-comments.ts";
 import { isDocComment, parseDocTags, parseInvariant, parseNames, type DocTag } from "./metadata.ts";
+import type { PackageEntry } from "./package-types.ts";
 import type { TypeScript } from "./typescript.ts";
 
 /** The generated module of one design, parsed, with the way back to the MDX. */
@@ -18,8 +19,11 @@ export interface DesignSourceFile {
   writtenSpecifier: (specifier: ts.StringLiteralLike) => string;
 }
 
-/** Where an import in a design leads: another design of the scope (with the names of its documents), a design document outside it, or anything else. */
-export type ImportTarget = { moduleId: string; documents: string[] } | "out-of-scope" | "other";
+/**
+ * Where an import in a design leads: another design of the scope (with the names of its documents), a design document
+ * outside it, the declarations of an installed package, a package specifier that may not be imported (and why), or anything else.
+ */
+export type ImportTarget = { moduleId: string; documents: string[] } | { package: PackageEntry } | { problem: string } | "out-of-scope" | "other";
 
 export type ResolveImport = (specifier: ts.StringLiteralLike, from: ts.SourceFile) => ImportTarget;
 
@@ -56,6 +60,7 @@ export function indexDesigns(
   const diagnostics: Diagnostic[] = [];
   const uses: PendingUse[] = [];
   // Contracts whose invariants were written, even if rejected: "no invariants" would be a consequence, not a finding.
+  // A contract that extends others is judged once its inherited invariants are known (`resolveInheritance`).
   const withInvariantTags = new Set<Contract>();
   const locks: PendingLocks = { uses: [], tagged: new Set() };
   for (const design of designs) readDesign(ts, design, resolveImport, index, uses, withInvariantTags, locks, diagnostics);
@@ -142,6 +147,26 @@ export function indexDesigns(
   return { index, diagnostics };
 }
 
+/**
+ * A signature as the printer writes it, on one line: layout, separators and comments of the document do not
+ * matter, nor does the quote style of a string literal; what is inside a literal is kept as it is.
+ */
+export function signaturePrinter(ts: TypeScript): (node: ts.Node) => string {
+  const printer = ts.createPrinter({ removeComments: true });
+  const scanner = ts.createScanner(ts.ScriptTarget.Latest, true);
+  return (node) => {
+    scanner.setText(printer.printNode(ts.EmitHint.Unspecified, node, node.getSourceFile()));
+    let text = "";
+    let end = 0;
+    for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
+      if (text !== "" && scanner.getTokenStart() > end) text += " ";
+      text += token === ts.SyntaxKind.StringLiteral ? JSON.stringify(scanner.getTokenValue()) : scanner.getTokenText();
+      end = scanner.getTokenEnd();
+    }
+    return text;
+  };
+}
+
 function readDesign(
   ts: TypeScript,
   design: DesignSourceFile,
@@ -225,7 +250,8 @@ function readDesign(
       report("E_UNSUPPORTED_DECLARATION", `${name}: ${what}`, node.getStart(sourceFile), { contract: name });
 
     if (declaration.typeParameters) unsupported("generic contracts are not supported", declaration.typeParameters[0]);
-    if (declaration.heritageClauses) unsupported("`extends` is not supported", declaration.heritageClauses[0]);
+    // What it extends is resolved with the types (`resolveInheritance`); written here are only the names.
+    const inherits = declaration.heritageClauses !== undefined;
 
     const invariants = new Map<string, SourceLocation>();
     let hasInvariantTags = tags.has("invariant");
@@ -236,19 +262,18 @@ function readDesign(
       let memberName: string | null = null;
       if (ts.isCallSignatureDeclaration(member)) {
         calls.push(member);
-      } else if (ts.isMethodSignature(member) && ts.isIdentifier(member.name)) {
+      } else if ((ts.isMethodSignature(member) || ts.isPropertySignature(member)) && ts.isIdentifier(member.name)) {
         memberName = member.name.text;
-        if (member.questionToken) unsupported("optional methods are not supported", member);
       } else {
-        unsupported("a contract has only methods with plain names, or a single call signature", member);
+        unsupported("a contract has only methods or properties with plain names, or a single call signature", member);
         // Its doc comment goes with it: the member is already reported, the tags on it are not a second mistake.
         docTags(member);
         continue;
       }
-      if (member.typeParameters) unsupported("generic signatures are not supported", member.typeParameters[0]);
+      if (!ts.isPropertySignature(member) && member.typeParameters) unsupported("generic signatures are not supported", member.typeParameters[0]);
 
       // A call signature has no name: its invariants belong to the contract as a whole.
-      const memberTags = readTags(docTags(member), ["description", "invariant"], "on a contract method");
+      const memberTags = readTags(docTags(member), ["description", "invariant"], "on a contract member");
       const memberDescription = readDescription(memberTags);
       hasInvariantTags ||= memberTags.has("invariant");
       readInvariants(memberTags, name, memberName, invariants);
@@ -258,7 +283,7 @@ function readDesign(
     }
     if (calls.length > 1) unsupported("overloads are not supported", calls[1]);
     if (calls.length > 0 && members.length > 0) unsupported("a contract has either methods or a call signature, not both", calls[0]);
-    if (declaration.members.length === 0) unsupported("a contract needs at least one method or a call signature", declaration.name);
+    if (declaration.members.length === 0 && !inherits) unsupported("a contract needs at least one member or a call signature", declaration.name);
 
     const contract: Contract = {
       name,
@@ -271,7 +296,7 @@ function readDesign(
       source: declaration.getFullText(sourceFile).trim(),
     };
     index.contracts.push(contract);
-    if (hasInvariantTags) withInvariantTags.add(contract);
+    if (hasInvariantTags || inherits) withInvariantTags.add(contract);
     for (const tag of tags.get("uses") ?? []) {
       const names = parseNames(tag.text);
       if (!names) report("E_TAG_FORMAT", "`@uses` without contract names", tag.start);
@@ -374,21 +399,7 @@ function readDesign(
     return first.name as LockLevel;
   };
 
-  // A signature is recorded as the printer writes it, on one line: layout, separators and comments of the document
-  // do not matter, nor does the quote style of a string literal; what is inside a literal is kept as it is.
-  const printer = ts.createPrinter({ removeComments: true });
-  const scanner = ts.createScanner(ts.ScriptTarget.Latest, true);
-  const print = (node: ts.Node): string => {
-    scanner.setText(printer.printNode(ts.EmitHint.Unspecified, node, sourceFile));
-    let text = "";
-    let end = 0;
-    for (let token = scanner.scan(); token !== ts.SyntaxKind.EndOfFileToken; token = scanner.scan()) {
-      if (text !== "" && scanner.getTokenStart() > end) text += " ";
-      text += token === ts.SyntaxKind.StringLiteral ? JSON.stringify(scanner.getTokenValue()) : scanner.getTokenText();
-      end = scanner.getTokenEnd();
-    }
-    return text;
-  };
+  const print = signaturePrinter(ts);
   /**
    * Members by name. What is not a named member has a key that no name can be: `:type` for the type of an alias,
    * `:call`, `:construct` and `:index` for such signatures, `:type-parameters` and `:extends` for the declaration.
@@ -412,6 +423,8 @@ function readDesign(
 
   /** Local name to what it is in another design; `name` is null for a namespace import. */
   const imported = new Map<string, { moduleId: string; name: string | null }>();
+  /** Local names of namespace imports of packages, to their entry. */
+  const packageNamespaces = new Map<string, PackageImport>();
   const lockedReferences: { locked: LockedDeclaration; references: TypeName[] }[] = [];
   interface TypeName {
     namespace: string | null;
@@ -450,6 +463,21 @@ function readDesign(
       report("E_DESIGN_OUT_OF_SCOPE", `"${written}"`, specifier.getStart(sourceFile));
     } else if (target === "other") {
       report("E_DESIGN_IMPORT", `"${written}" is not a *.cage.mdx`, specifier.getStart(sourceFile));
+    } else if ("problem" in target) {
+      report("E_DESIGN_IMPORT", `"${written}" ${target.problem}`, specifier.getStart(sourceFile));
+    } else if ("package" in target) {
+      // One entry per specifier of a design, however many statements import from it.
+      let entry = index.packages.find((known) => known.module === moduleId && known.specifier === written);
+      if (!entry) {
+        entry = { module: moduleId, specifier: written, ...target.package, names: [], declarations: [], location: design.locate(at) };
+        index.packages.push(entry);
+      }
+      const { name, namedBindings } = declaration.importClause;
+      const names = new Set(entry.names);
+      if (name) names.add("default");
+      if (namedBindings && ts.isNamespaceImport(namedBindings)) packageNamespaces.set(namedBindings.name.text, entry);
+      else for (const element of namedBindings?.elements ?? []) names.add((element.propertyName ?? element.name).text);
+      entry.names = [...names].sort();
     } else if (target.moduleId === moduleId) {
       report("E_DESIGN_IMPORT", "a design importing itself", specifier.getStart(sourceFile));
     } else if (!target.documents.includes(written.split("/").at(-1) ?? "")) {
@@ -487,6 +515,18 @@ function readDesign(
       locks.uses.push({ locked, ...target, location: design.locate(offset) });
     }
   }
+
+  // What a design names through a namespace import of a package: `z.ZodType`, `typeof z.string`.
+  const visitNamespaces = (node: ts.Node) => {
+    const [namespace, member] = ts.isQualifiedName(node) ? [node.left, node.right.text] : ts.isPropertyAccessExpression(node) ? [node.expression, node.name.text] : [];
+    const entry = namespace && ts.isIdentifier(namespace) ? packageNamespaces.get(namespace.text) : undefined;
+    if (entry && member !== undefined && !entry.names.includes(member)) entry.names = [...entry.names, member].sort();
+    ts.forEachChild(node, visitNamespaces);
+  };
+  if (packageNamespaces.size > 0) visitNamespaces(sourceFile);
+
+  // The packages a locked declaration's types depend on, through aliases and bases too, are recorded by the design
+  // phase once the checker has bound the names: see `capturePackageLocks`.
 
   const visit = (node: ts.Node) => {
     if (ts.isImportTypeNode(node)) {

@@ -24,7 +24,7 @@ const RULE = "src/quota/quota-rule.ts";
 const TESTS = "src/quota/quota.test.ts";
 const STUB = "src/quota/stub.ts";
 
-const QUOTA = contract("Quota", "take(): boolean;", "@invariant empty An empty quota refuses.", "@invariant consume A successful take uses exactly one send.");
+const QUOTA = contract("Quota", "left: number;\n  take(): boolean;", "@invariant empty An empty quota refuses.", "@invariant consume A successful take uses exactly one send.");
 
 /** A Quota whose behaviour lives partly outside the tagged class: in a helper file, and in a function of its own file. */
 function quotaProject(t: TestContext, files: Record<string, string> = {}, config: object = {}): string {

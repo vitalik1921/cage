@@ -43,37 +43,114 @@ function rank(diagnostic: Diagnostic): number {
 }
 
 /**
+ * Diagnostics that share a proven cause (`cause.id`, with the same code and severity), each set in the order of its
+ * first member; every other diagnostic is a group of its own. Nothing is merged on text.
+ */
+export function groupDiagnostics(diagnostics: readonly Diagnostic[]): Diagnostic[][] {
+  const groups: Diagnostic[][] = [], byCause = new Map<string, Diagnostic[]>();
+  for (const diagnostic of diagnostics) {
+    const key = diagnostic.cause && JSON.stringify([diagnostic.code, diagnostic.severity, diagnostic.cause.id]);
+    const group = key === undefined ? undefined : byCause.get(key);
+    if (group) group.push(diagnostic);
+    else {
+      groups.push([diagnostic]);
+      if (key !== undefined) byCause.set(key, groups[groups.length - 1]);
+    }
+  }
+  return groups;
+}
+
+type Omitted = CheckReport["omitted"];
+
+/** At most `max` items, the ones that matter most, in their order; the diagnostics of the rest counted by code. */
+function limitItems<T>(items: readonly T[], max: number | "all", members: (item: T) => readonly Diagnostic[]): { shown: T[]; omitted: Omitted } {
+  if (max === "all") return { shown: [...items], omitted: { limit: null, count: 0, errors: 0, warnings: 0, byCode: {} } };
+  const ordered = items.map((item, index) => ({ item, index, rank: rank(members(item)[0]) })).sort((a, b) => a.rank - b.rank || a.index - b.index);
+  const shown = ordered.slice(0, max).sort((a, b) => a.index - b.index).map(({ item }) => item);
+  const left = ordered.slice(max).flatMap(({ item }) => members(item));
+  const counted = new Map<string, number>();
+  for (const { code } of left) counted.set(code, (counted.get(code) ?? 0) + 1);
+  const { errors, warnings } = countBySeverity(left);
+  return { shown, omitted: { limit: max, count: left.length, errors, warnings, byCode: sortedCounts(counted) } };
+}
+
+const sortedCounts = (counted: Map<string, number>) => Object.fromEntries([...counted].sort(([codeA, a], [codeB, b]) => b - a || compareText(codeA, codeB)));
+
+/** What two limits left out together: the report's own `omitted` and what a further limit on its diagnostics adds. */
+function addOmitted(earlier: Omitted, later: Omitted): Omitted {
+  const counted = new Map(Object.entries(earlier.byCode));
+  for (const [code, count] of Object.entries(later.byCode)) counted.set(code, (counted.get(code) ?? 0) + count);
+  return { limit: later.limit ?? earlier.limit, count: earlier.count + later.count, errors: earlier.errors + later.errors, warnings: earlier.warnings + later.warnings, byCode: sortedCounts(counted) };
+}
+
+/**
  * The report with at most `max` diagnostics, the ones that matter most, in the order of the report; what is left out is
  * counted in `omitted`, by code. `ok` and the counts stay those of the whole check: a limit changes what is shown, not
  * what was found.
  */
 export function limitCheckReport(report: CheckReport, max: number | "all"): CheckReport {
   if (max === "all") return report;
-  const ordered = report.diagnostics.map((diagnostic, index) => ({ diagnostic, index, rank: rank(diagnostic) })).sort((a, b) => a.rank - b.rank || a.index - b.index);
-  const shown = ordered.slice(0, max).sort((a, b) => a.index - b.index).map(({ diagnostic }) => diagnostic);
-  const left = ordered.slice(max).map(({ diagnostic }) => diagnostic);
-  const counted = new Map<string, number>();
-  for (const { code } of left) counted.set(code, (counted.get(code) ?? 0) + 1);
-  const byCode = Object.fromEntries([...counted].sort(([codeA, a], [codeB, b]) => b - a || compareText(codeA, codeB)));
-  const { errors, warnings } = countBySeverity(left);
-  return { ...report, omitted: { limit: max, count: left.length, errors, warnings, byCode }, diagnostics: shown };
+  const { shown, omitted } = limitItems(report.diagnostics, max, (diagnostic) => [diagnostic]);
+  return { ...report, omitted, diagnostics: shown };
+}
+
+/**
+ * The groups text shows: at most `max` groups (a single diagnostic is one), ranked as diagnostics are; `omitted` counts
+ * every diagnostic of the groups left out.
+ */
+export function limitGroups(diagnostics: readonly Diagnostic[], max: number | "all"): { groups: Diagnostic[][]; omitted: Omitted } {
+  const { shown, omitted } = limitItems(groupDiagnostics(diagnostics), max, (group) => group);
+  return { groups: shown, omitted };
 }
 
 /** The line that stands for the diagnostics a limit left out: how many, of which codes, and how to see them. */
-export function formatOmitted({ omitted }: CheckReport): string[] {
+export function formatOmitted({ omitted }: { omitted: Omitted }): string[] {
   if (omitted.count === 0) return [];
   const codes = Object.entries(omitted.byCode).map(([code, count]) => `${count} ${code}`).join(", ");
   return [`${omitted.count} more not shown (${codes}); --max-diagnostics all shows every one`];
 }
 
-export function formatCheckReport(report: CheckReport): string {
+const formatPlaces = (places: Pick<RelatedLocation, "file" | "line" | "column">[]) => {
+  const text = places.map(formatPlace).filter((place) => place !== "");
+  return text.length ? ` (${text.join("; ")})` : "";
+};
+
+/**
+ * Diagnostics with one proven cause: the code and the shared explanation once, then each affected subject at its place,
+ * with its contracts at theirs. A group of one is the diagnostic itself.
+ */
+export function formatGroup(group: readonly Diagnostic[], single: (diagnostic: Diagnostic) => string = formatDiagnostic): string {
+  const [first] = group;
+  if (group.length === 1 || !first.cause) return group.map(single).join("\n");
+  const lines = [`${first.code}: ${first.cause.summary} — ${group.length} diagnostics:`];
+  for (const diagnostic of group) {
+    const { subject, contracts } = diagnostic.cause!;
+    // The producer lists the contracts and their places (related) in the same order.
+    const related = diagnostic.related ?? [];
+    const named = contracts.map((name, index) => `${name}${related[index] ? formatPlaces([related[index]]) : ""}`);
+    const rest = related.slice(contracts.length).map((place) => `${place.message.split("\n")[0]}${formatPlaces([place])}`);
+    lines.push(`  ${subject}${formatPlaces([diagnostic])}${[...named, ...rest].length ? ` → ${[...named, ...rest].join(", ")}` : ""}`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * The report as text. `max` bounds groups of diagnostics with one proven cause (a single diagnostic is one), ranked as
+ * diagnostics are; pass the whole report with the limit. A report already limited by `limitCheckReport` keeps its own
+ * `omitted`, to which a further limit adds.
+ */
+export function formatCheckReport(report: CheckReport, max: number | "all" = "all"): string {
   const { counts, scope } = report;
+  const limited = limitGroups(report.diagnostics, max);
+  const groups = limited.groups;
+  const omitted = addOmitted(report.omitted, limited.omitted);
+  const shown = groups.flat();
   // The counts are of the whole check: a limit on what is shown changes nothing here.
-  const errors = countBySeverity(report.diagnostics).errors + report.omitted.errors;
-  const warnings = countBySeverity(report.diagnostics).warnings + report.omitted.warnings;
+  const errors = countBySeverity(shown).errors + omitted.errors;
+  const warnings = countBySeverity(shown).warnings + omitted.warnings;
   const { version, source, fallbackReason } = scope.typescript;
   const compiler = `TypeScript ${version} (${fallbackReason === undefined ? source : `${source}; ${fallbackReason}`})`;
-  const lines = [...report.diagnostics.map(formatDiagnostic), ...formatOmitted(report)];
+  const lines = [...groups.map((group) => formatGroup(group)), ...formatOmitted({ omitted })];
 
   const facts = [plural(scope.designFiles.length, "design")];
   // Without an index there is nothing to count: an earlier error stopped the check.

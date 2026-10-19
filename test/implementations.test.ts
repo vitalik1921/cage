@@ -38,9 +38,13 @@ const STORE_CLASS = [
 ].join("\n");
 const CLEAN_FUNCTION = ["/** @implements CleanTitle */", "export function cleanTitle(input: string): string {", '  return input.trim().replace(/\\s+/g, " ");', "}", ""].join("\n");
 
-/** A project with the Store and CleanTitle contracts, their tests, and the given source files. */
-function project(t: TestContext, files: Record<string, string>): string {
-  return designProject(t, { m: mdx(STORE, CLEAN) }, { "src/m/contracts.test.ts": TESTS, ...files });
+/** Contracts of the very shape of Store and CleanTitle, for further implementations: a contract has one implementation. */
+const storeLike = (name: string) => contract(name, "get(key: string): Promise<string | null>;\n  put(key: string, value: string): Promise<void>;");
+const cleanLike = (name: string) => contract(name, "(input: string): string;");
+
+/** A project with the Store and CleanTitle contracts, the given further contracts, their tests, and the given source files. */
+function project(t: TestContext, files: Record<string, string>, ...contracts: string[]): string {
+  return designProject(t, { m: mdx(STORE, CLEAN, ...contracts) }, { "src/m/contracts.test.ts": TESTS, ...files });
 }
 
 const codes = (root: string) => checkLinking(root).errors.map(located);
@@ -58,14 +62,14 @@ test("the plan fixture links three implementations to their contracts", (t) => {
 
 test("classes, functions and consts implement contracts by their shape", (t) => {
   const root = project(t, {
-    // Extra public members, private state and constructor parameters are not part of the contract.
-    "src/m/memory-store.ts": STORE_CLASS.replace("export class MemoryStore {", "export class MemoryStore {\n  constructor(readonly name: string) {}\n  size(): number {\n    return 0;\n  }"),
+    // Private state/helpers and ordinary constructor parameters are not public API.
+    "src/m/memory-store.ts": STORE_CLASS.replace("export class MemoryStore {", "export class MemoryStore {\n  constructor(private readonly name: string) {}\n  private size(): number {\n    return 0;\n  }"),
     "src/m/clean-title.ts": CLEAN_FUNCTION,
-    "src/other/arrow.ts": '/** @implements CleanTitle */\nexport const tidy = (input: string): string => input.trim();\n',
+    "src/other/arrow.ts": '/** @implements TidyTitle */\nexport const tidy = (input: string): string => input.trim();\n',
     "src/other/object.ts": [
       "/**",
       " * An object literal is an implementation too.",
-      " * @implements Store",
+      " * @implements NullStore",
       " * @description In-memory, for tests.",
       " */",
       "export const nullStore = {",
@@ -74,7 +78,7 @@ test("classes, functions and consts implement contracts by their shape", (t) => 
       "};",
       "",
     ].join("\n"),
-  });
+  }, cleanLike("TidyTitle"), storeLike("NullStore"));
   const { linking, errors } = checkLinking(root);
   assert.deepEqual(errors, []);
   assert.deepEqual(
@@ -82,8 +86,8 @@ test("classes, functions and consts implement contracts by their shape", (t) => 
     [
       ["CleanTitle", "cleanTitle", "function", true],
       ["Store", "MemoryStore", "class", true],
-      ["CleanTitle", "tidy", "const", true],
-      ["Store", "nullStore", "const", true],
+      ["TidyTitle", "tidy", "const", true],
+      ["NullStore", "nullStore", "const", true],
     ],
   );
 });
@@ -91,32 +95,32 @@ test("classes, functions and consts implement contracts by their shape", (t) => 
 test("an implementation that does not fit its contract is a type mismatch, explained by the compiler", (t) => {
   const root = project(t, {
     "src/m/clean-title.ts": CLEAN_FUNCTION,
-    "src/m/memory-store.ts": STORE_CLASS,
+    "src/m/memory-store.ts": STORE_CLASS.replace("@implements Store", "@implements MemoryStoreApi"),
     // A missing method.
     "src/m/half-store.ts": "/** @implements Store */\nexport class HalfStore {\n  async get(_key: string): Promise<string | null> {\n    return null;\n  }\n}\n",
     // An incompatible result.
-    "src/m/sync-store.ts": "/** @implements Store */\nexport class SyncStore {\n  get(_key: string): string | null {\n    return null;\n  }\n  async put(): Promise<void> {}\n}\n",
+    "src/m/sync-store.ts": "/** @implements SyncStoreApi */\nexport class SyncStore {\n  get(_key: string): string | null {\n    return null;\n  }\n  async put(): Promise<void> {}\n}\n",
     // The methods exist only on the class itself: an instance has none.
-    "src/m/static-store.ts": "/** @implements Store */\nexport class StaticStore {\n  static async get(_key: string): Promise<string | null> {\n    return null;\n  }\n  static async put(): Promise<void> {}\n}\n",
+    "src/m/static-store.ts": "/** @implements StaticStoreApi */\nexport class StaticStore {\n  static async get(_key: string): Promise<string | null> {\n    return null;\n  }\n  static async put(): Promise<void> {}\n}\n",
     // A class is not callable.
-    "src/m/cleaner.ts": "/** @implements CleanTitle */\nexport class Cleaner {\n  clean(input: string): string {\n    return input;\n  }\n}\n",
+    "src/m/cleaner.ts": "/** @implements CleanerApi */\nexport class Cleaner {\n  clean(input: string): string {\n    return input;\n  }\n}\n",
     // A function with the wrong result.
-    "src/m/length.ts": "/** @implements CleanTitle */\nexport const length = (input: string): number => input.length;\n",
+    "src/m/length.ts": "/** @implements LengthApi */\nexport const length = (input: string): number => input.length;\n",
     // A const that holds a class, not an instance.
-    "src/m/store-class.ts": "/** @implements Store */\nexport const StoreClass = class {\n  async get(): Promise<string | null> {\n    return null;\n  }\n  async put(): Promise<void> {}\n};\n",
-  });
+    "src/m/store-class.ts": "/** @implements StoreClassApi */\nexport const StoreClass = class {\n  async get(): Promise<string | null> {\n    return null;\n  }\n  async put(): Promise<void> {}\n};\n",
+  }, storeLike("MemoryStoreApi"), storeLike("SyncStoreApi"), storeLike("StaticStoreApi"), storeLike("StoreClassApi"), cleanLike("CleanerApi"), cleanLike("LengthApi"));
   const { linking, diagnostics } = checkLinking(root);
 
   const mismatches = diagnostics.filter((diagnostic) => diagnostic.code === "E_TYPE_MISMATCH");
   assert.deepEqual(mismatches.map(located), [
-    { code: "E_TYPE_MISMATCH", ...inFile(root, "src/m/cleaner.ts", "Cleaner") },
+    { code: "E_TYPE_MISMATCH", ...inFile(root, "src/m/cleaner.ts", "class Cleaner", "class ".length) },
     { code: "E_TYPE_MISMATCH", ...inFile(root, "src/m/half-store.ts", "HalfStore") },
     { code: "E_TYPE_MISMATCH", ...inFile(root, "src/m/length.ts", "length") },
-    { code: "E_TYPE_MISMATCH", ...inFile(root, "src/m/static-store.ts", "StaticStore") },
-    { code: "E_TYPE_MISMATCH", ...inFile(root, "src/m/store-class.ts", "StoreClass") },
-    { code: "E_TYPE_MISMATCH", ...inFile(root, "src/m/sync-store.ts", "SyncStore") },
+    { code: "E_TYPE_MISMATCH", ...inFile(root, "src/m/static-store.ts", "class StaticStore", "class ".length) },
+    { code: "E_TYPE_MISMATCH", ...inFile(root, "src/m/store-class.ts", "const StoreClass", "const ".length) },
+    { code: "E_TYPE_MISMATCH", ...inFile(root, "src/m/sync-store.ts", "class SyncStore", "class ".length) },
   ]);
-  assert.equal(diagnostics.filter((diagnostic) => diagnostic.severity === "error").length, mismatches.length);
+  assert.ok(diagnostics.filter(d => d.severity === "error" && d.code !== "E_TYPE_MISMATCH").every(d => d.code === "E_CONTRACT_EXTRA_MEMBER"));
 
   const half = mismatches[1];
   assert.equal(half.contract, "Store");
@@ -137,17 +141,20 @@ test("an implementation that does not fit its contract is a type mismatch, expla
   );
 });
 
-test("what TypeScript accepts, the harness accepts: any, assertions and method parameters", (t) => {
+test("exact conformance rejects any and narrower method signatures; assertions still describe the declared API", (t) => {
   const root = project(t, {
     "src/m/clean-title.ts": CLEAN_FUNCTION,
-    // `any` fits everything.
-    "src/m/any-store.ts": "/** @implements Store */\nexport const anyStore: any = {};\n",
+    // `any` cannot establish a concrete public API.
+    "src/m/any-store.ts": "/** @implements AnyStoreApi */\nexport const anyStore: any = {};\n",
     // An assertion silences the mismatch where it is made, inside the implementation.
-    "src/m/asserted-store.ts": "/** @implements Store */\nexport const assertedStore = {\n  get: (async () => 1) as unknown as (key: string) => Promise<string | null>,\n  put: async (): Promise<void> => {},\n};\n",
-    // Method parameters are compared bivariantly: a narrower parameter passes.
+    "src/m/asserted-store.ts": "/** @implements AssertedStoreApi */\nexport const assertedStore = {\n  get: (async () => 1) as unknown as (key: string) => Promise<string | null>,\n  put: async (_key: string, _value: string): Promise<void> => {},\n};\n",
+    // TypeScript accepts bivariant method parameters; exact conformance rejects them.
     "src/m/narrow-store.ts": '/** @implements Store */\nexport class NarrowStore {\n  async get(_key: "only-this-key"): Promise<string | null> {\n    return null;\n  }\n  async put(): Promise<void> {}\n}\n',
-  });
-  assert.deepEqual(codes(root), []);
+  }, storeLike("AnyStoreApi"), storeLike("AssertedStoreApi"));
+  const result = checkLinking(root);
+  assert.ok(result.errors.some(d => d.code === "E_CONTRACT_UNCHECKABLE" && d.message.includes("anyStore")));
+  assert.ok(result.errors.some(d => d.code === "E_CONTRACT_SIGNATURE" && d.message.includes("NarrowStore.get")));
+  assert.equal(result.linking.implementations.find(i => i.name === "assertedStore")?.compatible, true);
 });
 
 test("only a tag links an implementation: a contract without one has no implementation", (t) => {
@@ -174,7 +181,7 @@ const position = (root: string, needle: string, offset = 0) => {
   return { line, column };
 };
 
-test("@implements names known contracts, one or several, in one tag or one per line", (t) => {
+test("@implements names one known contract; a list or a second tag is rejected", (t) => {
   const root = project(t, {
     "src/m/clean-title.ts": CLEAN_FUNCTION,
     "src/m/memory-store.ts": STORE_CLASS,
@@ -191,7 +198,7 @@ test("@implements names known contracts, one or several, in one tag or one per l
   assert.equal(found.errors.at(-1)?.message, "`@implements Stor`: no such contract");
   assert.deepEqual(found.linking.implementations.map((implementation) => implementation.name), ["cleanTitle", "MemoryStore"]);
 
-  // One declaration may implement several contracts; each is checked on its own.
+  // A declaration implements one contract: a list, with spaces or commas, or a second tag is an error, and nothing is linked.
   const both = [
     "/**",
     " * @implements Store CleanTitle",
@@ -214,13 +221,18 @@ test("@implements names known contracts, one or several, in one tag or one per l
     "};",
     "",
   ].join("\n");
-  const several = project(t, { "src/m/both.ts": both });
+  const several = project(t, { "src/m/both.ts": both, "src/m/listed.ts": "/** @implements Store, CleanTitle */\nexport const listed = { async get(key: string): Promise<string | null> { return key; }, async put(_key: string, _value: string): Promise<void> {} };\n" });
   const linked = checkLinking(several);
-  assert.deepEqual(
-    linked.linking.implementations.map(({ contract, name, compatible }) => [contract, name, compatible]),
-    [["Store", "Both", true], ["CleanTitle", "Both", false], ["Store", "twice", true], ["CleanTitle", "twice", false]],
-  );
-  assert.deepEqual(linked.errors.map(({ code, contract }) => ({ code, contract })), [{ code: "E_TYPE_MISMATCH", contract: "CleanTitle" }, { code: "E_TYPE_MISMATCH", contract: "CleanTitle" }]);
+  // The rejected names are not also reported as contracts without an implementation, nor compared with anything.
+  assert.deepEqual(linked.errors.map(located), [
+    { code: "E_TAG_FORMAT", ...inFile(several, "src/m/both.ts", "@implements Store CleanTitle") },
+    { code: "E_TAG_FORMAT", ...inFile(several, "src/m/both.ts", "@implements CleanTitle") },
+    { code: "E_TAG_FORMAT", ...inFile(several, "src/m/listed.ts", "@implements Store, CleanTitle") },
+  ]);
+  assert.match(linked.errors[0].message, /several names: a declaration implements one contract/);
+  assert.match(linked.errors[1].message, /given twice: a declaration implements one contract/);
+  assert.match(linked.errors[2].message, /several names: a declaration implements one contract/);
+  assert.deepEqual(linked.linking.implementations, []);
 });
 
 test("@implements needs an exported, named class, function or const", (t) => {
@@ -431,10 +443,10 @@ test("a harness tag in the wrong place of a source file is reported; ordinary do
       "export const helper = 1;",
       "",
     ].join("\n"),
-    "src/m/managed.ts": STORE_CLASS.replace("/** @implements Store */", "/**\n * @implements Store\n * @todo tidy up\n * @name Renamed\n * @description Дозволений звичайний опис.\n * @see Other\n */").replace("MemoryStore", "DocumentedStore"),
+    "src/m/managed.ts": STORE_CLASS.replace("/** @implements Store */", "/**\n * @implements DocumentedStoreApi\n * @todo tidy up\n * @name Renamed\n * @description Дозволений звичайний опис.\n * @see Other\n */").replace("MemoryStore", "DocumentedStore"),
     // No binding tag anywhere: not the harness's to lint, whatever the doc comments say.
     "src/m/plain.ts": '/** @todo later\n * @description Звичайний JSDoc.\n * @author someone */\nexport const plain = "has @implements Store in a string";\n// @implements Store in a line comment\n',
-  });
+  }, storeLike("DocumentedStoreApi"));
   assert.deepEqual(codes(root), [
     { code: "E_UNKNOWN_TAG", ...inFile(root, "src/m/managed.ts", "@todo") },
     { code: "E_UNSUPPORTED_TAG", ...inFile(root, "src/m/managed.ts", "@name") },

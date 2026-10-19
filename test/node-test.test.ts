@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test, type TestContext } from "node:test";
-import { checkLinking, cli, contract, copyFixture, designFile, designProject, inFile, located, mdx } from "./helpers.ts";
+import { checkLinking, cli, contract, copyFixture, designFile, designProject, editFile, inFile, located, mdx } from "./helpers.ts";
 
 const QUOTA = contract("Quota", "take(): boolean;", "@invariant empty Порожня квота відмовляє.", "@invariant consume Списує одиницю.", "@invariant race Не перевищує залишок.");
 const SENDER = contract("Sender", "send(): void;", "@invariant once Надсилає один раз.");
@@ -182,7 +182,9 @@ test("a test may cover several invariants, and an invariant may have several tes
   assert.deepEqual(links(root), ["Quota > many [Quota: empty consume race]", "Quota > again [Quota: empty]", "Sender > once [Sender: once]"]);
 });
 
-test("a declaration is linked whether or not it would run; an invariant linked only to tests that cannot run is an error", (t) => {
+/** @tests Cli
+ * @covers test-linkage */
+test("explicit skip/todo and suite-level skip satisfy linkage while remaining inactive", (t) => {
   const root = project(
     t,
     lines(
@@ -228,12 +230,13 @@ test("a declaration is linked whether or not it would run; an invariant linked o
     ],
   );
   const { errors, warnings } = checkLinking(root);
-  assert.deepEqual(errors.map(({ code, invariant }) => ({ code, invariant })), ["empty", "consume", "race"].map((invariant) => ({ code: "E_TEST_INACTIVE", invariant })));
-  assert.match(errors[0].message, /^Quota\.empty\n- "skipped suite > skipped" skipped by `\.skip` on its suite "skipped suite" \(src\/m\/contracts\.test\.ts:8\)$/);
+  assert.deepEqual(errors, []);
   assert.deepEqual(warnings.filter(({ code }) => code === "W_TEST_INACTIVE"), []);
 });
 
-test("skip and todo by modifier or option, an empty body and a missing callback make a test inactive; a run-time option does not", (t) => {
+/** @tests Cli
+ * @covers test-linkage */
+test("explicit skip/todo satisfies linkage but empty bodies without that intent remain errors", (t) => {
   const root = project(
     t,
     lines(
@@ -272,12 +275,13 @@ test("skip and todo by modifier or option, an empty body and a missing callback 
   const { errors } = checkLinking(root);
   // The last listed test of the message: `- "title" why (file:line)`, one a line.
   assert.deepEqual(errors.map(({ code, invariant, message }) => ({ code, invariant, why: /^- "[^"]*" (.*)$/.exec(message.split("\n").filter((line) => line.startsWith("- ")).at(-1) ?? "")?.[1] })), [
-    { code: "E_TEST_INACTIVE", invariant: "empty", why: "todo by the `todo` option (src/m/contracts.test.ts:11)" },
     { code: "E_TEST_INACTIVE", invariant: "consume", why: "has no callback (src/m/contracts.test.ts:15)" },
   ]);
 });
 
-test("beside an active test, an inactive one is a warning at the test, and the invariant stays linked", (t) => {
+/** @tests Cli
+ * @covers test-linkage */
+test("only unintended empty tests warn beside active tests; explicit skip/todo stays visible in counts", (t) => {
   const root = project(
     t,
     lines(
@@ -308,9 +312,7 @@ test("beside an active test, an inactive one is a warning at the test, and the i
   assert.deepEqual(
     warnings.map(({ code, line, message }) => ({ code, line, message })),
     [
-      { code: "W_TEST_INACTIVE", line: 8, message: '"Quota > skipped too" skipped by `.skip`; covers Quota.empty' },
       { code: "W_TEST_INACTIVE", line: 11, message: '"Quota > empty for Sender" has an empty body; covers Sender.once' },
-      { code: "W_TEST_INACTIVE", line: 19, message: '"later > planned" todo by `.todo` on its suite "later"; covers Quota.race' },
     ],
   );
   // The counts tell linked from active.
@@ -321,6 +323,11 @@ test("beside an active test, an inactive one is a warning at the test, and the i
   assert.equal(report.counts.activeInvariants, 4);
   assert.equal(report.counts.executedTests, null);
   assert.deepEqual(report.invariants.map(({ id, linkedTestCount, activeTestCount }: { id: string; linkedTestCount: number; activeTestCount: number }) => `${id}: ${activeTestCount}/${linkedTestCount}`), ["empty: 1/2", "consume: 1/1", "race: 1/2", "once: 1/2"]);
+  // Explicit intent also suffices when it is the only usable declaration beside the empty one.
+  editFile(root, TEST_FILE, text => text.replace('it("active for Sender"', 'it.skip("active for Sender"'));
+  const skipped = checkLinking(root);
+  assert.deepEqual(skipped.errors, []);
+  assert.deepEqual(skipped.warnings, warnings);
 });
 
 test("a declaration in a block or a loop is one declaration", (t) => {
@@ -357,6 +364,8 @@ test("tests may live in another module or in the tests directory", (t) => {
   assert.deepEqual([...new Set(linking.tests.map((declaration) => declaration.location.file))], ["src/other/unit.test.ts", "tests/integration/all.test.ts"]);
 });
 
+/** @tests Cli
+ * @covers test-linkage */
 test("an invariant without a test declaration is an error of the implementation phase", (t) => {
   const root = project(
     t,

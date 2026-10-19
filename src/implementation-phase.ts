@@ -1,10 +1,11 @@
+import { checkContractSurfaces, type ShapeBinding } from "./contract-conformance.ts";
 import fs from "node:fs";
 import path from "node:path";
 import type ts from "typescript";
 import type { Contract, Implementation, Invariant, SourceLocation, TestDeclaration } from "./design-model.ts";
 import { checkDesignPhase, createConverter, environmentDiagnostics, type Converter, type DesignPhaseOptions, type DesignPhaseResult, type Origin } from "./design-phase.ts";
 import { IGNORE_FILE, ownerOf, readModuleScopes, type ModuleScope } from "./coverage.ts";
-import { compareDiagnostics, hasErrors, type Diagnostic } from "./diagnostic.ts";
+import { compareDiagnostics, compareText, hasErrors, type Diagnostic } from "./diagnostic.ts";
 import type { SourceFiles } from "./discovery.ts";
 import { readImplementations, type FoundImplementation } from "./implementations.ts";
 import { stripBom, toProjectPath } from "./location.ts";
@@ -137,7 +138,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
     const implementationFile = path.join(root, implementation.location.file);
     const fileName = `${implementationFile.slice(0, -".ts".length)}.cage-check-${order + 1}.ts`;
     const designFile = modules.find((module) => module.moduleId === contract.module)!.virtualFile;
-    const subject = implementation.kind === "class" ? `implementation.${implementation.name}` : `typeof implementation.${implementation.name}`;
+    const subject = implementation.kind === "class" && !implementation.surface ? `implementation.${implementation.name}` : `typeof implementation.${implementation.name}`;
     const text = [
       `import type * as implementation from ${JSON.stringify(specifierFor(overlay, fileName, implementationFile))};`,
       `import type * as design from ${JSON.stringify(specifierFor(overlay, fileName, designFile))};`,
@@ -173,6 +174,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
   }
 
   const checker = program.getTypeChecker();
+  const shapeBindings: ShapeBinding[] = [];
   const implementations = checks.map(({ implementation, contract, fileName }): Implementation => {
     const sourceFile = requireSourceFile(program, fileName);
     const [, , declaration, question] = sourceFile.statements;
@@ -199,8 +201,15 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
       });
     }
     const { name, kind, location } = implementation;
-    return { contract: contract.name, name, kind, compatible: mismatches.length === 0, location };
+    const result: Implementation = { contract: contract.name, name, kind, compatible: mismatches.length === 0, location, ...(implementation.surface ? { surface: implementation.surface } : {}) };
+    if (!ts.isVariableStatement(declaration) || !declaration.declarationList.declarations[0].type || !ts.isExpressionStatement(question) || !ts.isSatisfiesExpression(question.expression)) throw new Error("Invalid generated contract comparison");
+    const source = requireSourceFile(program, path.join(root, location.file));
+    const classNode = source.statements.find((node): node is ts.ClassDeclaration => ts.isClassDeclaration(node) && node.name?.text === name);
+    shapeBindings.push({ implementation: result, contract, actual: checker.getTypeFromTypeNode(declaration.declarationList.declarations[0].type), expected: checker.getTypeFromTypeNode(question.expression.type), node: declaration, declaration: classNode });
+    return result;
   });
+
+  diagnostics.push(...checkContractSurfaces(ts, checker, shapeBindings));
 
   const { tests, rejected } = readTests(ts, program, overlay, root, convert, options.testAdapter, testFiles, contracts, index.invariants, diagnostics);
 
@@ -216,16 +225,15 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
     });
   }
   let uncheckedInvariants = 0;
-  // Links to tests that cannot run an assertion, as their text shows. Structural, not semantic: an active test may
-  // still assert nothing, and a runner may skip a test at run time; only running the tests shows that.
-  // Per inactive declaration, the invariants it is linked to that do have an active test: only those are warned
-  // about at the test; an invariant with no active test at all is an error at the invariant instead.
+  // Explicit skip/todo declarations satisfy linkage while remaining inactive in reports.
+  // Empty callbacks without that intent, and broken imports, cannot establish a usable link.
+  // When another linked declaration is usable, report the defective test as a warning instead.
   const warned = new Map<string, { test: TestDeclaration; invariants: string[] }>();
   const keyOf = (test: TestDeclaration) => `${test.location.file}:${test.location.line}:${test.location.column}`;
   const describeTest = (test: TestDeclaration) => `"${[...test.suitePath, test.title].join(" > ")}" ${test.inactiveBecause} (${test.location.file}:${test.location.line})`;
   for (const invariant of index.invariants) {
     const linked = testsLinkedTo(tests, invariant.contract, invariant.id);
-    const inactive = linked.filter((test) => test.status !== "active");
+    const inactive = linked.filter((test) => test.status === "empty" || test.status === "broken-import");
     if (linked.length > 0 && inactive.length === linked.length) {
       diagnostics.push({
         code: "E_TEST_INACTIVE",
@@ -452,7 +460,7 @@ function findImplementations(
       // A broken file without tags is the project's own business.
       if (!tagged.tagged) continue;
       diagnostics.push(...syntax.map((diagnostic) => convert("E_TYPESCRIPT", diagnostic)));
-      for (const name of namesAfterTag(tagged.text, "implements")) attempted.add(name);
+      for (const tag of ["implements", "implements-static"]) for (const name of namesAfterTag(tagged.text, tag)) attempted.add(name);
       continue;
     }
     const read = readImplementations(ts, sourceFile, tagged.file, tagged.tagged);
@@ -473,10 +481,32 @@ function findImplementations(
     if (read.found.length > 0) implementationFiles.push(tagged);
     for (const implementation of read.found) {
       if (contracts.has(implementation.contract)) found.push(implementation);
-      else diagnostics.push(unknownContract("implements", implementation.contract, implementation.tagLocation));
+      else diagnostics.push(unknownContract(implementation.surface ? "implements-static" : "implements", implementation.contract, implementation.tagLocation));
     }
   }
+  diagnostics.push(...duplicateImplementations(found));
   return { found, implementationFiles, attempted };
+}
+
+/**
+ * One contract, one implementation: every direct `@implements` / `@implements-static` of a contract after the first,
+ * in path and position order, is an error that points back to the first. All of them are still compared with the contract.
+ */
+function duplicateImplementations(found: readonly FoundImplementation[]): Diagnostic[] {
+  const byContract = new Map<string, FoundImplementation[]>();
+  for (const implementation of found) byContract.set(implementation.contract, [...(byContract.get(implementation.contract) ?? []), implementation]);
+  const order = ({ tagLocation: a }: FoundImplementation, { tagLocation: b }: FoundImplementation) => compareText(a.file, b.file) || a.line - b.line || a.column - b.column;
+  return [...byContract.values()].flatMap((implementations) => {
+    const [first, ...others] = [...implementations].sort(order);
+    return others.map((other): Diagnostic => ({
+      code: "E_IMPLEMENTATION_DUPLICATE",
+      severity: "error",
+      message: `${other.contract}: ${other.name} is a second implementation; ${first.name} already implements it`,
+      ...other.tagLocation,
+      contract: other.contract,
+      related: [{ message: "the first implementation", ...first.tagLocation }],
+    }));
+  });
 }
 
 /** The last identifier of the type a check statement names: `X` of `implementation.X`, `C` of `design.C`. */

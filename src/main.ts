@@ -55,7 +55,7 @@ Options:
   --config <path>   Configuration file, relative to the project root (default: .cage/config.json if present)
   --format <format> Report format: text (default) or json; for review markdown (default) or json
   --max-diagnostics <n|all>
-                    check, gate: show at most n diagnostics, the ones that matter most, and count the rest by code
+                    check, gate: show at most n groups in text (individual diagnostics in JSON), count omitted violations by code
                     (default: "maxDiagnostics" in the configuration, 50)
   --all             review: list every contract, not only those in need of a review
   --files <mode>    review <name...>: changed (default), context (experimental), all or none
@@ -219,9 +219,9 @@ function run(argv: readonly string[], io: CliIo): number {
     // The design phase does not look at source files, so it does not search for them either.
     const sources = phase === "design" || diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
     const report = runCheck({ ...scope, sources, testAdapter: config.testAdapter, coverage: config.coverage, reviewScope }, phase, { lockBase: values.base, review: config.review });
-    // What is shown is limited; the exit code is of everything that was found.
-    const shown = limitCheckReport(report, maxDiagnostics ?? config.maxDiagnostics);
-    io.stdout(format === "json" ? `${JSON.stringify(shown, null, 2)}\n` : formatCheckReport(shown));
+    // What is shown is limited; the exit code is of everything that was found. JSON limits single diagnostics, text groups.
+    const max = maxDiagnostics ?? config.maxDiagnostics;
+    io.stdout(format === "json" ? `${JSON.stringify(limitCheckReport(report, max), null, 2)}\n` : formatCheckReport(report, max));
     return exitCode(report.diagnostics);
   }
   if (command === "lock") {

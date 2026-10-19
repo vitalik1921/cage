@@ -21,6 +21,8 @@ const uncovered = (root: string) =>
     .diagnostics.filter((diagnostic) => diagnostic.code === "W_NOT_DESIGNED")
     .map(({ severity, message, file, line, column }) => ({ severity, what: /^(\w+ \S+) in /.exec(message)?.[1], file, line, column }));
 
+/** @tests Cli
+ * @covers design-coverage */
 test("exported code of a module that its design does not cover is a warning", (t) => {
   const root = project(t, {
     "src/m/controller.ts": [
@@ -79,6 +81,8 @@ test("exported code of a module that its design does not cover is a warning", (t
   assert.match(cli(root, "check").stdout, /"coverage" must be "off", "warn" or "require"/);
 });
 
+/** @tests Cli
+ * @covers design-coverage */
 test("standalone scalar constants need no design under warn or require, including literal expressions", (t) => {
   const root = project(t, {
     "src/m/constants.ts": [
@@ -99,6 +103,8 @@ test("standalone scalar constants need no design under warn or require, includin
   }
 });
 
+/** @tests Cli
+ * @covers design-coverage */
 test("const functions, objects, arrays and opaque values still need design coverage", (t) => {
   const root = project(t, {
     "src/m/values.ts": [
@@ -115,6 +121,8 @@ test("const functions, objects, arrays and opaque values still need design cover
   assert.deepEqual(uncovered(root).map(({ what }) => what), ['const fn', 'const object', 'const config', 'const array', 'const service', 'const mixed', 'const callable']);
 });
 
+/** @tests Cli
+ * @covers design-coverage */
 test("an explicit implements on a scalar constant is still validated", (t) => {
   const root = project(t, { "src/m/bad.ts": '/** @implements Missing */\nexport const LIMIT = 300;\n' });
   assert.ok(checkLinking(root).errors.some(({ code }) => code === "E_REFERENCE_UNKNOWN"));
@@ -122,6 +130,8 @@ test("an explicit implements on a scalar constant is still validated", (t) => {
   assert.ok(checkLinking(root).errors.some(({ code }) => code === "E_TYPE_MISMATCH"));
 });
 
+/** @tests Cli
+ * @covers design-coverage */
 test("scalar coverage classification works with TS 5 and 6 and does not trust a function's type assertion", () => {
   const text = 'export const value = ((-300) satisfies number), fn = (() => 300) as unknown as number; export const object = { value: 300 };';
   for (const compiler of [ts5 as unknown as typeof ts, ts]) {
@@ -130,6 +140,8 @@ test("scalar coverage classification works with TS 5 and 6 and does not trust a 
   }
 });
 
+/** @tests Cli
+ * @covers design-coverage */
 test("a scalar exempt from design coverage still changes its consumer's review fingerprint", (t) => {
   const root = project(t, {
     "src/m/limit.ts": 'export const LIMIT = 300;\n',
@@ -146,6 +158,8 @@ test("a scalar exempt from design coverage still changes its consumer's review f
   assert.deepEqual(uncovered(root), []);
 });
 
+/** @tests Cli
+ * @covers design-coverage */
 test("a module's ignore file lists the files and folders that need no design", (t) => {
   const root = project(t, {
     "src/m/entities/account.ts": "export const accounts = {};\n",
@@ -184,6 +198,8 @@ test("a module's ignore file lists the files and folders that need no design", (
   assert.deepEqual(checkLinking(root).errors.map(({ code, file }) => ({ code, file })), [{ code: "E_REFERENCE_UNKNOWN", file: "src/m/entities/account.ts" }]);
 });
 
+/** @tests Cli
+ * @covers design-coverage */
 test("a file belongs to the nearest module above it", (t) => {
   const inner = contract("Inner", "run(): void;", "@invariant ok Працює.");
   const root = project(
@@ -203,12 +219,16 @@ test("a file belongs to the nearest module above it", (t) => {
   assert.deepEqual(uncovered(root).map(({ what, file }) => [what, file]), [['class Extra', "src/m/inner/inner.ts"]]);
 });
 
+/** @tests Cli
+ * @covers design-coverage */
 test("a declaration with a rejected @implements is an error, not also uncovered", (t) => {
   const root = project(t, { "src/m/other.ts": "/** @implements Stor */\nexport class Typo {}\n" });
   const { diagnostics } = checkLinking(root);
   assert.deepEqual(diagnostics.map(({ code, file }) => ({ code, file })), [{ code: "E_REFERENCE_UNKNOWN", file: "src/m/other.ts" }]);
 });
 
+/** @tests Cli
+ * @covers design-coverage */
 test("ignore patterns are read like a .gitignore, without negation", (t) => {
   const patterns = ["# comment", "", "  entities/  ", "!entities/keep.ts", ""];
   const root = project(t, { [`src/m/${IGNORE_FILE}`]: patterns.join("\n") });

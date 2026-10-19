@@ -34,6 +34,12 @@ export interface Diagnostic {
     changes?: { part: string; change: "changed" | "new" | "gone" }[];
     finding?: { assessment: string; reason: string };
   };
+  /**
+   * A cause the checker proved from declarations, not from text: diagnostics of one code and severity with the same
+   * `id` share it, and human output prints `summary` once, then each `subject` (the member or implementation) with
+   * its `contracts`, whose places are `related` in the same order. Ids are opaque and comparable within one run only.
+   */
+  cause?: { id: string; summary: string; subject: string; contracts: string[] };
 }
 
 export const isError = (diagnostic: Diagnostic) => diagnostic.severity === "error";

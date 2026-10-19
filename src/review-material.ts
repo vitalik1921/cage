@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type ts from "typescript";
-import type { Contract, Edge, Implementation, SourceLocation, TestDeclaration } from "./design-model.ts";
+import type { Contract, Edge, Implementation, PackageImport, SourceLocation, TestDeclaration } from "./design-model.ts";
 import type { DesignModule } from "./design-phase.ts";
 import { compareText, type Diagnostic } from "./diagnostic.ts";
 import type { ImplementationPhaseResult } from "./implementation-phase.ts";
@@ -10,6 +10,7 @@ import { insideRoot, stripBom, toProjectPath } from "./location.ts";
 import type { Overlay, TypeScript } from "./typescript.ts";
 import { dependencySlices, sliceNodes } from "./review-slice.ts";
 import { codeFingerprintText } from "./review-fingerprint.ts";
+import { packageMaterial } from "./package-types.ts";
 
 /** A file the reviewer reads, once, whatever number of contracts it serves. Its text has `\n` line endings whatever the disk has. */
 export interface PacketFile {
@@ -17,8 +18,10 @@ export interface PacketFile {
   /**
    * "helper": a project file a test file imports, loaded because a reviewer has to see what a stub stands in for.
    * "dependency": the full snapshot behind a dependency fingerprint or excerpt.
+   * "package": a declaration file of an installed package that the designs reach, as the compiler read it; or the
+   * metadata of a `package <name>` part, at the package's directory.
    */
-  role: "design" | "implementation" | "test" | "helper" | "dependency";
+  role: "design" | "implementation" | "test" | "helper" | "dependency" | "package";
   text: string;
   /** Of the normalized text, so that the line endings of a checkout do not count as a change. */
   digest: string;
@@ -29,7 +32,9 @@ export interface PacketFile {
  * `design <file>`: the prose of a document of its module, its `ts design` blocks left out. `implementation
  * <file>#<name>` and `test <file>:<title>`: the statement, with the declarations of the same file it refers
  * to and, for a test, the setup of its suites. `dependency <file>`: a local file that an implementation or
- * test file imports, within the bounds of the review scope.
+ * test file imports, within the bounds of the review scope. `package <name>`: what the contract's design, or a design
+ * it imports types from, imports from an installed package, with its version and the declaration files reached.
+ * `declaration <name@version/path>`: each of those files, with its text; its tokens are the fingerprint.
  */
 export interface MaterialPart {
   key: string;
@@ -79,6 +84,8 @@ export interface Material {
   beyond: { file: string; why: Beyond }[];
   /** Dependency files that could not be read. */
   unreadable: { file: string; message: string }[];
+  /** The installed packages whose declarations are parts, with the directory each is installed in. */
+  packages: { name: string; versions: string[]; directory: string }[];
 }
 
 export type FileReader = (file: string, role: PacketFile["role"], text?: string) => PacketFile | undefined;
@@ -152,6 +159,8 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
       }
     }
   }
+  // The types of the contract are those of its design and of the designs it imports from, packages' among them.
+  const typeModules = new Set(reached);
   for (const { module } of uses) reached.add(module);
   reached.delete(contract.module);
   const dependencyModules = [...reached].sort(compareText);
@@ -167,6 +176,24 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
   // and the local code they rely on. A change elsewhere in those files is not a change of the material.
   const parts: MaterialPart[] = [{ key: "contract", text: contract.source, file: contract.location.file, line: contract.location.line, name: contract.name }];
   for (const document of own.documents) parts.push({ key: `design ${document.file}`, text: proseOf(document.source, document.blocks), file: document.file });
+  const packageImports = new Map<string, PackageImport[]>();
+  for (const entry of index!.packages) if (typeModules.has(entry.module)) packageImports.set(entry.name, [...(packageImports.get(entry.name) ?? []), entry]);
+  const declarationFiles = new Map<string, PackageImport["files"][number]>();
+  const packages = [...packageImports].sort(([a], [b]) => compareText(a, b)).map(([name, imports]) => {
+    // The directory of the first import names the part's place; the material names packages by name and version, never by path.
+    const directory = [...imports].sort((a, b) => compareText(a.module, b.module) || compareText(a.specifier, b.specifier))[0].directory;
+    const { files: reached, ...material } = packageMaterial(imports);
+    parts.push({ key: `package ${name}`, file: directory, name, ...material });
+    for (const file of reached) declarationFiles.set(`${file.id}\n${file.file}`, file);
+    return { name, versions: [...new Set(imports.map((entry) => entry.version))].sort(compareText), directory };
+  });
+  // Each declaration file once, whatever number of packages reach it; a reviewer reads its text, the fingerprint holds its tokens.
+  const declarationCounts = new Map<string, number>();
+  for (const file of declarationFiles.values()) declarationCounts.set(file.id, (declarationCounts.get(file.id) ?? 0) + 1);
+  for (const file of [...declarationFiles.values()].sort((a, b) => compareText(a.id, b.id) || compareText(a.file, b.file))) {
+    const identity = declarationCounts.get(file.id)! > 1 ? `${file.id} (${file.file})` : file.id;
+    parts.push({ key: `declaration ${identity}`, file: file.file, name: file.id, text: file.text, fingerprintText: file.digest });
+  }
   const textOf = (file: string) => files.find((candidate) => candidate.path === file)?.text;
   const parsed = new Map<string, ts.SourceFile>();
   const roots: { file: string; nodes: ts.Node[]; part: MaterialPart }[] = [];
@@ -236,6 +263,7 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
     dependencies: closure.files.map((dependency) => dependency.file),
     beyond: closure.beyond,
     unreadable: closure.unreadable,
+    packages,
   };
 }
 

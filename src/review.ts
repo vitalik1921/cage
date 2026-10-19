@@ -16,11 +16,12 @@ export type { PacketFile } from "./review-material.ts";
 export interface ChangedPart {
   /** The part's key, as `.cage/review.json` records it. */
   part: string;
-  kind: "contract" | "design" | "implementation" | "test" | "dependency";
+  kind: "contract" | "design" | "implementation" | "test" | "dependency" | "package" | "declaration";
   change: "changed" | "new" | "gone";
+  /** For a package, its directory; for a declaration file, its path; for either gone from the material, the contract's document. */
   file: string;
   line?: number;
-  /** The implementation's name or the test's title. */
+  /** The implementation's name, the test's title, the package's name, or the declaration file's `name@version/path`. */
   name?: string;
 }
 
@@ -54,7 +55,7 @@ export interface ContractPacket {
    * `touched`: whether the invariant's material changed since the recorded review — null when there is no outdated review to
    * compare with. `prior`: what that review found about it, if anything.
    */
-  invariants: { id: string; text: string; member: string | null; location: SourceLocation; tests: { file: string; line: number; column: number; title: string }[]; touched: boolean | null; prior: PriorFinding[] }[];
+  invariants: { id: string; text: string; member: string | null; inheritedFrom?: { contract: string; module: string }; location: SourceLocation; tests: { file: string; line: number; column: number; title: string }[]; touched: boolean | null; prior: PriorFinding[] }[];
   dependencies: {
     uses: { contract: string; module: string }[];
     usedBy: { contract: string; module: string }[];
@@ -77,6 +78,8 @@ export interface ContractPacket {
   helpers: string[];
   /** Local files whose content is part of the fingerprint, loaded or not: a change in any of them makes this review outdated. */
   fingerprinted: string[];
+  /** Installed packages whose declarations the designs import and the fingerprint holds: a change of those declarations makes this review outdated. */
+  packages: { name: string; versions: string[]; directory: string }[];
   /** Project files that the packet's files import but that are not in the packet, with who imports what: the reviewer opens them in the repository. */
   unloaded: { file: string; importedBy: { file: string; names: string[] }[] }[];
   /** Test files of the module that the `tests` patterns match but that declare nothing for any contract: proof may be waiting there for a tag. */
@@ -325,6 +328,10 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
       const changed = new Set(packet.changed.map((change) => change.part));
       for (const part of reviewParts) {
         if (part.key === "contract" || part.key.startsWith("design ")) continue;
+        if (part.key.startsWith("package ") || part.key.startsWith("declaration ")) {
+          if (read(part.file, "package", part.text)) whole.add(part.file);
+          continue;
+        }
         // Always retain changed tests; otherwise include the tests of the affected guarantees.
         if (part.key.startsWith("test ") && touched !== null && packet.invariants.length > 0 && !changed.has(part.key) && !part.covers?.some((id) => touched.has(id))) continue;
         if (part.pieces) {
@@ -340,6 +347,7 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
     // parts all match by digest and whose fingerprint still differs (the parts in another order, or the record edited).
     if (included === "all" || packet.recordedReview.status !== "outdated" || packet.changed.length === 0) {
       for (const file of everything) whole.add(file);
+      for (const part of reviewParts) if ((part.key.startsWith("package ") || part.key.startsWith("declaration ")) && read(part.file, "package", part.text)) whole.add(part.file);
       continue;
     }
     for (const change of packet.changed) {
@@ -352,9 +360,9 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
         const text = files.get(part.file)?.text;
         if (text !== undefined) excerpts.push({ part: part.key, file: part.file, pieces: part.pieces.map((piece) => ({ ...piece, text: linesOf(text, piece.startLine, piece.endLine) })) });
         else whole.add(part.file);
-      } else if (change.kind === "dependency") {
+      } else if (change.kind === "dependency" || change.kind === "package" || change.kind === "declaration") {
         // Fingerprinted, not loaded: the text is the part's, taken as a whole file.
-        if (read(part.file, "dependency", part.text)) whole.add(part.file);
+        if (read(part.file, change.kind === "dependency" ? "dependency" : "package", part.text)) whole.add(part.file);
       } else {
         whole.add(part.file);
       }
@@ -453,7 +461,7 @@ function changesOf(material: Material, digests: Record<string, string>, prior: R
 }
 
 function kindOf(key: string): ChangedPart["kind"] {
-  const kind = /^(design|implementation|test|dependency) /.exec(key)?.[1];
+  const kind = /^(design|implementation|test|dependency|package|declaration) /.exec(key)?.[1];
   return (kind as ChangedPart["kind"] | undefined) ?? "contract";
 }
 
@@ -462,6 +470,7 @@ function goneOf(key: string, material: Material): Omit<ChangedPart, "change"> {
   const kind = kindOf(key);
   if (kind === "contract") return { part: key, kind, file: material.contract.location.file };
   const rest = key.slice(kind.length + 1);
+  if (kind === "package" || kind === "declaration") return { part: key, kind, file: material.contract.location.file, name: rest };
   if (kind === "implementation") {
     const at = rest.lastIndexOf("#");
     return { part: key, kind, file: rest.slice(0, at), name: rest.slice(at + 1) };
@@ -551,7 +560,7 @@ function packetOf(
     description: contract.description,
     lock: contract.lock,
     members: contract.members.map(({ name: member, description, location }) => ({ name: member, description, location })),
-    invariants: result.index!.invariants.filter((invariant) => invariant.contract === name).map(({ id, text, member, location }) => ({ id, text, member, location, tests: testsOf(id), touched: touched === null ? null : touched.includes(id), prior: priorOf(id) })),
+    invariants: result.index!.invariants.filter((invariant) => invariant.contract === name).map(({ id, text, member, location, inheritedFrom }) => ({ id, text, member, location, ...(inheritedFrom ? { inheritedFrom } : {}), tests: testsOf(id), touched: touched === null ? null : touched.includes(id), prior: priorOf(id) })),
     dependencies: { uses, usedBy, designs: dependencyDesigns },
     implementations: implementations.map(({ name: implementation, kind, compatible, location }) => ({ name: implementation, kind, compatible, location })),
     tests: testFiles.map((file) => ({
@@ -565,6 +574,7 @@ function packetOf(
     priorFindings: (prior?.findings ?? []).filter((finding) => finding.invariant === null).map(({ assessment, reason, evidence, suggestedChange }) => ({ assessment, reason, evidence, suggestedChange })),
     helpers: files.filter((file) => file.role === "helper").map((file) => file.path).sort(compareText),
     fingerprinted: material.dependencies,
+    packages: material.packages,
     unloaded,
     untaggedTests,
     changed,
@@ -653,7 +663,7 @@ function importsOutside(
 /** A changed part in one line: what it is, where, and what happened to it. */
 function describeChange(change: ChangedPart, file: (path: string) => string = (path) => path): string {
   const where = change.line === undefined ? file(change.file) : `${file(change.file)}:${change.line}`;
-  const what = change.kind === "contract" ? "the contract declaration" : change.kind === "design" ? "the prose of the design" : change.kind === "implementation" ? `implementation ${change.name}` : change.kind === "test" ? `test "${change.name}"` : "dependency";
+  const what = change.kind === "contract" ? "the contract declaration" : change.kind === "design" ? "the prose of the design" : change.kind === "implementation" ? `implementation ${change.name}` : change.kind === "test" ? `test "${change.name}"` : change.kind === "package" ? `the types of package ${change.name}` : change.kind === "declaration" ? `declaration file ${change.name}` : "dependency";
   return `${what} ${change.change} (${where})`;
 }
 
@@ -774,7 +784,7 @@ export function formatReviewMarkdown(report: ReviewReport): string {
     lines.push("## Invariants");
     if (packet.invariants.length === 0) lines.push("- none: assess the contract as a whole");
     for (const invariant of packet.invariants) {
-      lines.push(`- ${invariant.id}${invariant.member ? ` on ${invariant.member}` : ""} (${at(invariant.location)}): ${invariant.text}`);
+      lines.push(`- ${invariant.id}${invariant.member ? ` on ${invariant.member}` : ""}${invariant.inheritedFrom ? ` inherited from ${invariant.inheritedFrom.contract}` : ""} (${at(invariant.location)}): ${invariant.text}`);
       lines.push(`  tests: ${invariant.tests.length === 0 ? "none" : invariant.tests.map(refs.test).join(", ")}`);
       for (const finding of invariant.prior) {
         const stands = invariant.touched === null ? "" : invariant.touched ? ", changed" : ", unchanged";
@@ -793,6 +803,7 @@ export function formatReviewMarkdown(report: ReviewReport): string {
       lines.push(`- tests: ${file(source.file)}${inactiveHere.length > 0 ? `; inactive: ${inactiveHere.map((test) => `${refs.test({ ...test, file: source.file })} ${test.inactiveBecause ?? test.status}`).join(", ")}` : ""}`);
     }
     if (packet.fingerprinted.length > 0) lines.push(`- fingerprinted: ${packet.fingerprinted.map(file).join(", ")}`);
+    if (packet.packages.length > 0) lines.push(`- package types: ${packet.packages.map((entry) => `${entry.versions.map((version) => `${entry.name}@${version}`).join(", ")} (${file(entry.directory)})`).join(", ")}`);
     if (packet.helpers.length > 0) lines.push(`- test helpers: ${packet.helpers.map(file).join(", ")}`);
     if (packet.dependencies.uses.length > 0) lines.push(`- uses: ${packet.dependencies.uses.map((edge) => `${edge.contract} (${edge.module})`).join(", ")}`);
     if (packet.dependencies.usedBy.length > 0) lines.push(`- used by: ${packet.dependencies.usedBy.map((edge) => `${edge.contract} (${edge.module})`).join(", ")}`);

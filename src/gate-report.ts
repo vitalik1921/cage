@@ -1,6 +1,6 @@
 import type { CheckReport } from "./check.ts";
 import type { Diagnostic } from "./diagnostic.ts";
-import { formatDiagnostic, formatOmitted, limitCheckReport, plural } from "./report.ts";
+import { formatDiagnostic, formatGroup, formatOmitted, limitGroups, plural } from "./report.ts";
 
 /** A literal excerpt, never an inferred diagnosis or a rewritten reviewer recommendation. */
 function excerpt(text: string): string {
@@ -14,7 +14,7 @@ function changesOf(diagnostic: Diagnostic): string[] {
   if (changes.length === 0) return ["The fingerprint changed without a differing material part; inspect the review packet."];
   const groups = new Map<string, { action: string; kind: string; file: string; count: number }>();
   for (const { part, change } of changes) {
-    const match = /^(test|implementation|dependency|design) (.*)$/s.exec(part);
+    const match = /^(test|implementation|dependency|design|package|declaration) (.*)$/s.exec(part);
     const kind = match?.[1] ?? "contract";
     const rest = match?.[2] ?? "";
     const file = kind === "test" ? rest.slice(0, rest.indexOf(":")) : kind === "implementation" ? rest.slice(0, rest.lastIndexOf("#")) : rest;
@@ -24,7 +24,7 @@ function changesOf(diagnostic: Diagnostic): string[] {
     group.count++;
     groups.set(key, group);
   }
-  const all = [...groups.values()].map(({ action, kind, file, count }) => `${action}: ${plural(count, kind === "design" ? "design text" : kind === "contract" ? "contract declaration" : kind, kind === "dependency" ? "dependencies" : undefined)}${file ? ` in ${file}` : ""}.`);
+  const all = [...groups.values()].map(({ action, kind, file, count }) => `${action}: ${plural(count, kind === "design" ? "design text" : kind === "contract" ? "contract declaration" : kind === "package" ? "package type" : kind === "declaration" ? "package declaration file" : kind, kind === "dependency" ? "dependencies" : undefined)}${file ? ` in ${file}` : ""}.`);
   return all.length <= 4 ? all : [...all.slice(0, 4), `${all.length - 4} more change groups; see the review packet.`];
 }
 
@@ -64,8 +64,9 @@ export function formatGateReport(report: CheckReport, max: number | "all", relea
   const summary = categories.filter(([code]) => counts.has(code)).map(([code, label]) => plural(counts.get(code)!, label));
   const reviews = categories.reduce((sum, [code]) => sum + (counts.get(code) ?? 0), 0);
   if (report.diagnostics.length > reviews) summary.push(plural(report.diagnostics.length - reviews, "other error"));
-  const limited = limitCheckReport(report, max);
-  const lines = [`cage gate: ${released ? "unresolved" : "blocked"} — ${summary.join(", ")}`, ...limited.diagnostics.map(block), ...formatOmitted(limited)];
+  // The limit bounds groups of diagnostics with one proven cause; the counts above and the omitted line count diagnostics.
+  const limited = limitGroups(report.diagnostics, max);
+  const lines = [`cage gate: ${released ? "unresolved" : "blocked"} — ${summary.join(", ")}`, ...limited.groups.map((group) => formatGroup(group, block)), ...formatOmitted(limited)];
   if (reviews > 0) {
     lines.push("After reviewing, record the verdicts:\n  cage review --record <file>");
     // Group discovery remains useful when several contracts share changed dependencies.

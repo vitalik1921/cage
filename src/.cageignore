@@ -13,6 +13,10 @@ codes.ts
 mdx.ts
 doc-comments.ts
 design-index.ts
+contract-inheritance.ts
+package-types.ts
+package-dependencies.ts
+package-diagnostics.ts
 design-model.ts
 design-phase.ts
 metadata.ts
@@ -24,6 +28,8 @@ typescript.ts
 
 # Checking implementations, tests and coverage.
 implementation-phase.ts
+contract-shape.ts
+contract-conformance.ts
 implementations.ts
 test-declarations.ts
 coverage.ts

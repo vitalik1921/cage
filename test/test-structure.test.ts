@@ -230,7 +230,7 @@ test("Vitest: a named empty callback is empty, a named one with a body is active
 });
 
 for (const adapter of ["node:test", "vitest"] as const) {
-  test(`${adapter}: one inactive test linked to an invariant with no active test and to one with an active test is an error for the first and a warning for the second`, (t) => {
+  test(`${adapter}: one unintended empty test is an error without another usable link and a warning with one`, (t) => {
     const runner = adapter === "vitest" ? 'import { describe, it, expect } from "vitest";' : 'import { describe, it } from "node:test";\nimport assert from "node:assert/strict";';
     const assertion = adapter === "vitest" ? "expect(1).toBe(1);" : "assert.ok(true);";
     const root = project(
@@ -241,7 +241,7 @@ for (const adapter of ["node:test", "vitest"] as const) {
         "/** @tests Quota */",
         'describe("Quota", () => {',
         "  /** @covers empty consume */",
-        `  it.skip("skipped", () => { ${assertion} });`,
+        '  it("empty", () => {});',
         "  /** @covers consume race */",
         `  it("active", () => { ${assertion} });`,
         "});",
@@ -251,7 +251,7 @@ for (const adapter of ["node:test", "vitest"] as const) {
     assert.deepEqual(errors.map(({ code, invariant }) => ({ code, invariant })), [{ code: "E_TEST_INACTIVE", invariant: "empty" }]);
     assert.deepEqual(
       warnings.filter(({ code }) => code === "W_TEST_INACTIVE").map(({ message }) => message.replace(/ \(src\/m\/quota\.test\.ts:\d+, /, " (…, ")),
-      ['"Quota > skipped" skipped by `.skip`; covers Quota.consume'],
+      ['"Quota > empty" has an empty body; covers Quota.consume'],
     );
   });
 }

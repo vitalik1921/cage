@@ -23,7 +23,7 @@ const gate = (root: string, input: object | string | undefined, ...args: string[
   cliWithStdin(root, typeof input === "object" ? JSON.stringify(input) : input, "gate", ...args);
 
 /** @tests Cli
- * @covers gate */
+ * @covers gate review-scope-silent */
 test("gate feedback contains only blockers, even with bounded scope, coverage and weak-review warnings", (t) => {
   const root = copyFixture(t, "vertical");
   const id = session(t);

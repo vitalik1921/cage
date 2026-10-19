@@ -46,6 +46,229 @@ try {
   const cage = (root, ...args) => sh(path.join(root, "node_modules/.bin/cage"), args, { cwd: root, input: "" });
   const json = (run) => JSON.parse(run.stdout);
 
+  // Exact API checks must also work from the installed tarball, including the gate and static bindings.
+  const surface = project("exact-public-surface");
+  const surfaceFile = path.join(surface, "src/modules/quota/memory-quota.ts");
+  const surfaceSource = fs.readFileSync(surfaceFile, "utf8");
+  const surfaceRuns = [];
+  for (const [label, text, expected] of [
+    ["extra public method", surfaceSource.replace("export class MemoryQuota {", "export class MemoryQuota {\n  surplus(): void {}"), "E_CONTRACT_EXTRA_MEMBER"],
+    ["extra optional parameter", surfaceSource.replace("take(accountId: string)", "take(accountId: string, extra?: number)"), "E_CONTRACT_SIGNATURE"],
+    ["private helper", surfaceSource.replace("export class MemoryQuota {", "export class MemoryQuota {\n  private surplus(): void {}"), null],
+    ["undeclared static method", surfaceSource.replace("export class MemoryQuota {", 'export class MemoryQuota {\n  static create(): string { return "quota"; }'), "E_CONTRACT_EXTRA_MEMBER"],
+  ]) {
+    fs.writeFileSync(surfaceFile, text);
+    const checked = cage(surface, "check", "--format", "json");
+    assert.equal(checked.status, expected ? 1 : 0, checked.stdout);
+    if (expected) assert.ok(json(checked).diagnostics.some(d => d.code === expected), checked.stdout);
+    assert.equal(cage(surface, "gate").status, expected ? 2 : 0);
+    surfaceRuns.push(`${label}: ${expected ?? "passes"}`);
+  }
+  fs.appendFileSync(path.join(surface, "src/modules/quota/quota.cage.mdx"), '\n```ts design\n/** @contract\n * @description Static factory name. */\nexport interface Factory { create(): string; }\n```\n');
+  fs.writeFileSync(surfaceFile, surfaceSource.replace("/** @implements Quota */", "/** @implements Quota\n * @implements-static Factory */").replace("export class MemoryQuota {", 'export class MemoryQuota {\n  static create(): string { return "quota"; }'));
+  const boundStatic = cage(surface, "check", "--format", "json");
+  assert.equal(boundStatic.status, 0, boundStatic.stdout);
+  surfaceRuns.push("declared static method: passes");
+  log("01-exact-public-surface", surfaceRuns.join("\n"));
+  pass("exact public contracts", "installed check and gate reject extra members/signature drift; private helpers and explicitly bound static API pass");
+
+  // The installed CLI must load the project's compiler, including TS5, and retain honest test status counts.
+  const matrixBase = project("compiler-matrix-base");
+  execFileSync("npm", ["install", "--silent", "--no-audit", "--no-fund", "--no-package-lock", "vitest@1.6.1", "zod@3.25.76"], { cwd: matrixBase, stdio: "inherit" });
+  for (const [compiler, version] of [["typescript-5", "5.9.3"], ["typescript", "6.0.3"]]) {
+    const root = project(`structural-${version}`, matrixBase);
+    fs.rmSync(path.join(root, "src"), { recursive: true });
+    fs.rmSync(path.join(root, ".cage"), { recursive: true, force: true });
+    fs.mkdirSync(path.join(root, "src"));
+    fs.mkdirSync(path.join(root, ".cage"));
+    fs.rmSync(path.join(root, "node_modules/typescript"), { recursive: true });
+    fs.cpSync(path.join(repository, "node_modules", compiler), path.join(root, "node_modules/typescript"), { recursive: true });
+    const write = (file, text) => fs.writeFileSync(path.join(root, file), text);
+    const design = (...contracts) => write("src/api.cage.mdx", `# API\n\nPublic structural boundary.\n\n\`\`\`ts design\n${contracts.join("\n")}\n\`\`\`\n`);
+    const contract = (name, body, invariant = "") => `/** @contract\n * @description ${name}.\n${invariant ? ` * @invariant ${invariant}\n` : ""} */\nexport interface ${name}{${body}}`;
+    const config = adapter => write(".cage/config.json", JSON.stringify({ version: 1, review: "off", coverage: "require", testAdapter: adapter }));
+    const check = expected => {
+      const result = cage(root, "check", "--format", "json", "--max-diagnostics", "all");
+      assert.equal(result.status, expected ? 1 : 0, result.stdout + result.stderr);
+      const report = json(result);
+      assert.equal(report.scope.typescript.version, version, result.stdout);
+      assert.equal(report.scope.typescript.source, "project", result.stdout);
+      if (expected) assert.ok(report.diagnostics.some(d => d.code === expected), result.stdout);
+      assert.equal(cage(root, "gate").status, expected ? 2 : 0);
+      return report;
+    };
+    for (const adapter of ["node:test", "vitest"]) {
+      config(adapter);
+      design(contract("Action", "run():void;", "linked A test declares this requirement."));
+      write("src/impl.ts", '/** @implements Action */\nexport class Action {run():void{}}');
+      for (const declaration of ['test.skip("planned",()=>{});', 'test.todo("planned");', 'test("planned",{skip:true},()=>{});', 'test("planned",{todo:true},()=>{});']) {
+        write("src/api.test.ts", `import {test} from "${adapter}";\n/** @tests Action\n * @covers linked */\n${declaration}`);
+        const report = check(null);
+        assert.equal(report.counts.linkedInvariants, 1);
+        assert.equal(report.counts.activeInvariants, 0);
+        assert.equal(report.counts.activeTestDeclarations, 0);
+        assert.equal(report.counts.executedTests, null);
+        assert.ok(!report.diagnostics.some(d => d.code.endsWith("TEST_INACTIVE")));
+      }
+      write("src/api.test.ts", `import {test} from "${adapter}";\n/** @tests Action\n * @covers linked */\ntest("unintended empty",()=>{});`);
+      check("E_TEST_INACTIVE");
+      write("src/api.test.ts", `import {test} from "${adapter}";import {missing} from "./missing.js";\n/** @tests Action\n * @covers linked */\ntest.skip("broken import",()=>{missing()});`);
+      check("E_TEST_INACTIVE");
+      pass(`explicit skip/todo ${adapter} TS${version}`, "check/gate pass; inactive counts stay zero-active; empty and broken-import controls block");
+    }
+    fs.rmSync(path.join(root, "src/api.test.ts"));
+    config("node:test");
+    design('/** @data\n * @description Callable base. */\nexport interface Call {(value:string):void;}', '/** @data\n * @description Named base. */\nexport interface Named {label:string;}', contract("NamedCall extends Call, Named", ""));
+    write("src/impl.ts", '/** @implements NamedCall */\nexport const action=Object.assign((value:string):void=>{}, {label:""});');
+    check(null);
+    write("src/impl.ts", '/** @implements NamedCall */\nexport const action=Object.assign((value:string,extra?:number):void=>{}, {label:""});');
+    check("E_CONTRACT_SIGNATURE");
+    pass(`contract inheritance TS${version}`, "one binding inherits callable and fields; extra optional parameter blocks");
+    write("src/impl.ts", '/** @implements NamedCall NamedCall */\nexport const action=Object.assign((value:string):void=>{}, {label:""});');
+    check("E_TAG_FORMAT");
+    design(contract("Action", "run():void;"));
+    write("src/impl.ts", '/** @implements Action */\nexport class Action {run():void{}}\n/** @implements Action */\nexport const second={run():void{}};');
+    check("E_IMPLEMENTATION_DUPLICATE");
+    write("src/impl.ts", '/** @implements Action */\nexport class Action {run():void{}}\nclass HiddenExport {extra():void{}}\nexport {HiddenExport};');
+    check("E_NOT_DESIGNED");
+    pass(`single binding and export coverage TS${version}`, "mixin tags, duplicate implementations and local named export gaps block");
+    const writer = contract("Writer", "write():void;", "callable Write is callable.");
+    const copiedWriter = '/** @data\n * @description Copied writer API. */\nexport type Part=Record<"write",Writer["write"]>;';
+    design(writer, copiedWriter, contract("Store extends Part", ""));
+    write("src/impl.ts", '/** @implements Writer */\nexport class W {write():void{}}\n/** @implements Store */\nexport class S {write():void{}}');
+    const writerTest = 'import assert from "node:assert/strict";import {test} from "node:test";import {W,S} from "./impl.ts";\n/** @tests Writer\n * @covers callable */\ntest("writer",()=>{assert.equal(typeof new W().write,"function")});\n';
+    write("src/api.test.ts", writerTest);
+    check("E_UNSUPPORTED_DECLARATION");
+    design(writer, copiedWriter, contract("Store extends Writer, Part", ""));
+    check("E_TEST_MISSING");
+    write("src/api.test.ts", writerTest + '/** @tests Store\n * @covers callable */\ntest("store",()=>{assert.equal(typeof new S().write,"function")});\n');
+    assert.equal(check(null).counts.linkedInvariants, 2);
+    fs.rmSync(path.join(root, "src/api.test.ts"));
+    pass(`inherited promises TS${version}`, "copied contract API cannot drop promises; explicit extends requires the derived test link");
+    design(contract("Data", "get():{readonly size:number};"));
+    write("src/impl.ts", 'type Row={readonly size:number};\n/** @implements Data */\nexport class Data {get():Row{return {size:1}}}');
+    check(null);
+    write("src/impl.ts", '/** @implements Data */\nexport class Data {get():{size:number}{return {size:1}}}');
+    check("E_CONTRACT_SIGNATURE");
+    design(contract("Value", "value:string;"));
+    write("src/impl.ts", '/** @implements Value */\nexport class Value {get value():string{return ""}set value(x:number){}}');
+    check("E_CONTRACT_SIGNATURE");
+    pass(`nested types and setters TS${version}`, "equivalent alias passes; readonly and write-type drift block");
+    design('/** @data\n * @description Recursive tree. */\nexport type Tree={next?:Tree};', contract("Reader", "read():Tree;"));
+    write("src/impl.ts", 'interface Branch<T>{next?:Branch<T[]>}\n/** @implements Reader */\nexport class Reader {read():Branch<string>{return {}}}');
+    check(null);
+    design('/** @data\n * @description Recursive tree. */\nexport type Tree={value:string;next?:Tree};', contract("Reader", "read():Tree;"));
+    write("src/impl.ts", 'interface Branch<T>{value:T extends string ? string : string;next?:Branch<T[]>}\n/** @implements Reader */\nexport class Reader {read():Branch<string>{return {value:""}}}');
+    check("E_CONTRACT_UNCHECKABLE");
+    pass(`recursive comparison TS${version}`, "equivalent argument-independent recursion passes; unresolved conditional recursion blocks explicitly");
+    design('import type {ZodObject,ZodString} from "zod";', contract('Schema extends ZodObject<{id:ZodString},"strip">', ""));
+    write("src/impl.ts", 'import {z} from "zod";\n/** @implements Schema */\nexport const schema=z.object({id:z.string()});');
+    check(null);
+    const schemaReview = cage(root, "review", "Schema", "--format", "json", "--files", "all");
+    assert.equal(schemaReview.status, 0, schemaReview.stdout + schemaReview.stderr);
+    assert.ok(schemaReview.stdout.includes("node_modules/zod/"), "review includes the package API declarations");
+    write("src/impl.ts", 'import {z} from "zod";\n/** @implements Schema */\nexport const schema=Object.assign(z.object({id:z.string()}), {surplus:():void=>{}});');
+    check("E_CONTRACT_EXTRA_MEMBER");
+    write("src/impl.ts", 'import {z} from "zod";\n/** @implements Schema */\nexport const schema=z.object({id:z.number()});');
+    check("E_TYPE_MISMATCH");
+    pass(`package inheritance TS${version}`, "real Zod API inherits without copied methods; package declarations reach review; added API and changed field types block");
+    // Alias identity comes from the installed package and the dependency declaration, not the import spelling.
+    const manifestPath = path.join(root, "package.json");
+    const packageManifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+    packageManifest.dependencies = { ...packageManifest.dependencies, "zod-alias": "npm:zod@3.25.76" };
+    write("package.json", JSON.stringify(packageManifest));
+    fs.cpSync(path.join(root, "node_modules/zod"), path.join(root, "node_modules/zod-alias"), { recursive: true });
+    design('import type {ZodObject,ZodString} from "zod-alias";', contract('Schema extends ZodObject<{id:ZodString},"strip">', ""));
+    write("src/impl.ts", 'import {z} from "zod-alias";\n/** @implements Schema */\nexport const schema=z.object({id:z.string()});');
+    check(null);
+    const aliasReview = cage(root, "review", "Schema", "--format", "json", "--files", "all");
+    assert.equal(aliasReview.status, 0, aliasReview.stdout + aliasReview.stderr);
+    assert.ok(aliasReview.stdout.includes("zod@3.25.76/"), "alias review identifies the real package");
+    delete packageManifest.dependencies["zod-alias"];
+    write("package.json", JSON.stringify(packageManifest));
+    check("E_DESIGN_IMPORT");
+    pass(`npm alias declarations TS${version}`, "real Zod alias imports and is review material; a mismatched package without an alias declaration blocks");
+
+    // A workspace link is an installed package too; only its built declarations are part of the design.
+    packageManifest.workspaces = ["packages/*"];
+    write("package.json", JSON.stringify(packageManifest));
+    fs.mkdirSync(path.join(root, "packages/shared/dist"), { recursive: true });
+    fs.mkdirSync(path.join(root, "node_modules/@cage-e2e"), { recursive: true });
+    write("packages/shared/package.json", JSON.stringify({ name: "@cage-e2e/shared", version: "1.0.0", types: "dist/index.d.ts" }));
+    write("packages/shared/dist/index.d.ts", "export interface Receipt { id:string; }\n");
+    fs.symlinkSync("../../packages/shared", path.join(root, "node_modules/@cage-e2e/shared"), "dir");
+    design('import type {Receipt} from "@cage-e2e/shared";', contract("ReceiptMirror", "(receipt:Receipt):Receipt;"));
+    write("src/impl.ts", 'import type {Receipt} from "@cage-e2e/shared";\n/** @implements ReceiptMirror */\nexport const mirror=(receipt:Receipt):Receipt=>receipt;');
+    check(null);
+    const workspaceReview = cage(root, "review", "ReceiptMirror", "--format", "json", "--files", "all");
+    assert.equal(workspaceReview.status, 0, workspaceReview.stdout + workspaceReview.stderr);
+    assert.ok(workspaceReview.stdout.includes("@cage-e2e/shared@1.0.0/dist/index.d.ts"), "workspace declaration is review material");
+    write("src/impl.ts", 'import type {Receipt} from "@cage-e2e/shared";\n/** @implements ReceiptMirror */\nexport const mirror=(receipt:Receipt & {extra:number}):Receipt=>receipt;');
+    check("E_TYPE_MISMATCH");
+    write("packages/shared/src.ts", "export interface Receipt { id:string; }\n");
+    write("packages/shared/package.json", JSON.stringify({ name: "@cage-e2e/shared", version: "1.0.0", types: "src.ts" }));
+    check("E_DESIGN_IMPORT");
+    pass(`workspace declarations TS${version}`, "installed link imports built types and supplies review material; signature drift and source-only exports block");
+
+    fs.mkdirSync(path.join(root, "node_modules/declaration-probe"), { recursive: true });
+    const declarationManifest = { name: "declaration-probe", version: "1.0.0", types: "index.d.ts" };
+    write("node_modules/declaration-probe/package.json", JSON.stringify(declarationManifest));
+    design('import type {Safe} from "declaration-probe";', contract("DeclarationPort", "read():Safe;"));
+    write("src/impl.ts", 'import type {Safe} from "declaration-probe";\n/** @implements DeclarationPort */\nexport class Reader {read():Safe{throw new Error("fixture");}}');
+    const originalOptions = fs.readFileSync(path.join(root, "tsconfig.json"), "utf8");
+    const declarationOptions = JSON.parse(originalOptions);
+    declarationOptions.compilerOptions.skipLibCheck = true;
+    write("tsconfig.json", JSON.stringify(declarationOptions));
+    for (const [text, expected] of [
+      ['export type Safe = {id:string};\nexport type Unused = typeof import("optional-missing");\n', null],
+      ['// @ts-ignore\nexport type Safe = typeof import("optional-missing");\n', null],
+      ['export type Safe = {id:string}["missing"];\n', "E_DESIGN_IMPORT"],
+      ['type Box<T> = {value:T};\nexport type Safe = Box;\n', "E_DESIGN_IMPORT"],
+    ]) {
+      write("node_modules/declaration-probe/index.d.ts", text);
+      check(expected);
+    }
+    pass(`selected declaration diagnostics TS${version}`, "unrelated broken declarations and compiler-suppressed fallbacks pass; selected errors block even with skipLibCheck and identical imported types");
+
+    // Both entry files already belong to the closure. Changing resolution alone must still break a final lock.
+    write("node_modules/declaration-probe/index.d.ts", 'import type {} from "./other.js";\nexport interface Safe {id:string;}\n');
+    write("node_modules/declaration-probe/other.d.ts", 'import type {} from "./index.js";\nexport interface Safe {id:number;}\n');
+    design('import type {Safe} from "declaration-probe";', contract("DeclarationPort", "read():Safe;").replace("@contract", "@contract\n * @final"));
+    check("E_LOCK_MISSING");
+    assert.equal(cage(root, "lock").status, 0);
+    write("node_modules/declaration-probe/package.json", JSON.stringify({ ...declarationManifest, types: "other.d.ts" }));
+    check("E_LOCK_VIOLATION");
+    write("node_modules/declaration-probe/package.json", JSON.stringify(declarationManifest));
+    check(null);
+    fs.rmSync(path.join(root, ".cage/lock.json"));
+    write("tsconfig.json", originalOptions);
+    pass(`package entry lock TS${version}`, "retargeting an entry with an unchanged declaration file set breaks the lock; restoring it passes");
+
+    design('/** @data\n * @description Shared mutable interval. */\nexport type Band=[number,number];', contract("Hold", "hold(band:Band):void;"), contract("Beat", "beat(band:Band):void;"));
+    write("src/impl.ts", 'type ActualBand=readonly [number,number];\n/** @implements Hold */\nexport class Hold {hold(band:ActualBand):void{}}\n/** @implements Beat */\nexport class Beat {beat(band:ActualBand):void{}}');
+    const groupedRaw = check("E_CONTRACT_SIGNATURE");
+    assert.equal(groupedRaw.diagnostics.filter(d => d.code === "E_CONTRACT_SIGNATURE").length, 2);
+    const groupedText = cage(root, "check", "--max-diagnostics", "1");
+    assert.equal(groupedText.status, 1);
+    assert.equal(groupedText.stdout.split("\n").filter(line => line.startsWith("E_CONTRACT_SIGNATURE:")).length, 1);
+    assert.ok(groupedText.stdout.includes("Hold.hold") && groupedText.stdout.includes("Beat.beat"), groupedText.stdout);
+    assert.match(groupedText.stdout, /2 errors/);
+    const groupedGate = cage(root, "gate", "--max-diagnostics", "1");
+    assert.equal(groupedGate.status, 2);
+    assert.equal(groupedGate.stderr.split("\n").filter(line => line.startsWith("E_CONTRACT_SIGNATURE:")).length, 1);
+    assert.ok(groupedGate.stderr.includes("Hold.hold") && groupedGate.stderr.includes("Beat.beat"), groupedGate.stderr);
+    assert.match(groupedGate.stderr, /2 other errors/);
+    pass(`shared diagnostic cause TS${version}`, "one displayed cause retains both affected methods and both blockers; JSON keeps individual violations");
+    design(contract("Worker", "run():void;"));
+    write("src/impl.ts", 'class Base {static one():void{} static two():void{}}\n/** @implements Worker */\nexport class Worker extends Base {run():void{}}');
+    check("E_CONTRACT_EXTRA_MEMBER");
+    const missingStatic = cage(root, "check", "--max-diagnostics", "all");
+    assert.equal(missingStatic.stdout.split("\n").filter(line => line.startsWith("E_CONTRACT_EXTRA_MEMBER:")).length, 2);
+    assert.match(missingStatic.stdout, /absent from the static contracts/);
+    pass(`undeclared static surface TS${version}`, "inherited statics without a static contract retain the full missing-surface explanation");
+    log(`02-compiler-matrix-${version}`, `Project TypeScript ${version}; node:test and real Vitest 1.6.1 declarations; composition, nested types, setter inputs, recursion, check/gate and counts asserted.\n`);
+  }
+
   // ---- 1: paths with $, backticks, quotes and apostrophes are data in both hooks.
   const SPECIAL = `we$HOME $(touch SUBST-RAN) \`touch TICK-RAN\` "dq" it's; a&b`;
   const repo = path.join(scratch, "special");
@@ -195,6 +418,83 @@ try {
   fs.writeFileSync(pragmaFile, withoutPragma);
   assert.equal(recordQuota(quotaFindings()).status, 0);
   pass("file pragma freshness and excerpts", "ordinary prose stays current; adding or moving @ts-nocheck invalidates; default JSON and Markdown include the directive");
+
+  // Shared dependency edits produce a runnable group in the installed CLI, then one batch of separate verdicts.
+  const groupedRoot = project("shared-review");
+  fs.mkdirSync(path.join(groupedRoot, "test-support"));
+  const sharedPath = "test-support/shared.ts";
+  fs.writeFileSync(path.join(groupedRoot, sharedPath), "export const shared = 1;\n");
+  for (const file of [TESTS, "src/modules/campaigns/send.test.ts"]) {
+    const target = path.join(groupedRoot, file);
+    fs.writeFileSync(target, 'import { shared } from "../../../test-support/shared.ts";\nvoid shared;\n' + fs.readFileSync(target, "utf8"));
+  }
+  assert.equal(cage(groupedRoot, "review", "--accept").status, 0);
+  fs.writeFileSync(path.join(groupedRoot, sharedPath), "export const shared = 2;\n");
+  const sendPath = path.join(groupedRoot, "src/modules/campaigns/send-service.ts");
+  fs.writeFileSync(sendPath, fs.readFileSync(sendPath, "utf8").replace('return "sent";', 'return "limited";'));
+  const groupedIndex = json(cage(groupedRoot, "review", "--format", "json"));
+  assert.equal(groupedIndex.groups.length, 1);
+  const [suggestion] = groupedIndex.groups;
+  assert.deepEqual(suggestion.command, ["cage", "review", "Quota", "Send"]);
+  assert.ok(suggestion.sharedChanges.some(({ change }) => change.file === sharedPath));
+  assert.ok(suggestion.additionalChanges.some(({ contract, changed }) => contract === "Send" && changed.some(({ kind }) => kind === "implementation")));
+  const groupedRun = cage(groupedRoot, ...suggestion.command.slice(1), "--format", "json");
+  assert.equal(groupedRun.status, 0, groupedRun.stdout);
+  const groupedPacket = json(groupedRun);
+  const groupedMarkdown = cage(groupedRoot, ...suggestion.command.slice(1)).stdout;
+  assert.equal(groupedMarkdown.split("export const shared = 2;").length - 1, 1);
+  assert.ok(groupedMarkdown.indexOf("export const shared = 2;") < groupedMarkdown.indexOf("# Send ("));
+  log("42-review-groups-index", cage(groupedRoot, "review").stdout);
+  log("43-review-groups-packet", groupedMarkdown);
+  const contextRun = cage(groupedRoot, ...suggestion.command.slice(1), "--files", "context", "--format", "json");
+  assert.equal(contextRun.status, 0, contextRun.stdout);
+  const contextPacket = json(contextRun);
+  assert.equal(contextPacket.complete, true);
+  assert.deepEqual(contextPacket.contracts.map(({ fingerprint }) => fingerprint), groupedPacket.contracts.map(({ fingerprint }) => fingerprint));
+  const contextMarkdown = cage(groupedRoot, ...suggestion.command.slice(1), "--files", "context").stdout;
+  assert.equal(contextMarkdown.split("export const shared = 2;").length - 1, 1);
+  assert.match(contextMarkdown, /tests: all 4 active; not run by cage/);
+  assert.ok(contextPacket.files.some(({ path }) => path === "src/modules/campaigns/campaigns.cage.mdx"));
+  assert.ok(contextPacket.files.some(({ path }) => path === "src/modules/mail/callback-sender.ts"));
+  assert.ok(contextMarkdown.includes("await assert.rejects"));
+  log("44-review-context-packet", contextMarkdown);
+  // A consumer can resolve compact references and construct the existing record format with full evidence paths.
+  const displayedFiles = new Map([...groupedMarkdown.matchAll(/^(F\d+) (".*")$/gm)].map((match) => [match[1], JSON.parse(match[2])]));
+  const displayedTests = [...groupedMarkdown.matchAll(/^T\d+ (F\d+):(\d+):(\d+) (".*")$/gm)].map((match) => ({ file: displayedFiles.get(match[1]), line: Number(match[2]), column: Number(match[3]), title: JSON.parse(match[4]) }));
+  const displayedFingerprints = new Map([...groupedMarkdown.matchAll(/^(\w+): (sha256:code-v2:[a-f0-9]+)$/gm)].map((match) => [match[1], match[2]]));
+  fs.writeFileSync(path.join(groupedRoot, "group-verdicts.json"), JSON.stringify({ version: 1, verdicts: groupedPacket.contracts.map(({ contract, fingerprint, invariants }) => {
+    assert.equal(displayedFingerprints.get(contract), fingerprint);
+    return { contract, fingerprint: displayedFingerprints.get(contract), findings: invariants.map(({ id, tests }) => {
+      const evidence = displayedTests.find((test) => test.file === tests[0].file && test.line === tests[0].line && test.column === tests[0].column && test.title === tests[0].title);
+      assert.ok(evidence, `Missing displayed test for ${contract}.${id}`);
+      return finding(id, { evidence: `${evidence.file}:${evidence.line}` });
+    }) };
+  }) }));
+  assert.equal(cage(groupedRoot, "review", "--record", "group-verdicts.json").status, 0);
+  assert.deepEqual(json(cage(groupedRoot, "review", "--format", "json")).groups, []);
+  pass("shared review groups", "installed CLI suggests one command, prints shared code first once, retains extra edits, records separate verdicts together");
+  pass("context review prototype", "installed CLI retains requirements, unchanged tests and helpers; shared code appears once and fingerprints match the default");
+
+  const membersRoot = project("member-review");
+  fs.mkdirSync(path.join(membersRoot, "test-support"));
+  const memberFile = path.join(membersRoot, sharedPath);
+  const memberSource = "export const shared = { quota: 1, send: 2 };\n";
+  fs.writeFileSync(memberFile, memberSource);
+  for (const [file, field] of [[TESTS, "quota"], ["src/modules/campaigns/send.test.ts", "send"]]) {
+    const target = path.join(membersRoot, file);
+    fs.writeFileSync(target, `import { shared } from "../../../test-support/shared.ts";\nvoid shared.${field};\n` + fs.readFileSync(target, "utf8"));
+  }
+  assert.equal(cage(membersRoot, "review", "--accept", "--all").status, 0);
+  fs.writeFileSync(memberFile, memberSource.replace("quota: 1", "unused: 99, quota: 1"));
+  assert.deepEqual(json(cage(membersRoot, "review", "--format", "json")).contracts, []);
+  fs.writeFileSync(memberFile, memberSource.replace("quota: 1", "quota: 3"));
+  const memberIndex = json(cage(membersRoot, "review", "--format", "json"));
+  assert.deepEqual(memberIndex.contracts.map(c => c.contract), ["Quota"]);
+  const memberPacket = cage(membersRoot, "review", "Quota");
+  assert.equal(memberPacket.status, 0);
+  assert.match(memberPacket.stdout, /quota: 3/);
+  log("45-review-members", memberPacket.stdout);
+  pass("dependency object members", "unused field keeps both reviews current; quota field invalidates only Quota; packet shows the changed declaration");
 
   // ---- 2: a link out of the project, with preserveSymlinks: the sentinel is never read.
   const outside = path.join(scratch, "outside");

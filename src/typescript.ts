@@ -112,11 +112,15 @@ export interface Overlay {
   /** Adds in-memory files; they take part in programs created afterwards. */
   add(files: ReadonlyMap<string, string>): void;
   /** A program with the given roots; nothing is emitted. Files parsed for an earlier program of this overlay are reused. */
-  createProgram(rootNames: readonly string[]): ts.Program;
+  createProgram(rootNames: readonly string[], alternative?: { options: ts.CompilerOptions; oldProgram?: ts.Program }): ts.Program;
   /** Resolves a module specifier the way the program does; undefined when it does not resolve. */
   resolveModule(specifier: ts.StringLiteralLike, from: ts.SourceFile): string | undefined;
   /** Resolves a specifier as if written in `fromFile`, which need not exist or be parsed. */
   resolveFrom(specifier: string, fromFile: string): string | undefined;
+  /** The full resolution of a specifier written in `fromFile` with the given mode: the file, its extension, whether it is a library's. */
+  resolveModuleFull(specifier: string, fromFile: string, mode: ts.ResolutionMode): ts.ResolvedModuleFull | undefined;
+  /** Resolves a `/// <reference types>` directive of `fromFile` the way the program does. */
+  resolveTypeReference(name: string, fromFile: string, mode: ts.ResolutionMode): ts.ResolvedTypeReferenceDirective | undefined;
   /** Whether two paths name the same file for the compiler. */
   sameFile(a: string, b: string): boolean;
 }
@@ -164,13 +168,16 @@ export function createOverlay(ts: TypeScript, options: ts.CompilerOptions, initi
       return sourceFile;
     },
   };
-  const resolve = (specifier: string, fromFile: string, mode: ts.ResolutionMode) =>
-    ts.resolveModuleName(specifier, fromFile, options, host, undefined, undefined, mode).resolvedModule?.resolvedFileName;
+  const resolveModuleFull = (specifier: string, fromFile: string, mode: ts.ResolutionMode) =>
+    ts.resolveModuleName(specifier, fromFile, options, host, undefined, undefined, mode).resolvedModule;
+  const resolve = (specifier: string, fromFile: string, mode: ts.ResolutionMode) => resolveModuleFull(specifier, fromFile, mode)?.resolvedFileName;
   return {
     add,
-    createProgram: (rootNames) => ts.createProgram({ rootNames, options, host }),
+    createProgram: (rootNames, alternative) => ts.createProgram({ rootNames, options: alternative?.options ?? options, host, oldProgram: alternative?.oldProgram }),
     resolveModule: (specifier, from) => resolve(specifier.text, from.fileName, ts.getModeForUsageLocation(from, specifier, options)),
     resolveFrom: (specifier, fromFile) => resolve(specifier, fromFile, ts.getImpliedNodeFormatForFile(fromFile, undefined, host, options)),
+    resolveModuleFull,
+    resolveTypeReference: (name, fromFile, mode) => ts.resolveTypeReferenceDirective(name, fromFile, options, host, undefined, undefined, mode).resolvedTypeReferenceDirective,
     sameFile: (a, b) => key(a) === key(b),
   };
 }

@@ -37,7 +37,10 @@ function withOutsideLink(t: TestContext): { root: string; secret: string } {
 }
 
 for (const preserveSymlinks of [false, true]) {
-  test(`a file reached through a link out of the project is not read: no packet, fingerprint or record holds its content${preserveSymlinks ? " (preserveSymlinks)" : ""}`, (t) => {
+  /** @tests Cli
+   * @covers review-scope-silent */
+  test("a file reached through a link out of the project is not read: no packet, fingerprint or record holds its content", (t) => {
+    t.diagnostic(`preserveSymlinks: ${preserveSymlinks}`);
     if (process.platform === "win32") return t.skip("symbolic links need privileges");
     outsideLink(t, preserveSymlinks);
   });
@@ -73,7 +76,7 @@ function outsideLink(t: TestContext, preserveSymlinks: boolean): void {
   assert.ok(!packet.helpers.includes(`${QUOTA_DIR}/linked.ts`));
   assert.ok(!packet.fingerprinted.includes(`${QUOTA_DIR}/linked.ts`));
   assert.ok(!packet.diagnostics.some(({ code }) => code === "E_ENVIRONMENT"), JSON.stringify(packet.diagnostics));
-  // Said, not silent: the helper at the packet; the hole in the fingerprint is check's to say, not the packet's.
+  // Discovery names the outside link; configured fingerprint bounds emit no scope-limit diagnostics.
   assert.ok(packet.diagnostics.some(({ code, file, message }) => code === "W_OUTSIDE_ROOT" && file === `${QUOTA_DIR}/linked.ts` && /out of the project/.test(message)), JSON.stringify(packet.diagnostics));
   assert.ok(!packet.diagnostics.some(({ code }) => code.endsWith("REVIEW_SCOPE_LIMIT")), JSON.stringify(packet.diagnostics));
 
@@ -170,7 +173,10 @@ test("the variables of a block or a loop around a test, and the loop's header, a
  * second one; `layout` "excluded" keeps the second out of the program instead, as a file of another tool would be.
  */
 for (const layout of ["test-support", "excluded"] as const) {
-  test(`a dependency the review cannot read makes the packet incomplete and the record refuse, leaving the review file as it was (${layout})`, (t) => {
+  /** @tests Cli
+   * @covers review-scope-silent record-refuses */
+  test("a dependency the review cannot read makes the packet incomplete and the record refuse, leaving the review file as it was", (t) => {
+    t.diagnostic(`layout: ${layout}`);
     if (process.platform === "win32" || process.getuid?.() === 0) return t.skip("file permissions do not apply");
     const root = copyFixture(t, "vertical");
     const [first, second, specifier] =

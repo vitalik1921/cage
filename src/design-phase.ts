@@ -1,13 +1,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import type ts from "typescript";
-import { indexDesigns, type ImportTarget } from "./design-index.ts";
+import { resolveInheritance } from "./contract-inheritance.ts";
+import { indexDesigns, type DesignSourceFile, type ImportTarget } from "./design-index.ts";
 import type { DesignIndex } from "./design-model.ts";
 import { compareDiagnostics, isError, type Diagnostic } from "./diagnostic.ts";
 import { DESIGN_SUFFIX, type DesignSource } from "./discovery.ts";
 import { blockAt, buildGeneratedModule, CAGE_DIRECTORY, extractBlock, toSourceOffset, VIRTUAL_FILE_NAME, type ExtractedText, type GeneratedModule, type Replacement } from "./extraction.ts";
 import { lineStarts, positionAt, stripBom, toProjectPath, type Position } from "./location.ts";
 import { parseDesignMdx, type DesignBlock } from "./mdx.ts";
+import { capturePackageLocks, createPackageTypesResolver, namedDeclarations } from "./package-types.ts";
 import {
   createOverlayProgram,
   loadTypeScript,
@@ -110,37 +112,75 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
   if (failed()) return done();
   result.compiler = { ts, options: setup.options, fileNames: setup.fileNames, overlay };
 
+  const designs = [...origins].map(([sourceFile, origin]): DesignSourceFile => ({
+    moduleId: origin.module.moduleId,
+    sourceFile,
+    locate: (offset) => {
+      // What the index reports are tokens and comments of the blocks, so every offset has an authored position.
+      const position = authoredPosition(origin, offset);
+      if (!position) throw new Error(`Offset ${offset} of ${origin.module.virtualPath} was not copied from a design document.`);
+      return position;
+    },
+    blockOf: (offset) => blockAt(origin.module.generated, offset),
+    writtenSpecifier: (specifier) => origin.module.generated.writtenSpecifiers.get(specifier.getStart(sourceFile)) ?? specifier.text,
+  }));
+  const packages = createPackageTypesResolver(ts, root, overlay, overlay.program, setup.options);
+  const packageSpecifiers: { specifier: ts.StringLiteralLike; from: ts.SourceFile }[] = [];
   const indexed = indexDesigns(
     ts,
-    [...origins].map(([sourceFile, origin]) => ({
-      moduleId: origin.module.moduleId,
-      sourceFile,
-      locate: (offset) => {
-        // What the index reports are tokens and comments of the blocks, so every offset has an authored position.
-        const position = authoredPosition(origin, offset);
-        if (!position) throw new Error(`Offset ${offset} of ${origin.module.virtualPath} was not copied from a design document.`);
-        return position;
-      },
-      blockOf: (offset) => blockAt(origin.module.generated, offset),
-      writtenSpecifier: (specifier) => origin.module.generated.writtenSpecifiers.get(specifier.getStart(sourceFile)) ?? specifier.text,
-    })),
+    designs,
     (specifier, from): ImportTarget => {
       const resolved = overlay.resolveModule(specifier, from);
       const target = resolved === undefined ? undefined : modules.find((module) => overlay.sameFile(module.virtualFile, resolved));
       if (target) return { moduleId: target.moduleId, documents: target.documents.map((document) => path.posix.basename(document.file)) };
       // A design document is named as such in the document; it resolved to nothing when its module is not in the scope.
       const written = origins.get(from)?.module.generated.writtenSpecifiers.get(specifier.getStart(from)) ?? specifier.text;
-      return written.endsWith(DESIGN_SUFFIX) ? "out-of-scope" : "other";
+      if (written.endsWith(DESIGN_SUFFIX)) return "out-of-scope";
+      // A package is resolved as the program resolves it, so a path alias cannot pass a project file off as one.
+      const found = packages.resolve(specifier.text, from.fileName, ts.getModeForUsageLocation(from, specifier, setup.options));
+      if (found === undefined) return "other";
+      if ("problem" in found) return found;
+      packageSpecifiers.push({ specifier, from });
+      return { package: found.entry };
     },
   );
   result.index = indexed.index;
   diagnostics.push(...indexed.diagnostics);
   // An import that is not allowed would show up again as an unresolved module or as types read from the disk.
+  // The index has now collected the actual imported names, including members used through namespace imports.
+  // Select their declaration graph before checking types or recording review material.
+  for (const { specifier, from } of packageSpecifiers) {
+    const origin = origins.get(from)!;
+    const written = origin.module.generated.writtenSpecifiers.get(specifier.getStart(from)) ?? specifier.text;
+    const entry = indexed.index.packages.find((candidate) => candidate.module === origin.module.moduleId && candidate.specifier === written);
+    if (!entry) continue;
+    const found = packages.select(specifier.text, from.fileName, ts.getModeForUsageLocation(from, specifier, setup.options), entry.names);
+    if ("problem" in found) diagnostics.push({ code: "E_DESIGN_IMPORT", severity: "error", message: `"${written}" ${found.problem}`, ...designs.find((design) => design.sourceFile === from)!.locate(specifier.getStart(from)) });
+    else entry.files = found.entry.files;
+  }
   if (failed("E_DESIGN_IMPORT", "E_DESIGN_OUT_OF_SCOPE")) return done();
 
   for (const sourceFile of origins.keys()) {
     const found = [...overlay.program.getSyntacticDiagnostics(sourceFile), ...overlay.program.getSemanticDiagnostics(sourceFile)];
     diagnostics.push(...found.map((diagnostic) => convert("E_TYPESCRIPT", diagnostic)));
+  }
+  // What a contract inherits is known from the resolved types only, and only types without errors can be relied on.
+  if (failed()) return done();
+  diagnostics.push(...resolveInheritance(ts, overlay.program.getTypeChecker(), designs, indexed.index));
+  // A lock holds the package types its declaration depends on, behind design aliases and bases too.
+  capturePackageLocks(ts, overlay.program.getTypeChecker(), indexed.index, new Map([...origins].map(([sourceFile, origin]) => [sourceFile, origin.module.moduleId])));
+
+  // The declarations each design names from a package, for its reviewers; the type check has bound them.
+  const checker = overlay.program.getTypeChecker();
+  for (const { specifier, from } of packageSpecifiers) {
+    const origin = origins.get(from)!;
+    const written = origin.module.generated.writtenSpecifiers.get(specifier.getStart(from)) ?? specifier.text;
+    const entry = indexed.index.packages.find((candidate) => candidate.module === origin.module.moduleId && candidate.specifier === written);
+    if (!entry) continue;
+    const known = new Set(entry.declarations.map((declaration) => `${declaration.id}:${declaration.line}`));
+    for (const declaration of namedDeclarations(ts, checker, specifier, entry.names, packages.idOf)) {
+      if (!known.has(`${declaration.id}:${declaration.line}`)) entry.declarations.push(declaration);
+    }
   }
   return done();
 }

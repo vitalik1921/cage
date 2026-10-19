@@ -13,7 +13,7 @@ export const CODES: Record<string, { means: string; then: string }> = {
   E_DESIGN_BLOCK_EMPTY: { means: "a ts design block has no code", then: "declare the contracts in it, or remove it" },
   E_DESIGN_BLOCK_LOCATION: { means: "a ts design block is indented or nested; only top-level unindented blocks count", then: "move it to the top level" },
   E_DESIGN_BLOCK_MARKER: { means: "the design marker is on a block whose language is not ts", then: "make it ```ts design" },
-  E_DESIGN_IMPORT: { means: "a block imports something other than types of another design with import type", then: "import type from a *.cage.mdx, or declare an independent shape" },
+  E_DESIGN_IMPORT: { means: "a design imports values, source code or unavailable declaration dependencies", then: "use import type from a design or an installed package with complete declarations" },
   E_DESIGN_OUT_OF_SCOPE: { means: "a block imports a design document the designs patterns do not cover", then: "widen the patterns, or do not import it" },
   E_DESIGN_CYCLE: { means: "modules depend on each other in a cycle through @uses or type imports", then: "break the cycle" },
   W_BUSINESS_CONTEXT_MISSING: { means: "a module's documents have no prose; a reviewer judges contracts against business rules", then: "write the purpose and the rules in prose" },
@@ -35,11 +35,16 @@ export const CODES: Record<string, { means: string; then: string }> = {
   W_WEAK_TYPECHECK: { means: "strictNullChecks, strictFunctionTypes or noImplicitAny is off; implementations are compared more loosely", then: "turn them on in tsconfig" },
   // Implementations.
   E_IMPLEMENTATION_MISSING: { means: "no exported class, function or const is marked @implements for the contract", then: "tag the implementation" },
+  E_IMPLEMENTATION_DUPLICATE: { means: "a contract has more than one direct implementation; one contract, one implementation", then: "keep @implements on one declaration; give the other its own contract" },
   E_TYPE_MISMATCH: { means: "the compiler does not accept the implementation where the contract is expected; its explanation follows", then: "fit the implementation to the contract, or change the contract" },
+  E_CONTRACT_EXTRA_MEMBER: { means: "a public instance or static member is absent from the declaration's contracts", then: "describe it in a contract, or make the member private/protected if it is internal" },
+  E_CONTRACT_MISSING_MEMBER: { means: "a declared public member is absent, including an optional member", then: "implement the declared member" },
+  E_CONTRACT_SIGNATURE: { means: "a public signature or field differs from its contract despite being assignable in TypeScript", then: "match parameter count, optional/rest markers, readonly and types" },
+  E_CONTRACT_UNCHECKABLE: { means: "the public surface is opaque/open or its recursive types or modifiers cannot be resolved", then: "use a concrete closed public type with explicit modifiers" },
   // Tests.
   E_TEST_MISSING: { means: "no test is tagged @covers for the invariant", then: "write or tag a test" },
-  E_TEST_INACTIVE: { means: "every test of the invariant is skipped, todo, empty or in a file with a broken import", then: "enable one, give it a body, or fix the import" },
-  W_TEST_INACTIVE: { means: "an inactive test covers invariants that other, active tests also cover", then: "enable it or remove it" },
+  E_TEST_INACTIVE: { means: "every test of the invariant is empty without an explicit skip/todo or has a broken import", then: "give one a body, explicitly mark it skip/todo, or fix the import" },
+  W_TEST_INACTIVE: { means: "an empty or broken-import test covers invariants with another usable test declaration", then: "give it a body, explicitly mark it skip/todo, fix the import, or remove it" },
   E_TEST_CONTEXT: { means: "@covers without a contract: no @tests on the test or an enclosing suite", then: "add @tests Name" },
   // Coverage.
   W_NOT_DESIGNED: { means: "an exported class, function or non-scalar const of a designed module has no @implements", then: "describe its contract in the design, or list the file in the module's .cageignore" },

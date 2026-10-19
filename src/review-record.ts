@@ -118,6 +118,10 @@ function describePart(key: string): string {
   if (design) return `the prose of ${design[1]}`;
   const dependency = /^dependency (.+)$/.exec(key);
   if (dependency) return `dependency ${dependency[1]}`;
+  const types = /^package (.+)$/.exec(key);
+  if (types) return `the types of package ${types[1]}`;
+  const declaration = /^declaration (.+)$/.exec(key);
+  if (declaration) return `declaration file ${declaration[1]}`;
   const implementation = /^implementation (.+)#([^#]+)$/.exec(key);
   if (implementation) return `implementation ${implementation[2]} (${implementation[1]})`;
   const test = /^test ([^:]+):(.*)$/.exec(key);

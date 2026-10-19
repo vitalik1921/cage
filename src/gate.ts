@@ -54,7 +54,7 @@ export interface GateResult {
  * still fails after `MAX_BLOCKS` blocks in one session lets the agent stop,
  * with the report: a check the agent cannot fix must not hold the session
  * forever. Blocks are counted in a file of the temporary directory. The
- * feedback shows at most `maxDiagnostics` blocking diagnostics, the ones that matter most, so
+ * feedback shows at most `maxDiagnostics` groups of blocking diagnostics, the ones that matter most, so
  * that a long report does not drown the agent; what blocks is counted
  * over all of them.
  */

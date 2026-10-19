@@ -115,12 +115,15 @@ type Locked = Pick<LockEntry, "level" | "members" | "invariants">;
  * everything that was recorded, unchanged, and may have more named members
  * and more invariants: those are `additions`, not `changes`.
  */
-function differences(recorded: Locked, current: Locked): { changes: string[]; additions: string[] } {
+function differences(recorded: Locked, current: Locked, enforcePackageScheme = false): { changes: string[]; additions: string[] } {
   const changes: string[] = [];
   const additions: string[] = [];
   const compare = (was: Record<string, string>, now: Record<string, string>, describe: (key: string) => string, mayAdd: (key: string) => boolean) => {
     for (const [key, text] of Object.entries(was)) {
       if (!Object.hasOwn(now, key)) changes.push(`${describe(key)} was removed; it was: ${text}`);
+      else if (enforcePackageScheme && key.startsWith(":package ") && !text.startsWith("sha256:types-v2:")) {
+        changes.push(`${describe(key)} was recorded with an earlier digest that omitted package routing and cannot be checked; it was: ${text}`);
+      }
       else if (now[key] !== text) changes.push(`${describe(key)} changed; it was: ${text}`);
     }
     for (const key of Object.keys(now)) {
@@ -130,7 +133,8 @@ function differences(recorded: Locked, current: Locked): { changes: string[]; ad
     }
   };
   // More named members is what "extendable" allows. Type parameters, a base type or a call signature change what is already there.
-  compare(recorded.members, current.members, describeMember, (member) => !member.startsWith(":"));
+  // The types of a package newly named come with a new member; a change of their declarations stays a change.
+  compare(recorded.members, current.members, describeMember, (member) => !member.startsWith(":") || member.startsWith(":package "));
   compare(recorded.invariants ?? {}, current.invariants ?? {}, (id) => `invariant \`${id}\``, () => true);
   return { changes, additions };
 }
@@ -159,7 +163,7 @@ export function compareLocks(index: DesignIndex, entries: readonly LockEntry[]):
       });
       continue;
     }
-    const { changes, additions } = differences(entry, declaration);
+    const { changes, additions } = differences(entry, declaration, true);
     if (entry.level !== declaration.level) changes.unshift(`recorded \`@${entry.level}\`, now \`@${declaration.level}\``);
 
     if (changes.length > 0) {
@@ -206,7 +210,8 @@ const UNNAMED: Readonly<Record<string, string>> = {
   ":type-parameters": "its type parameters",
   ":extends": "what it extends",
 };
-const describeMember = (member: string) => (Object.hasOwn(UNNAMED, member) ? UNNAMED[member] : `\`${member}\``);
+const describeMember = (member: string) =>
+  Object.hasOwn(UNNAMED, member) ? UNNAMED[member] : member.startsWith(":package ") ? `the declarations of package ${member.slice(":package ".length)} it uses` : `\`${member}\``;
 
 /**
  * The lock file after recording what is not recorded yet: declarations newly

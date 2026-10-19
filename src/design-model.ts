@@ -25,6 +25,12 @@ export interface ContractMember {
   name: string;
   description: string | null;
   location: SourceLocation;
+  /**
+   * Where an inherited member is declared: a `@contract` or `@data` declaration of a design, or a package's
+   * declaration (`module` is then the package name). Absent for a member of the contract's own body, including
+   * one it redeclares.
+   */
+  inheritedFrom?: { name: string; module: string; kind: "contract" | "data" | "package" };
 }
 
 export interface Contract {
@@ -32,15 +38,20 @@ export interface Contract {
   /** Module ID: the project-relative path of the module root. */
   module: string;
   description: string | null;
-  /** An interface with methods, or an interface with a single call signature. */
+  /** An interface with methods/properties, or an interface with a single call signature. */
   shape: "object" | "callable";
-  /** Methods of an object contract, in declaration order. */
+  /** Named members of an object contract, in declaration order. */
   members: ContractMember[];
   /** Null when the contract is open to any change. */
   lock: LockLevel | null;
   location: SourceLocation;
-  /** The declaration as written, with its doc comment: what a review of the contract is about. */
+  /**
+   * The declaration as written, with its doc comment: what a review of the contract is about. For a contract that
+   * extends design declarations, followed by each of its bases, transitively and once each: an edit to a base edits it.
+   */
   source: string;
+  /** What it extends directly, in the order of its `extends` clause; `module` of a package's declaration is the package name. */
+  bases?: { name: string; module: string; kind: "contract" | "data" | "package" }[];
 }
 
 export interface DataType {
@@ -55,8 +66,10 @@ export interface Invariant {
   contract: string;
   id: string;
   text: string;
-  /** The method it is declared on, or null for the contract as a whole. */
+  /** The named member it is declared on, or null for the contract as a whole. */
   member: string | null;
+  /** Where it is declared: the base contract it is inherited from; absent when the contract declares it itself. */
+  inheritedFrom?: { contract: string; module: string };
   location: SourceLocation;
 }
 
@@ -65,8 +78,10 @@ export interface Implementation {
   /** The exported name of the class, function or const. */
   name: string;
   kind: "class" | "function" | "const";
-  /** Whether the compiler accepts it where the contract is expected. */
+  /** Whether compiler assignability and exact public conformance both pass. */
   compatible: boolean;
+  /** Present only for an explicit static-side class contract. */
+  surface?: "static";
   location: SourceLocation;
 }
 
@@ -105,11 +120,55 @@ export interface TestDeclaration {
 
 /**
  * A declared dependency. `uses` connects contracts by name; `type-import`
- * connects modules: the importing design and the design whose types it imports.
+ * connects modules: the importing design and the design whose types it imports;
+ * `extends` connects a contract to a design declaration it extends directly.
  */
 export type Edge =
   | { kind: "uses"; from: string; to: string; fromModule: string; toModule: string; location: SourceLocation }
-  | { kind: "type-import"; fromModule: string; toModule: string; location: SourceLocation };
+  | { kind: "type-import"; fromModule: string; toModule: string; location: SourceLocation }
+  | { kind: "extends"; from: string; to: string; toKind: "contract" | "data"; fromModule: string; toModule: string; location: SourceLocation };
+
+/** A declaration file of an installed package, named by the package and its path in it, never by where it is installed. */
+export interface PackageTypesFile {
+  /** `name@version/path`: `zod@3.23.8/lib/types.d.ts`. */
+  id: string;
+  /** The file's real path from the project root; it may lead into a `node_modules` above the root. */
+  file: string;
+  /** Of the file's tokens and reference directives: comments and layout do not count. */
+  digest: string;
+  /** Resolved references from this declaration, with their specifiers and targets; sorted for stable fingerprints. */
+  routing: string[];
+  /** The file as the compiler read it, line endings normalized: what a reviewer reads. */
+  text: string;
+}
+
+/** An `import type` of an installed package's declarations in a design. Packages are types only: nothing of them is executed. */
+export interface PackageImport {
+  /** The importing design. */
+  module: string;
+  /** As the document writes it: `zod`, `zod/v4`. */
+  specifier: string;
+  /** The installed package, by its package.json: `zod`, or `@types/express` for DefinitelyTyped. */
+  name: string;
+  version: string;
+  /** The package's real directory from the project root. */
+  directory: string;
+  /** The declaration file selected by the compiler for this import, as `name@version/path`. */
+  resolution: string;
+  /** The physical entry declaration path, to distinguish copies with the same package name and version. */
+  resolutionFile: string;
+  /** What the design names: the imported names, `default`, the members named through a namespace import. Sorted. */
+  names: string[];
+  /**
+   * The declaration files the specifier's types can reach, its own and those of other packages, sorted by id: every
+   * file a module specifier, a reference directive or a name in them resolves to, ambient modules and globals among
+   * them; the compiler's default library is the only boundary.
+   */
+  files: PackageTypesFile[];
+  /** The declarations of `names`, for a reviewer; filled after the type check, empty when it did not run. */
+  declarations: { name: string; id: string; line: number; text: string }[];
+  location: SourceLocation;
+}
 
 export interface DesignIndex {
   contracts: Contract[];
@@ -117,6 +176,8 @@ export interface DesignIndex {
   invariants: Invariant[];
   edges: Edge[];
   locked: LockedDeclaration[];
+  /** One entry per design and package specifier. */
+  packages: PackageImport[];
 }
 
-export const emptyIndex = (): DesignIndex => ({ contracts: [], data: [], invariants: [], edges: [], locked: [] });
+export const emptyIndex = (): DesignIndex => ({ contracts: [], data: [], invariants: [], edges: [], locked: [], packages: [] });
