@@ -33,6 +33,35 @@ export function discoverDesigns(root: string, config: Pick<Config, "designs" | "
     .map(([moduleId, sourceFiles]) => ({ moduleId, sourceFiles, virtualFile: path.join(root, moduleId, CAGE_DIRECTORY, VIRTUAL_FILE_NAME) }));
 }
 
+/**
+ * Whether `discoverDesigns` would take a design document at this
+ * project-relative POSIX path, whether or not it exists: its name, the
+ * `designs` patterns, and `exclude`, also on the directories above it.
+ */
+export function isDesignInScope(file: string, config: Pick<Config, "designs" | "exclude">): boolean {
+  if (!file.endsWith(DESIGN_SUFFIX) || path.posix.basename(file) === DESIGN_SUFFIX) return false;
+  const fromRoot = (pattern: string) => pattern.replace(/^(\.\/)+/, "");
+  const matches = (patterns: readonly string[], candidate: string) => patterns.some((pattern) => path.posix.matchesGlob(candidate, fromRoot(pattern)));
+  const excludedDirectories = config.exclude.map(fromRoot).filter((pattern) => pattern.endsWith("/**")).map((pattern) => pattern.slice(0, -"/**".length));
+  const directories = file.split("/").slice(0, -1).map((_, index, names) => names.slice(0, index + 1).join("/"));
+  const patterns = config.designs.map(fromRoot);
+  return (
+    matches(patterns, file) &&
+    !matches(config.exclude, file) &&
+    directories.every((directory) => patterns.some((pattern) => mayMatchBelow(directory, pattern)) && !matches(excludedDirectories, directory))
+  );
+}
+
+/** The designs with one more document, an absolute path, in its module: a module is made for it when it has none. */
+export function withDesignDocument(root: string, designs: readonly DesignSource[], document: string): DesignSource[] {
+  const moduleId = path.posix.dirname(path.relative(root, document).split(path.sep).join("/"));
+  const sorted = (items: string[]) => items.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const existing = designs.find((design) => design.moduleId === moduleId);
+  if (existing) return designs.map((design) => (design === existing && !design.sourceFiles.includes(document) ? { ...design, sourceFiles: sorted([...design.sourceFiles, document]) } : design));
+  const added = { moduleId, sourceFiles: [document], virtualFile: path.join(root, moduleId, CAGE_DIRECTORY, VIRTUAL_FILE_NAME) };
+  return [...designs, added].sort((a, b) => (a.moduleId < b.moduleId ? -1 : a.moduleId > b.moduleId ? 1 : 0));
+}
+
 export interface SourceFiles {
   /** Files that may hold `@implements`; project-relative POSIX paths. */
   implementations: string[];

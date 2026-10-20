@@ -27,7 +27,8 @@ This document is cage's own spec, checked by the published cage against this rep
 - A verdict is recorded only against the material as it is now, complete and with a reason and evidence; otherwise nothing is recorded.
 - A review goes stale when its fingerprinted material changes, and the check names what. Ordinary code comments and spacing are context, not new review material under `code-v1` and `code-v2`.
 - A lock on a declaration is lifted only by a person, visibly, in the lock file; a lock the base branch has is never lifted on a branch.
-- Nothing cage writes for a project overwrites what a person wrote.
+- A draft (`*.cage.draft.mdx`) is a proposal, not a design: it is checked only on request, in place of the document it would replace, and becomes the design only when it is valid and the design is still the one it was written against.
+- Project setup and draft creation preserve existing authored files: `init` keeps or adds to existing files, and `draft create` never writes over any file. Replacement is explicit: `draft activate <path>` replaces a design document with that document's own draft only after candidate validation and while the document is still the text the draft was made from (or still absent); otherwise it leaves both documents unchanged.
 
 ### Dependency material
 
@@ -180,6 +181,10 @@ export interface LoadedConfig {
  * @invariant locks `lock` records the declarations marked `@final` or `@extendable`; `check` reports a change to a recorded declaration, and `--base` refuses a lock that the base revision has and the lock file no longer does.
  * @invariant codes `codes` prints one line per diagnostic code the harness can emit, with what it means and what to do about it.
  * @invariant init-safe `init` never overwrites a file a person wrote, adds its gate beside other hooks, and passes every path to a hook as data.
+ * @invariant draft-isolation A `*.cage.draft.mdx` file is never an active design: check, gate, lock and review ignore it whatever the designs patterns, so its content, valid or not, changes no active result, fingerprint, lock or coverage; neither an active design nor a candidate can import a draft.
+ * @invariant draft-create `draft create` writes the draft named after its target with a strict header holding the target's path and the SHA-256 of its text (null for a new document), copying the target or scaffolding a new design; it never overwrites a file, and paths outside the project root, through links or without the design suffix are refused.
+ * @invariant draft-candidate `draft check` checks one draft in memory in place of its target, in the target's module and under its import path even when the target does not exist yet, together with every other active design, the target's consumers and the locks; diagnostics point at the draft's own lines, the report says implementations, tests and reviews were not checked, and nothing is written.
+ * @invariant draft-activate `draft activate` writes the draft's content without its header to the target and removes the draft only when the configuration is usable, the candidate valid, the locks hold and the target is still the text the draft was created from (or still absent); otherwise both files stay byte for byte. It records no lock and no review: a newly marked declaration then needs `cage lock`.
  */
 export interface Cli {
   (argv: readonly string[], io: CliIo): number;

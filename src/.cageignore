@@ -52,3 +52,6 @@ record-file.ts
 gate.ts
 gate-report.ts
 init.ts
+# Drafts: the header and path rules, and create/check/activate behind `cage draft`.
+draft.ts
+draft-file.ts

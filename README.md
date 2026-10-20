@@ -238,10 +238,15 @@ Run `npx cage check`. It reports, with file and line, every contract with no imp
 | `cage review --record <file>` | Saves the reviewer's verdict in `.cage/review.json`. From then on `check` wants an up-to-date one for every contract. |
 | `cage review --accept` | Takes the current spec, code and tests of every unreviewed contract as accepted, without a verdict: `check` asks for a review only when they change, and counts them apart from reviewed ones. For a person adopting Cage on an existing project; `--all` includes the reviewed contracts too. |
 | `cage lock` | Freezes the contracts marked `@final` (no changes) or `@extendable` (additions only); `check` refuses other changes. |
+| `cage draft create <spec>` | Writes `<name>.cage.draft.mdx` next to `<name>.cage.mdx`: a copy of the spec, or a new spec when there is none. A short header records the spec's path and the SHA-256 it was copied from. Never overwrites a file. |
+| `cage draft check <draft>` | Checks the draft in memory in place of its spec, with every other spec, its consumers and the locks. Implementations, tests and reviews are not checked; nothing is written. |
+| `cage draft activate <draft>` | Checks again, then replaces the spec with the draft (header removed) and deletes the draft — only while the spec is still the text the draft was copied from. Records no lock and no review. |
 | `cage gate` | `check` for the agent's Stop hook: only errors go back to the agent; reviews block only under `review: "require"`. `init` wires it up. |
 | `cage codes` | What every diagnostic code means and what to do about it. A diagnostic line itself names only the thing and the place. |
 
-`--root <dir>` for a project inside a monorepo; `--format json` for machines (`check`, `lock`, `init`, `review --record` and `review --accept` print `text` by default, the `review` packet `markdown`). In CI, `cage check --base origin/main` also refuses a lock that was lifted on the branch. `check` and `gate` group structural errors with a proven shared cause, show the 50 groups that matter most and count omitted violations by code, so that a long report does not drown an agent: `--max-diagnostics <n|all>`, or `maxDiagnostics` in the configuration.
+`--root <dir>` for a project inside a monorepo; `--format json` for machines (`check`, `lock`, `init`, `draft`, `review --record` and `review --accept` print `text` by default, the `review` packet `markdown`). In CI, `cage check --base origin/main` also refuses a lock that was lifted on the branch. `check` and `gate` group structural errors with a proven shared cause, show the 50 groups that matter most and count omitted violations by code, so that a long report does not drown an agent: `--max-diagnostics <n|all>`, or `maxDiagnostics` in the configuration.
+
+A draft is how a spec change is proposed without touching the spec in force: `check`, `gate`, `lock` and `review` never read `*.cage.draft.mdx`, whatever the patterns, so a half-written draft breaks nothing and stales no review. Draft paths are relative to the project root. When the spec changed after the draft was made, `activate` refuses (`E_DRAFT_CONFLICT`): carry the draft's changes over to a new draft. After activation, `cage check` asks for the reviews and `cage lock` for any new lock as after any spec edit.
 
 ## The loop with an agent
 

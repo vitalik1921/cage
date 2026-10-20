@@ -99,6 +99,16 @@ Rules of a `ts design` block:
 
 Run the project's formatter on the documents you wrote if it covers `*.mdx`.
 
+### Proposing a change as a draft
+
+When a change to a design should be proposed before it is in force (a person or another agent decides, or the code follows later), write it as a draft instead of editing the design:
+
+1. `cage draft create src/quota/quota.cage.mdx` writes `src/quota/quota.cage.draft.mdx`: a copy, or a new design when the document does not exist. Keep its header (`{/* cage draft v1 … */}`) as it is; edit everything below it.
+2. `cage draft check src/quota/quota.cage.draft.mdx` checks it in place of the design, with the designs that import it and the locks. Fix what it reports in the draft. It checks no code, tests or reviews.
+3. `cage draft activate src/quota/quota.cage.draft.mdx` makes it the design and removes the draft, only while the design is still what the draft was copied from. Then go on as after any design edit (section 3 from step 2): tag the code, `cage check`, `cage lock` for a new lock, and the reviews.
+
+Drafts are never designs: `cage check` and the gate ignore them, and no code may rely on a contract that is only in a draft. On `E_DRAFT_CONFLICT` the design changed meanwhile: move the draft aside, create it again and carry your changes over. Never edit the header's digest to get past it.
+
 ## 4. Report
 
 Say which contracts you wrote, which invariants, which files you put in `.cageignore` and why, and what is in "Open questions". The design is reviewed next (`cage review`); write it so that a stranger can judge it.

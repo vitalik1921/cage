@@ -52,7 +52,7 @@ export const CODES: Record<string, { means: string; then: string }> = {
   // Locks.
   E_LOCK_MISSING: { means: "a declaration is @final or @extendable but not recorded in .cage/lock.json", then: "run cage lock" },
   E_LOCK_VIOLATION: { means: "a locked declaration changed; the changes follow", then: "revert the change, or lift the lock deliberately by removing its record" },
-  W_LOCK_UNRECORDED: { means: "an @extendable declaration has additions not recorded yet", then: "run cage lock" },
+  W_LOCK_UNRECORDED: { means: "an @extendable declaration has additions not recorded yet, or a draft candidate marks a declaration not recorded yet", then: "run cage lock, for a draft after cage draft activate" },
   W_LOCK_OPEN_TYPE: { means: "a locked declaration uses a type that is not locked; a change there changes it too", then: "mark the type @final or @extendable" },
   E_LOCK_BASE: { means: "a lock recorded at the base revision is gone or weaker here", then: "restore it; a lock the base has is lifted on the base" },
   // Reviews.
@@ -64,6 +64,9 @@ export const CODES: Record<string, { means: string; then: string }> = {
   E_REVIEW_WEAK: { means: "the same, as an error under review: require", then: "the same" },
   E_REVIEW_VERDICT: { means: "a verdict cannot be recorded: other material, an unknown or unassessed invariant, no reason or evidence", then: "fix the verdicts file; nothing was recorded" },
   W_OUTSIDE_ROOT: { means: "a symbolic link leads out of the project; cage does not read the file", then: "move the file into the project" },
+  // Drafts.
+  E_DRAFT: { means: "a draft cannot be created, checked or activated: a missing or malformed header, a header naming another target, a design path outside the designs patterns, a file already there, or a link or non-file on the way", then: "fix what the message names; nothing was written" },
+  E_DRAFT_CONFLICT: { means: "the active design changed, was created or was deleted since the draft was created, or the draft changed while it was activated", then: "carry the draft's changes over to a new draft of the design as it is now; nothing was written" },
   // Agent setup.
   W_GATE_COMMAND: { means: "a Stop hook mentions cage gate but is not the gate of this project, or no installed cage was found", then: "check the hook command and the installation" },
 };

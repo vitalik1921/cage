@@ -48,6 +48,8 @@ export interface DesignPhaseOptions {
   designPatterns?: readonly string[];
   /** Errors found before the phase, in the configuration. With any, nothing is checked and only they are reported. */
   problems?: readonly Diagnostic[];
+  /** Texts of design documents given from memory, by absolute path, read instead of the disk: a draft checked in place of its target. */
+  documents?: ReadonlyMap<string, string>;
 }
 
 export interface DesignPhaseResult {
@@ -90,7 +92,7 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
   diagnostics.push(...(options.problems ?? []));
   if (failed()) return done();
 
-  readDocuments(ts, root, options.designs, options.designPatterns ?? [], modules, diagnostics);
+  readDocuments(ts, root, options.designs, options.designPatterns ?? [], options.documents, modules, diagnostics);
   if (failed()) return done();
 
   diagnostics.push(...checkBlocks(ts, root, modules));
@@ -190,7 +192,7 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
  * design: their blocks make one generated module, in the order of their
  * names, and prose in any of them is the business context of all.
  */
-function readDocuments(ts: TypeScript, root: string, designs: readonly DesignSource[], patterns: readonly string[], modules: DesignModule[], diagnostics: Diagnostic[]): void {
+function readDocuments(ts: TypeScript, root: string, designs: readonly DesignSource[], patterns: readonly string[], given: ReadonlyMap<string, string> | undefined, modules: DesignModule[], diagnostics: Diagnostic[]): void {
   if (designs.length === 0) {
     diagnostics.push({
       code: "E_NO_DESIGNS",
@@ -207,7 +209,7 @@ function readDocuments(ts: TypeScript, root: string, designs: readonly DesignSou
       const file = toProjectPath(root, sourceFile);
       let source: string;
       try {
-        source = stripBom(fs.readFileSync(sourceFile, "utf8"));
+        source = stripBom(given?.get(sourceFile) ?? fs.readFileSync(sourceFile, "utf8"));
       } catch (cause) {
         diagnostics.push({ code: "E_ENVIRONMENT", severity: "error", message: `cannot read the design document: ${(cause as Error).message}`, file });
         readable = false;

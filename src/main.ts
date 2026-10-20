@@ -5,7 +5,9 @@ import { runCheck } from "./check.ts";
 import { formatCodes } from "./codes.ts";
 import { isMaxDiagnostics, loadConfig, MAX_DIAGNOSTICS_LIMIT, type Config } from "./config.ts";
 import { isError, type Diagnostic } from "./diagnostic.ts";
-import { discoverDesigns, discoverSources } from "./discovery.ts";
+import { DESIGN_SUFFIX, discoverDesigns, discoverSources } from "./discovery.ts";
+import { activateDraft, checkDraft, createDraft, formatDraftReport, type DraftAction } from "./draft.ts";
+import { DRAFT_SUFFIX, projectPathArgument } from "./draft-file.ts";
 import { parseHookInput, runGate } from "./gate.ts";
 import { formatInitReport, runInit, type Agent } from "./init.ts";
 import { runLock } from "./lock-command.ts";
@@ -46,6 +48,14 @@ Commands:
                         Accept the material of the contracts as it is now without a review, in .cage/review.json: check asks for none
                         until it changes, and counts them apart from reviewed ones. Without names, every contract in need of a review;
                         --all for every contract, replacing recorded verdicts too
+  draft create <design> Write <name>.cage.draft.mdx next to the design <name>.cage.mdx: a copy of it, or a new design when there
+                        is none; the header records the target and the SHA-256 it was created from. Nothing is overwritten
+  draft check <draft>   Check the draft in memory in place of its design: designs, consumers and locks; not implementations,
+                        tests or reviews. Writes nothing
+  draft activate <draft>
+                        Check it, then replace the design with it (header removed) and remove the draft, only while the design
+                        is still the one the draft was created from. Records no lock and no review
+                        Paths are relative to the project root; drafts are never designs for check, gate, lock or review
   gate                  Stop hook for an agent's environment: the full check; only errors block (exit 2,
                         only blocking diagnostics and guidance on stderr); after 3 blocks in one session the agent may stop. Reads the hook's JSON on stdin
   codes                 What every diagnostic code means and what to do about it; a diagnostic line itself names only the thing and the place
@@ -130,7 +140,7 @@ function run(argv: readonly string[], io: CliIo): number {
 
   const [command, ...extra] = positionals;
   if (command === undefined) throw new UsageError("Missing command.");
-  const COMMANDS = ["init", "check", "lock", "review", "gate", "codes"];
+  const COMMANDS = ["init", "check", "lock", "review", "gate", "codes", "draft"];
   if (!COMMANDS.includes(command)) throw new UsageError(`Unknown command "${command}".`);
   if (command !== "init" && (values.agent !== undefined || values["test-adapter"] !== undefined)) throw new UsageError("--agent and --test-adapter are options of the init command.");
   const agents = new Set<Agent>();
@@ -141,7 +151,8 @@ function run(argv: readonly string[], io: CliIo): number {
   if (values.agent?.includes("none") && agents.size > 0) throw new UsageError("--agent none means no Stop gate; do not combine it with an agent.");
   const testAdapter = values["test-adapter"];
   if (testAdapter !== undefined && testAdapter !== "node:test" && testAdapter !== "vitest") throw new UsageError(`Unknown test adapter "${testAdapter}"; expected node:test or vitest.`);
-  if (command !== "review" && extra.length > 0) throw new UsageError(`Unexpected argument "${extra[0]}".`);
+  if (command !== "review" && command !== "draft" && extra.length > 0) throw new UsageError(`Unexpected argument "${extra[0]}".`);
+  const draft = command === "draft" ? parseDraftArguments(extra) : undefined;
   if (command !== "review" && values.all) throw new UsageError("--all is an option of the review command.");
   if (command === "review" && values.all && extra.length > 0) throw new UsageError("--all reviews every contract; do not name contracts with it.");
   if (command !== "review" && values.record !== undefined) throw new UsageError("--record is an option of the review command.");
@@ -199,6 +210,18 @@ function run(argv: readonly string[], io: CliIo): number {
   }
 
   const { config, diagnostics } = loadConfig(root, values.config);
+  const print = (report: { diagnostics: Diagnostic[] }, text: string) => {
+    io.stdout(format === "json" ? `${JSON.stringify(report, null, 2)}\n` : text);
+    return exitCode(report.diagnostics);
+  };
+  if (draft) {
+    // Before the scope below: create needs no discovery, and check and activate discover with the candidate in place.
+    const options = { root, config, problems: diagnostics };
+    const run = draft.action === "create" ? createDraft : draft.action === "check" ? checkDraft : activateDraft;
+    const report = run(options, draft.file);
+    const project = [...(values.root === undefined ? [] : ["--root", values.root]), ...(values.config === undefined ? [] : ["--config", values.config])];
+    return print(report, formatDraftReport(report, project));
+  }
   const scope = {
     root,
     tsconfig: config.tsconfig,
@@ -209,10 +232,6 @@ function run(argv: readonly string[], io: CliIo): number {
   };
   // Review fingerprints skip what the project excludes from its scope, and what it excludes from them on top.
   const reviewScope = { ...config.reviewDependencies, exclude: [...config.exclude, ...config.reviewDependencies.exclude] };
-  const print = (report: { diagnostics: Diagnostic[] }, text: string) => {
-    io.stdout(format === "json" ? `${JSON.stringify(report, null, 2)}\n` : text);
-    return exitCode(report.diagnostics);
-  };
 
   if (command === "check") {
     const phase = values.phase === "design" ? "design" : "implementation";
@@ -251,6 +270,18 @@ function run(argv: readonly string[], io: CliIo): number {
     return exitCode(report.diagnostics) === 2 ? 2 : report.ok ? 0 : 1;
   }
   throw new UsageError(`Unknown command "${command}".`);
+}
+
+/** `draft <action> <path>`: the action and the path as a project-relative POSIX path; the path's form is checked before anything is read. */
+function parseDraftArguments(extra: readonly string[]): { action: DraftAction; file: string } {
+  const [action, argument, ...rest] = extra;
+  if (action === undefined) throw new UsageError("draft needs an action: create, check or activate.");
+  if (action !== "create" && action !== "check" && action !== "activate") throw new UsageError(`Unknown draft action "${action}"; expected create, check or activate.`);
+  if (argument === undefined) throw new UsageError(`draft ${action} needs the path of ${action === "create" ? "a design document (*.cage.mdx)" : "a draft (*.cage.draft.mdx)"}, relative to the project root.`);
+  if (rest.length > 0) throw new UsageError(`Unexpected argument "${rest[0]}": draft ${action} takes one path.`);
+  const file = projectPathArgument(argument, action === "create" ? DESIGN_SUFFIX : DRAFT_SUFFIX);
+  if (typeof file === "object") throw new UsageError(`draft ${action}: ${file.problem}`);
+  return { action, file };
 }
 
 /** The exit code of an init whose question was left unanswered: the shell's code for an interrupted command. */

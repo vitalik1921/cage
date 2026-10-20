@@ -17,6 +17,9 @@ cage review --accept        # take the material of every contract without a fres
 cage check --max-diagnostics 20   # show the 20 diagnostic groups that matter most, count omitted violations by code (default 50; "maxDiagnostics" in the configuration)
 cage gate                   # Stop hook for an agent: check; errors and missing or stale reviews block the stop (exit 2), the report goes to the agent
 cage codes                  # what every diagnostic code means and what to do about it
+cage draft create src/quota/quota.cage.mdx         # write src/quota/quota.cage.draft.mdx: a copy of the design, or a new one
+cage draft check src/quota/quota.cage.draft.mdx    # check the draft in place of the design; writes nothing
+cage draft activate src/quota/quota.cage.draft.mdx # make it the design, while the design is what the draft was made from
 ```
 
 The loop: change `*.cage.mdx` → `cage check --phase design` → change implementations and tests → `cage check` → review → the project's own `tsc` and tests.
@@ -262,6 +265,31 @@ Review diagnostics may include `review.changes` (material keys with `changed`, `
 
 What was not checked is `null` or `"not-checked"`, never `0`: "not checked" differs from "not found". The design phase never looks at implementations and tests; a full check does not reach them when a design has an error; and when an error stopped the check before the designs were indexed, the counts of contracts, data types and invariants are `null` too. There is no `passed`, `failed` or coverage percentage. Equal `@uses` and imports from one design count as one dependency. The report is deterministic: no time, no random ids.
 
+### Drafts: `cage draft`
+
+A draft proposes the next version of one design document without changing the one in force. `src/quota/quota.cage.draft.mdx` is the draft of `src/quota/quota.cage.mdx`: the name decides the target, in the same directory.
+
+- **Never a design.** Only `*.cage.mdx` is a design, so `check`, `gate`, `lock` and `review` never read a draft, whatever the `designs` patterns say. A draft's content, valid or not, changes no active result, fingerprint, lock or coverage; a contract that exists only in a draft is unknown to `@implements` and `@tests`. A design that imports a `*.cage.draft.mdx` gets `E_DESIGN_IMPORT`, and so does a candidate.
+- **`cage draft create <design>`** writes the draft: a copy of the design when it exists (its byte order mark dropped), otherwise a new design with the sections of the `cage-design` skill and one placeholder contract named after the file. The draft starts with a header, an MDX comment that keeps it a readable document and lets it be committed and shared on its own:
+
+  ```mdx
+  {/* cage draft v1
+  target: src/quota/quota.cage.mdx
+  base: sha256:<64 hex digits>
+  */}
+  ```
+
+  `base` is the SHA-256 of the design's text with `\n` line endings and without a byte order mark when the draft was made, `null` for a new document. `create` never overwrites anything: a file, a directory or a link already at the draft's path is `E_DRAFT`. Missing directories of a new document are created.
+- **`cage draft check <draft>`** checks the draft's content, without the header, in memory in place of its target: the target's module and path, so that every design importing the target sees the candidate, also when the target does not exist yet. Every other design is read as it is; no other draft is used. Then the locks, as `check` compares them. The report says what was checked (`validation`: `designs` and `locks` `checked`, `implementations`, `tests` and `reviews` `not-checked`) and nothing is written. The candidate's diagnostics point at the draft's own lines; its consumers' at theirs. A target that changed since the draft was made is `E_DRAFT_CONFLICT` here too, so `check` says whether `activate` would succeed.
+- **`cage draft activate <draft>`** runs the same check. With no error, it reads the draft and the target once more: the draft must be what was checked, and the target's text must still have the `base` digest, or still be absent for a new document (it is then created only if nothing appeared at its path). Otherwise `E_DRAFT_CONFLICT`. Then the content without the header replaces the target (a temporary file and a rename) and the draft is removed. On any refusal both files stay byte for byte. The write of the target is the commit point: what fails after it — the draft cannot be removed, a temporary file cannot be removed — is an `E_ENVIRONMENT` at that file with `status: "activated"` and exit 2, never a refusal; `create` reports a draft written before such a failure as `created` the same way. Activation records nothing in `.cage/lock.json` or `.cage/review.json` and carries no verdict over: the next `check` asks for the reviews the change made stale.
+- **Locks hold through drafts.** A change, rename, removal or untagging of a recorded `@final` or `@extendable` declaration is `E_LOCK_VIOLATION` in the candidate, and activation is refused. A declaration newly marked in the draft is not recorded yet: the candidate reports it as `W_LOCK_UNRECORDED` and activation proceeds; `check` then reports `E_LOCK_MISSING` until `cage lock`, as after editing the design directly.
+- **Paths** are relative to the project root (`--root`), like the paths of the configuration (`--config`), not to the current directory. Absolute paths, `..`, a name without the right suffix (`*.cage.mdx` for `create`, `*.cage.draft.mdx` for `check` and `activate`) are argument errors (exit 2). A symbolic link anywhere on the way below the root, a target the `designs` patterns do not take or `exclude` drops, a missing or malformed header, and a header naming a target other than the one the draft's path gives are `E_DRAFT`.
+- There is no `--force` and no way to switch an active contract off through a draft. A conflict is resolved by hand: move the draft aside, `cage draft create` again, and carry its changes over.
+
+The text report lists the diagnostics, then a heading with the outcome and the counts (`draft check: valid (1 warning)`) and one short line per fact: the draft and the target and what happened to each, what was checked and not checked, what was not recorded, and the next command, with the `--root` and `--config` given. Digests are only in the header and the JSON.
+
+Exit codes as for every command: `0` — created, valid or activated (warnings do not change it); `1` — refused or invalid (`E_DRAFT`, `E_DRAFT_CONFLICT`, design and lock errors); `2` — arguments, configuration or environment. `--format text|json`; the JSON report has `command: "draft"`, `action`, `ok`, `draft`, `target`, `base`, `status` (`created`, `valid`, `invalid`, `activated`, `refused`), `validation` (null when no candidate was checked, else what was and was not checked, and the TypeScript used) and `diagnostics`.
+
 ### Configuration
 
 `.cage/config.json` is optional. The defaults:
@@ -342,7 +370,7 @@ What every diagnostic means and what to do about it; `cage codes` prints the sam
 | `E_NOT_DESIGNED` | the same, as an error under coverage: require | the same |
 | `E_LOCK_MISSING` | a declaration is @final or @extendable but not recorded in .cage/lock.json | run cage lock |
 | `E_LOCK_VIOLATION` | a locked declaration changed; the changes follow | revert the change, or lift the lock deliberately by removing its record |
-| `W_LOCK_UNRECORDED` | an @extendable declaration has additions not recorded yet | run cage lock |
+| `W_LOCK_UNRECORDED` | an @extendable declaration has additions not recorded yet, or a draft candidate marks a declaration not recorded yet | run cage lock, for a draft after cage draft activate |
 | `W_LOCK_OPEN_TYPE` | a locked declaration uses a type that is not locked; a change there changes it too | mark the type @final or @extendable |
 | `E_LOCK_BASE` | a lock recorded at the base revision is gone or weaker here | restore it; a lock the base has is lifted on the base |
 | `W_REVIEW_MISSING` | the contract has no recorded review | cage review lists it; cage review <Name>, then cage review --record |
@@ -353,6 +381,8 @@ What every diagnostic means and what to do about it; `cage codes` prints the sam
 | `E_REVIEW_WEAK` | the same, as an error under review: require | the same |
 | `E_REVIEW_VERDICT` | a verdict cannot be recorded: other material, an unknown or unassessed invariant, no reason or evidence | fix the verdicts file; nothing was recorded |
 | `W_OUTSIDE_ROOT` | a symbolic link leads out of the project; cage does not read the file | move the file into the project |
+| `E_DRAFT` | a draft cannot be created, checked or activated: a missing or malformed header, a header naming another target, a design path outside the designs patterns, a file already there, or a link or non-file on the way | fix what the message names; nothing was written |
+| `E_DRAFT_CONFLICT` | the active design changed, was created or was deleted since the draft was created, or the draft changed while it was activated | carry the draft's changes over to a new draft of the design as it is now; nothing was written |
 | `W_GATE_COMMAND` | a Stop hook mentions cage gate but is not the gate of this project, or no installed cage was found | check the hook command and the installation |
 
 ## Implementation notes
@@ -391,7 +421,8 @@ What every diagnostic means and what to do about it; `cage codes` prints the sam
 - **The position of an MDX error** is taken from `place`; for a tag left unclosed to the end of the document the parser gives it only in the message text.
 - **Paths to the TypeScript library** in reports look like `typescript/lib/lib.*.d.ts`.
 - **File discovery** is our own directory walk with `path.matchesGlob`, only where a pattern can match.
-- **Writing** goes to a temporary file next to the target and `rename`. Comparison with the disk ignores CRLF/LF and BOM differences.
+- **Drafts.** No registry: the header is the state, so a draft can be committed, moved between machines and reviewed as a file. The target is derived from the draft's name and the header must agree with it, so a draft copied to another directory is refused rather than applied there. The base digest normalizes line endings so that a checkout with other line endings is not a conflict. The candidate is a design-phase option, `documents` (absolute path → text, read instead of the disk), with the target added to its module's documents when it does not exist; nothing else of the design phase differs. Diagnostics at the target move to the draft, their lines shifted by the header's. Newly marked declarations are a warning in the candidate because activation records no lock and `cage lock` records only active designs: blocking them would make adding a lock through a draft impossible; after activation the ordinary `E_LOCK_MISSING` applies. A new document is created by a hard link from a temporary file, which fails if anything appeared at the path; an existing one by a rename after its digest is read again, so the window for a concurrent edit is that between the read and the rename.
+- **Writing** goes to a temporary file next to the target and `rename`. The temporary file's name carries the process id and random bytes and is opened with `wx`, so a writer only ever writes and removes a temporary file it created itself; a file someone left under a similar name is never touched. A failed write removes its own temporary file; `cage draft` reports one that cannot be removed at its path. Comparison with the disk ignores CRLF/LF and BOM differences.
 - **Tests** copy a fixture into `test/.tmp/` inside the repository, so that the copy finds `@types/node`. The fixture `test/fixtures/vertical` holds three MDX documents, a `package.json` and a `tsconfig.json`. TypeScript 5.9.3 is installed under the name `typescript-5` for the tests only; so the build scripts call `node_modules/typescript/bin/tsc` explicitly.
 
 - **Whether an imported name exists at run time** is decided by (module, name), the way the module's statements pass the name on: a declaration in the module must carry a value flag; `export { x } from`, `import { x }` and defaults lead to the other module's export (`getExportSpecifierLocalTargetSymbol` for `export { x }` of a local name); a name reached only through stars is a value when a star that is not `export type *` leads to a value; `export type * as ns`, `import type`, `{ type x }` and `export type { x }` make it a type. `getImmediateAliasedSymbol` is the fallback for the rest; a cycle counts as a value.
