@@ -8,6 +8,8 @@ export interface PackageSelection {
   declarations: Map<string, ts.Node[]>;
   /** Declaration files found through selected symbols and compiler references. */
   dependencies: string[];
+  /** Project files reached only through global contributions and their helpers, never a package module route. */
+  globalDependencies: Set<string>;
   /** Resolution edges written into review and lock material, by the source file that contains each edge. */
   routing: Map<string, string[]>;
   /** Missing bindings are rejected only when the compiler reports an error at their use. */
@@ -35,13 +37,19 @@ export function selectPackageDependencies(
   resolveModule: (specifier: string, fromFile: string, mode: ts.ResolutionMode) => string | undefined,
   resolveTypes: (name: string, fromFile: string, mode: ts.ResolutionMode) => string | undefined,
   followSourceValues = false,
+  isProjectFile: (fileName: string) => boolean = () => false,
 ): PackageSelection {
   const declarations = new Map<string, ts.Node[]>();
   const dependencies = new Set<string>([entry.fileName]);
+  const globalDependencies = new Set<string>();
+  const moduleDependencies = new Set<string>([entry.fileName]);
   const routing = new Map<string, string[]>();
   const unresolved: PackageSelection["unresolved"] = [];
   const missing = (anchor: ts.Node, message: string) => unresolved.push({ file: anchor.getSourceFile(), start: anchor.getStart(), end: anchor.getEnd(), message });
-  const visited = new Set<ts.Symbol>();
+  // A symbol may be reached both through an ambient contribution and a direct package import. Neither path may
+  // hide the other; direct module provenance wins even if the global path was visited first.
+  const visited = [new Set<ts.Symbol>(), new Set<ts.Symbol>()];
+  const selected = [new Set<ts.Node>(), new Set<ts.Node>()];
   const defaultLibDirectory = path.dirname(ts.getDefaultLibFilePath(program.getCompilerOptions()));
   const libraryCache = new Map<string, boolean>();
   const isLibrary = (file: ts.SourceFile) => {
@@ -50,6 +58,20 @@ export function selectPackageDependencies(
     const value = isCompilerLibrary(program, file, defaultLibDirectory);
     libraryCache.set(file.fileName, value);
     return value;
+  };
+  const addDependency = (fileName: string, fromGlobal = false) => {
+    dependencies.add(fileName);
+    (fromGlobal && isProjectFile(fileName) ? globalDependencies : moduleDependencies).add(fileName);
+  };
+  const isGlobal = (node: ts.Node): boolean => {
+    for (let parent: ts.Node | undefined = node; parent && !ts.isSourceFile(parent); parent = parent.parent) {
+      if (ts.isModuleDeclaration(parent)) {
+        if (parent.flags & ts.NodeFlags.GlobalAugmentation) return true;
+        // An ambient external module is not a global contribution.
+        if (ts.isStringLiteral(parent.name)) return false;
+      }
+    }
+    return !ts.isExternalModule(node.getSourceFile());
   };
 
   const addRoute = (fileName: string, route: string) => {
@@ -78,23 +100,26 @@ export function selectPackageDependencies(
       }
     }
   };
-  const select = (node: ts.Node): void => {
+  const select = (node: ts.Node, fromGlobal = false): void => {
     if (ts.isBindingElement(node)) {
       // A destructured export's type annotation belongs to the enclosing variable declaration. Binding patterns can
       // nest through object and array elements, so reach the variable rather than assuming a fixed parent depth.
       for (let parent: ts.Node | undefined = node.parent; parent; parent = parent.parent) {
-        if (ts.isVariableDeclaration(parent)) { select(parent); return; }
+        if (ts.isVariableDeclaration(parent)) { select(parent, fromGlobal); return; }
         if (ts.isSourceFile(parent)) break;
       }
     }
     const file = node.getSourceFile();
+    fromGlobal = isProjectFile(file.fileName) && (fromGlobal || isGlobal(node));
     // A built-in declaration can refer to an augmentation in an installed package. Traverse it without materializing
     // the compiler's own file or checking its diagnostics.
     if (isLibrary(file)) { visit(node); return; }
-    dependencies.add(file.fileName);
+    addDependency(file.fileName, fromGlobal);
+    const seen = selected[Number(fromGlobal)];
+    if (seen.has(node)) return;
+    seen.add(node);
     const nodes = declarations.get(file.fileName) ?? [];
-    if (nodes.includes(node)) return;
-    nodes.push(node);
+    if (!nodes.includes(node)) nodes.push(node);
     declarations.set(file.fileName, nodes);
     // The module literal is outside an import specifier's range. Its compiler error still belongs to that binding.
     if (ts.isImportSpecifier(node) || ts.isExportSpecifier(node) || ts.isNamespaceImport(node) || ts.isImportClause(node) || ts.isImportEqualsDeclaration(node)) {
@@ -106,7 +131,7 @@ export function selectPackageDependencies(
         }
       }
     }
-    visit(node);
+    visit(node, fromGlobal);
   };
   const valueExports = (moduleSymbol: ts.Symbol, seen = new Set<ts.Symbol>()): ts.Symbol[] => {
     const location = moduleSymbol.valueDeclaration ?? moduleSymbol.declarations?.[0];
@@ -136,7 +161,7 @@ export function selectPackageDependencies(
     }
     return properties.filter((property) => allowed.has(property.name));
   };
-  const follow = (symbol: ts.Symbol | undefined, anchor?: ts.Node): void => {
+  const follow = (symbol: ts.Symbol | undefined, anchor?: ts.Node, fromGlobal = false): void => {
     if (!symbol) {
       if (anchor) missing(anchor, `${anchor.getText()} names nothing the compiler finds`);
       return;
@@ -146,77 +171,81 @@ export function selectPackageDependencies(
     if (!symbol.declarations?.length && anchor && symbol.name !== "globalThis") {
       missing(anchor, `${anchor.getText()} names nothing the compiler finds`);
     }
-    if (visited.has(symbol)) return;
-    visited.add(symbol);
+    const seen = visited[Number(fromGlobal)];
+    if (seen.has(symbol)) return;
+    seen.add(symbol);
     const module = !!(symbol.flags & (ts.SymbolFlags.ValueModule | ts.SymbolFlags.NamespaceModule));
     for (const declaration of symbol.declarations ?? []) {
       if (module && (ts.isSourceFile(declaration) || ts.isModuleDeclaration(declaration))) {
         // `typeof import("dep")` denotes the module's value exports. Selecting its SourceFile or whole ambient module
         // would make unrelated type-only exports diagnostic roots.
-        if (!isLibrary(declaration.getSourceFile())) dependencies.add(declaration.getSourceFile().fileName);
-      } else select(declaration);
+        const file = declaration.getSourceFile();
+        if (!isLibrary(file)) addDependency(file.fileName, isProjectFile(file.fileName) && (fromGlobal || isGlobal(declaration)));
+      } else select(declaration, fromGlobal);
     }
     if (symbol.flags & ts.SymbolFlags.Alias) {
       const target = checker.getAliasedSymbol(symbol);
-      if (target !== symbol) follow(target, anchor);
+      const globalAlias = (symbol.declarations ?? []).some((declaration) =>
+        isProjectFile(declaration.getSourceFile().fileName) && (fromGlobal || isGlobal(declaration)));
+      if (target !== symbol) follow(target, anchor, globalAlias);
     }
     if (module) {
       // Even the compiler's module value type can expose a class routed through `export type *` on TS 5.9.
       // Follow only names with a value-capable export route through each module in the chain.
-      for (const property of valueExports(symbol)) follow(property);
+      for (const property of valueExports(symbol)) follow(property, undefined, fromGlobal);
       for (const declaration of symbol.declarations ?? []) {
         const body = ts.isSourceFile(declaration) ? declaration.statements : ts.isModuleDeclaration(declaration) && declaration.body && ts.isModuleBlock(declaration.body) ? declaration.body.statements : [];
-        for (const statement of body) if (ts.isExportAssignment(statement)) follow(checker.getSymbolAtLocation(statement.expression), statement.expression);
+        for (const statement of body) if (ts.isExportAssignment(statement)) follow(checker.getSymbolAtLocation(statement.expression), statement.expression, fromGlobal && isProjectFile(statement.getSourceFile().fileName));
       }
     }
   };
-  const followName = (name: ts.Node) => {
+  const followName = (name: ts.Node, fromGlobal = false) => {
     const member = ts.isQualifiedName(name) ? name.right : ts.isPropertyAccessExpression(name) ? name.name : name;
-    follow(checker.getSymbolAtLocation(member), member);
+    follow(checker.getSymbolAtLocation(member), member, fromGlobal);
     let root = name;
     while (ts.isQualifiedName(root) || ts.isPropertyAccessExpression(root)) root = ts.isQualifiedName(root) ? root.left : root.expression;
     // A missing namespace import reports at its module literal, not at Namespace.Member. Probe that binding
     // without following all namespace exports, which would select unrelated declarations from valid imports.
     if (root !== member) for (const binding of checker.getSymbolAtLocation(root)?.declarations ?? []) missingImport(binding);
   };
-  const visit = (node: ts.Node): void => {
+  const visit = (node: ts.Node, fromGlobal = false): void => {
     // Inferred source types (typeof schema, factory results) depend on value initializers and their helpers too.
-    if (followSourceValues && !node.getSourceFile().isDeclarationFile && ts.isIdentifier(node)) {
+    if ((followSourceValues || fromGlobal) && !node.getSourceFile().isDeclarationFile && ts.isIdentifier(node)) {
       const symbol = checker.getSymbolAtLocation(node);
-      if (symbol) follow(symbol);
+      if (symbol) follow(symbol, undefined, fromGlobal);
     }
-    if (ts.isTypeReferenceNode(node)) followName(node.typeName);
+    if (ts.isTypeReferenceNode(node)) followName(node.typeName, fromGlobal);
     else if (ts.isExpressionWithTypeArguments(node)) {
       const expression = node.expression;
-      followName(expression);
+      followName(expression, fromGlobal);
     } else if (ts.isTypeQueryNode(node)) {
       const name = node.exprName;
-      followName(name);
+      followName(name, fromGlobal);
       // `typeof globalThis` includes package globals, even when a property is reached through an indexed type.
       if (ts.isIdentifier(name) && name.text === "globalThis") {
         const global = checker.getTypeAtLocation(name);
-        for (const property of checker.getPropertiesOfType(global)) follow(property);
+        for (const property of checker.getPropertiesOfType(global)) follow(property, undefined, fromGlobal);
       }
-    } else if (ts.isComputedPropertyName(node)) followName(node.expression);
-    else if (ts.isPropertyAccessExpression(node)) followName(node);
+    } else if (ts.isComputedPropertyName(node)) followName(node.expression, fromGlobal);
+    else if (ts.isPropertyAccessExpression(node)) followName(node, fromGlobal);
     else if (ts.isImportTypeNode(node)) {
       if (ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) {
         const literal = node.argument.literal;
         const { target, bound, mode } = moduleTarget(literal);
         if (target) {
-          dependencies.add(target);
-          for (const fileName of bound) dependencies.add(fileName);
+          addDependency(target, fromGlobal);
+          for (const fileName of bound) addDependency(fileName, fromGlobal);
           addRoute(literal.getSourceFile().fileName, JSON.stringify(["ImportType", literal.text, String(mode), target]));
         } else missing(literal, `"${literal.text}" resolves to nothing`);
-        if (node.isTypeOf && !node.qualifier) follow(checker.getSymbolAtLocation(literal), literal);
+        if (node.isTypeOf && !node.qualifier) follow(checker.getSymbolAtLocation(literal), literal, fromGlobal);
       }
-      if (node.qualifier) followName(ts.isQualifiedName(node.qualifier) ? node.qualifier.right : node.qualifier);
+      if (node.qualifier) followName(ts.isQualifiedName(node.qualifier) ? node.qualifier.right : node.qualifier, fromGlobal);
     } else if (ts.isImportSpecifier(node) || ts.isExportSpecifier(node)) {
-      followName(node.propertyName ?? node.name);
-    } else if (ts.isImportClause(node) && node.name) followName(node.name);
-    else if (ts.isNamespaceImport(node) || ts.isNamespaceExport(node)) followName(node.name);
-    else if (ts.isExportAssignment(node)) followName(node.expression);
-    ts.forEachChild(node, visit);
+      followName(node.propertyName ?? node.name, fromGlobal);
+    } else if (ts.isImportClause(node) && node.name) followName(node.name, fromGlobal);
+    else if (ts.isNamespaceImport(node) || ts.isNamespaceExport(node)) followName(node.name, fromGlobal);
+    else if (ts.isExportAssignment(node)) followName(node.expression, fromGlobal);
+    ts.forEachChild(node, (child) => visit(child, fromGlobal));
   };
 
   const moduleSymbol = checker.getSymbolAtLocation(entry);
@@ -245,9 +274,10 @@ export function selectPackageDependencies(
         const selected = declarations.get(fileName) ?? [];
         if (!selected.includes(statement) && !dependencies.has(target)) continue;
         addRoute(file.fileName, JSON.stringify([ts.SyntaxKind[statement.kind], literal.text, String(mode), target]));
-        for (const fileName of bound) dependencies.add(fileName);
+        const fromGlobal = isProjectFile(fileName) && globalDependencies.has(fileName);
+        for (const fileName of bound) addDependency(fileName, fromGlobal);
         const loaded = program.getSourceFile(target);
-        if (loaded && !isLibrary(loaded)) dependencies.add(loaded.fileName);
+        if (loaded && !isLibrary(loaded)) addDependency(loaded.fileName, fromGlobal);
       }
     }
   }
@@ -255,19 +285,21 @@ export function selectPackageDependencies(
   for (const fileName of dependencies) {
     const file = program.getSourceFile(fileName);
     if (!file || isLibrary(file)) continue;
+    const fromGlobal = isProjectFile(fileName) && globalDependencies.has(fileName);
     for (const reference of file.referencedFiles) {
       const base = path.resolve(path.dirname(fileName), reference.fileName);
       const target = [base, `${base}.d.ts`, `${base}.ts`].map((candidate) => program.getSourceFile(candidate)).find((candidate) => candidate !== undefined);
-      if (target && !isLibrary(target)) dependencies.add(target.fileName);
+      if (target && !isLibrary(target)) addDependency(target.fileName, fromGlobal);
       else if (!target) unresolved.push({ file, start: reference.pos, end: reference.end, message: `/// <reference path="${reference.fileName}" /> resolves to nothing` });
     }
     for (const reference of file.typeReferenceDirectives) {
       const resolved = resolveTypes(reference.fileName, fileName, ts.getModeForFileReference(reference, file.impliedNodeFormat));
       const target = resolved && program.getSourceFile(resolved);
-      if (target && !isLibrary(target)) dependencies.add(target.fileName);
+      if (target && !isLibrary(target)) addDependency(target.fileName, fromGlobal);
       else if (!target) unresolved.push({ file, start: reference.pos, end: reference.end, message: `/// <reference types="${reference.fileName}" /> resolves to nothing` });
     }
   }
   for (const routes of routing.values()) routes.sort();
-  return { declarations, dependencies: [...dependencies], routing, unresolved };
+  for (const fileName of moduleDependencies) globalDependencies.delete(fileName);
+  return { declarations, dependencies: [...dependencies], globalDependencies, routing, unresolved };
 }

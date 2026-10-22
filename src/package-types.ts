@@ -102,6 +102,15 @@ export function createPackageTypesResolver(
     vocabulary.set(file, new Set([...(vocabulary.get(file) ?? []), entry.slice(at + 1)]));
   }
   const project: Installed = { name: "project", folder: "project", version: "", directory: realRoot };
+  const projectFiles = new Map<string, boolean>();
+  const isProjectFile = (fileName: string) => {
+    const known = projectFiles.get(fileName);
+    if (known !== undefined) return known;
+    const real = realpath(fileName);
+    const local = within(realRoot, real) && !real.split(path.sep).includes("node_modules") && typeof installedAt(real) === "string";
+    projectFiles.set(fileName, local);
+    return local;
+  };
   const manifests = new Map<string, Installed | string>();
   const nodes = new Map<string, FileNode | string>();
   const ids = new Map<string, string>();
@@ -378,11 +387,11 @@ export function createPackageTypesResolver(
     }
     let bytes = 0;
     for (const next of new Set([entry, ...selection.dependencies])) {
-      const node = nodeOf(next, allowProject);
+      const node = nodeOf(next, allowProject || selection.globalDependencies.has(next));
       if (typeof node === "string") return node;
       const routing = (selection.routing.get(next) ?? []).map((route) => {
         const [kind, specifier, mode, target] = JSON.parse(route) as [string, string, string, string];
-        const routed = nodeOf(target, allowProject);
+        const routed = nodeOf(target, allowProject || selection.globalDependencies.has(target));
         return JSON.stringify([kind, specifier, mode, typeof routed === "string" ? target : routed.file.id, shown(realpath(target))]);
       });
       files.push({ ...node.file, routing });
@@ -460,6 +469,7 @@ export function createPackageTypesResolver(
         (module, from, usageMode) => overlay.resolveModuleFull(module, from, usageMode)?.resolvedFileName,
         (name, from, usageMode) => overlay.resolveTypeReference(name, from, usageMode)?.resolvedFileName,
         isProject,
+        isProjectFile,
       );
       const files = closure(rootFile, entered, selection, isProject);
       if (typeof files === "string") return { problem: `is not supported: its declarations reach ${files}` };

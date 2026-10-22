@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.10.1
+
+### Fixed
+
+- Project global type augmentations no longer make package design imports fail when project vocabulary is enabled. Augmentations and their helpers remain review and lock material; direct package imports or references into project modules still fail.
+
 ## 0.10.0
 
 ### Added

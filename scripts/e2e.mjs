@@ -74,7 +74,7 @@ try {
 
   // The installed CLI must load the project's compiler, including TS5, and retain honest test status counts.
   const matrixBase = project("compiler-matrix-base");
-  execFileSync("npm", ["install", "--silent", "--no-audit", "--no-fund", "--no-package-lock", "vitest@1.6.1", "zod@3.25.76", "@types/express@5.0.3"], { cwd: matrixBase, stdio: "inherit" });
+  execFileSync("npm", ["install", "--silent", "--no-audit", "--no-fund", "--no-package-lock", "vitest@1.6.1", "zod@3.25.76", "@types/express@5.0.3", "playwright@npm:rebrowser-playwright@1.52.0"], { cwd: matrixBase, stdio: "inherit" });
   for (const [compiler, version] of [["typescript-5", "5.9.3"], ["typescript", "6.0.3"]]) {
     const root = project(`structural-${version}`, matrixBase);
     fs.rmSync(path.join(root, "src"), { recursive: true });
@@ -186,6 +186,19 @@ try {
     write(".cage/config.json", JSON.stringify({version:1,review:"off",coverage:"require",designImportableTypes:["src/vocabulary.ts#Payload","src/vocabulary.ts#WebhookRequest"]}));
     write("src/.cageignore", "vocabulary.ts\n");
     write("src/vocabulary.ts", 'import type {ZodString} from "zod";\nimport type {Request} from "express";\nexport type Payload={id:ZodString};\nexport type WebhookRequest=Request & {rawBody:Buffer};');
+    write("src/globals.ts", 'export {};\ndeclare global { interface Window { cageState: { id:string } } }\n');
+    design('import type {Page} from "playwright";', contract("PageReader", "read(page:Page):void;"));
+    write("src/impl.ts", 'import type {Page} from "playwright";\n/** @implements PageReader */\nexport class Reader {read(page:Page):void{}}');
+    check(null);
+    const globalPacket = cage(root,"review","PageReader","--format","json","--files","none");
+    assert.equal(globalPacket.status,0,globalPacket.stdout+globalPacket.stderr);
+    write("src/globals.ts", 'export {};\ndeclare global { interface Window { cageState: { id:number } } }\n');
+    const changedGlobalPacket = cage(root,"review","PageReader","--format","json","--files","none");
+    assert.equal(changedGlobalPacket.status,0,changedGlobalPacket.stdout+changedGlobalPacket.stderr);
+    assert.notEqual(json(globalPacket).contracts[0].fingerprint,json(changedGlobalPacket).contracts[0].fingerprint);
+    write("src/impl.ts", '/** @implements PageReader */\nexport class Reader {read(page:string):void{}}');
+    check("E_TYPE_MISMATCH");
+    pass(`package global augmentation TS${version}`, "real Playwright alias with unused designation and Window augmentation passes check/gate; augmentation edits change the fingerprint and signature drift still blocks");
     design('import type {ZodObject} from "zod";\nimport type {Payload} from "./vocabulary.ts";', contract('Schema extends ZodObject<Payload,"strip">', ""));
     write("src/impl.ts", 'import {z} from "zod";\n/** @implements Schema */\nexport const schema=z.object({id:z.string()});');
     check(null);
@@ -202,6 +215,7 @@ try {
     write("src/impl.ts", 'import type {Request} from "express";\n/** @implements Webhook */\nexport class Webhook {handle(req:Request & {rawBody:string}):void{}}');
     check("E_TYPE_MISMATCH");
     fs.rmSync(path.join(root,"src/vocabulary.ts"));
+    fs.rmSync(path.join(root,"src/globals.ts"));
     fs.rmSync(path.join(root,"src/.cageignore"));
     config("node:test");
     pass(`project vocabulary TS${version}`, "real Zod with project shape and Express recursive intersection pass; wrong field/member/Buffer shape still block");
