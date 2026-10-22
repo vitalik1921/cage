@@ -205,7 +205,7 @@ test("an app imports the declarations of a linked workspace package and of the w
 
 /** @tests Cli
  * @covers package-types */
-test("in a workspace, links to elsewhere, path aliases, uninstalled or misnamed packages, sources and declarations that escape are not imported", (t) => {
+test("workspace imports accept installed external links but reject path aliases, uninstalled or misnamed packages, sources and declarations that escape", (t) => {
   for (const compiler of COMPILERS) {
     const elsewhere = scratchDirectory(t, "outside-workspace");
     writeFile(elsewhere, "kit/package.json", JSON.stringify({ name: "outside-kit", version: "1.0.0", types: "index.d.ts" }));
@@ -253,10 +253,8 @@ test("in a workspace, links to elsewhere, path aliases, uninstalled or misnamed 
       ...specifiers.map((specifier, i) => `import type { Secret as S${i} } from "${specifier}";`),
     ].join("\n")));
     const errors = checkDesigns(root).errors;
-    assert.deepEqual(errors.map(located), specifiers.map((specifier) => ({ code: "E_DESIGN_IMPORT", ...at(root, "runner", `"${specifier}"`) })), compiler);
+    assert.deepEqual(errors.map(located), specifiers.filter((specifier) => !["outside-kit", "tools-kit"].includes(specifier)).map((specifier) => ({ code: "E_DESIGN_IMPORT", ...at(root, "runner", `"${specifier}"`) })), compiler);
     const message = (specifier: string) => errors.find((diagnostic) => diagnostic.message.startsWith(`"${specifier}"`))!.message;
-    assert.match(message("outside-kit"), /not to an installed package; a path alias/);
-    assert.match(message("tools-kit"), /resolves to \.\.\/\.\.\/tools\/kit\/index\.d\.ts, not to an installed package/);
     assert.match(message("alias-kit"), /resolves to \.\.\/\.\.\/packages\/automation-contracts\/dist\/index\.d\.ts, not to an installed package/);
     assert.match(message("unlinked-kit"), /not to an installed package \(\.\.\/\.\.\/packages\/unlinked is the workspace package @flygen\/unlinked, but no node_modules .* links to it\)/);
     assert.match(message("app-kit"), /resolves to types\/secret\.d\.ts, not to an installed package; a path alias/);
@@ -273,18 +271,22 @@ test("in a workspace, links to elsewhere, path aliases, uninstalled or misnamed 
 
 /** @tests Cli
  * @covers package-types */
-test("a workspace whose patterns do not take in the project, or a package.json without workspaces, makes no link a package", (t) => {
+test("installed package links do not require workspace registration; directories without an installed link stay unavailable", (t) => {
   for (const manifest of [{ name: "monorepo", private: true, workspaces: ["packages/*"] }, { name: "monorepo", private: true }, { name: "monorepo", workspaces: "packages/*" }]) {
     const workspace = monorepo(t, "typescript", "array", { "package.json": JSON.stringify(manifest) });
+    assert.deepEqual(checkDesigns(path.join(workspace, APP)).errors, [], JSON.stringify(manifest));
+    fs.unlinkSync(path.join(workspace, "node_modules/@flygen/automation-contracts"));
     const errors = checkDesigns(path.join(workspace, APP)).errors;
     assert.deepEqual(errors.map(located), [{ code: "E_DESIGN_IMPORT", ...at(path.join(workspace, APP), "runner", '"@flygen/automation-contracts"') }], JSON.stringify(manifest));
-    assert.match(errors[0].message, /resolves to \.\.\/\.\.\/packages\/automation-contracts\/dist\/index\.d\.ts, not to an installed package/);
+    assert.match(errors[0].message, /resolves to no installed package's types/);
   }
   // pnpm patterns that exclude the package.
   const workspace = monorepo(t, "typescript", "pnpm", { "pnpm-workspace.yaml": lines("packages: ['apps/*', 'packages/*', '!packages/automation-base']") });
+  assert.deepEqual(checkDesigns(path.join(workspace, APP)).errors, []);
+  fs.unlinkSync(path.join(workspace, CONTRACTS, "node_modules/@flygen/automation-base"));
   const errors = checkDesigns(path.join(workspace, APP)).errors;
   assert.equal(errors.length, 1);
-  assert.match(errors[0].message, /its declarations reach \.\.\/\.\.\/packages\/automation-base\/dist\/index\.d\.ts is not inside an installed package/);
+  assert.match(errors[0].message, /TS2307|unresolved/);
 });
 
 /** @tests Cli

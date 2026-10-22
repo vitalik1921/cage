@@ -4,9 +4,9 @@
     {
       "module": "src",
       "contract": "Cli",
-      "fingerprint": "sha256:code-v2:f7a4b64748f0a49dd0ad95caa2e916b54278e8c329ce85a1aeaae3d481cd85a1",
+      "fingerprint": "sha256:code-v2:b8589b45f1c93442c4e0d7048663246b8728c816e7930672168a9dc72c5b0a70",
       "material": {
-        "contract": "sha256:f69ef1b9d27a388c1d2223d679777a9ac9bfa0bcebfa23bc356630b92f8a86b1",
+        "contract": "sha256:d388959f0089c9acb261afcf3622db21712bc60b1a77a34b88f736871638c62e",
         "design src/cage.cage.mdx": "sha256:ec7616c7cd457d67196708bc6e8c30cbe32d281476fcb0eaf882f5998d1498f7",
         "implementation src/main.ts#runCli": "sha256:b73a774d4e5ea2cad917db27be31aa169f7017e7f34029c8d51bf8c9487b0fd6",
         "test test/accept.test.ts:review --accept records every contract in need of a review as accepted without a verdict, and check asks for none": "sha256:d5efcc289a48a38a8431f800255b2839e43e44cad1041dc8410490c9975add47",
@@ -120,18 +120,21 @@
         "test test/design-package-aliases.test.ts:an undeclared, mistargeted or disguised alias is not a package, and an aliased package is held to the rules of every package": "sha256:eacb8903a0dee187d1f3bb5287868e632da98bef460f916d9ee90d5f62f4f1c1",
         "test test/design-package-aliases.test.ts:an aliased package reached from another package must be declared by what reaches it": "sha256:587a954b6619b9223ec8233e7cab1438f2d9d1f3cc161f03497f42de89fce4bb",
         "test test/design-package-aliases.test.ts:an alias that leads to another package makes the review stale and breaks a lock; its new version stales the review only": "sha256:3b1baf2f702b6e9d1f00d86dc54ab23533bb7b72882aa17522e557b07f50784c",
+        "test test/design-package-links.test.ts:external node_modules links retain the compiler, package review fingerprints, locks and gate verdicts on TS 5 and 6": "sha256:3b1c7ba760d66c9d92c84589791b052adae882d3d1ab9eb96b594c1ca52cf3f7",
+        "test test/design-package-links.test.ts:external npm aliases retain their declared package identities and detect type drift": "sha256:ea5f43862d9b62b5c0e15f6718c3c5a6ffaedd1cd144a8c3cf3afb8b0ed9e0ad",
+        "test test/design-package-links.test.ts:external packages retain declaration errors and missing-type errors, including preserveSymlinks": "sha256:44f34f050c6604a21c37f051956295b6279dfc8bb1f790773bf062dccd5657ca",
         "test test/design-package-types.test.ts:a design imports the types of an installed package, with its declaration closure, on TypeScript 5 and 6": "sha256:9cba865f1b0c0b64d29c9bc97fa3c27eb0410472d2380e90971e47c5e0ae2d72",
         "test test/design-package-types.test.ts:namespace and default imports name what the design uses; a type error with package types is reported": "sha256:256d864a8a6e23b2d7887b1aa72f32f3d5a09923ae65d72c42d8b20e3042d8e3",
         "test test/design-package-types.test.ts:package imports are type-only, resolve to installed declarations, and a path alias does not make a project file a package": "sha256:4917c4a7c76d0e3609903c6990323e3aa19886bc0ff0a328d69817498f6eee90",
-        "test test/design-package-types.test.ts:a package linked in from outside the project and the node_modules above it is not imported": "sha256:331ffc207d84224ae95d9d30ce093e68c2830606f6f1015e7427d53d9fc779e0",
+        "test test/design-package-types.test.ts:packages installed through node_modules links may live outside the project, but uninstalled files still cannot be imported": "sha256:69a675fc9bac0bba93236e138c7d3a23b8d20742b3a15fae26e5af659cb8d239",
         "test test/design-package-types.test.ts:every declaration file of an imported package is review material, with its text: a change of it makes the review stale": "sha256:e4e87ccc06e4219d3e54b65be1ccef0d0fbdb6ab622456f0af57799d8b9b62b6",
         "test test/design-package-types.test.ts:with skipLibCheck, a selected declaration that leads nowhere blocks the import; ambient modules and globals are followed": "sha256:630a961d5d5e36fa187591ff87a67a748d5bc2b6798f737ca2a3079c53a4c1b2",
         "test test/design-package-types.test.ts:a lock holds the declarations of the packages a locked declaration uses": "sha256:32c516b81116c22de07b7d56e888995391179034e6574932290f562db31e21ed",
         "test test/design-package-types.test.ts:an extendable contract may add a member of a package type; a change of the package's declarations is still a violation": "sha256:ab68fd5f3438b51d17f852fd87ec6f5821a528b9db3c6b47a23aa05eeb88ce3c",
         "test test/design-workspace-packages.test.ts:a linked workspace package can depend on an npm alias installed inside that package": "sha256:033e6fa7c0f0e20011211fb7f88316a3635c99e68fe339299d6269bad15acaa3",
         "test test/design-workspace-packages.test.ts:an app imports the declarations of a linked workspace package and of the workspace packages they import, on TypeScript 5 and 6": "sha256:7431a3630195f7a3462bc4220149fc2186721aabe80c0faf3e76846c64580c6f",
-        "test test/design-workspace-packages.test.ts:in a workspace, links to elsewhere, path aliases, uninstalled or misnamed packages, sources and declarations that escape are not imported": "sha256:db7f3bbcd2bcc082263827db1e782bd69bcef6d3beea2796cbfe21d62a6970e5",
-        "test test/design-workspace-packages.test.ts:a workspace whose patterns do not take in the project, or a package.json without workspaces, makes no link a package": "sha256:02ba8e02ffbe7ea4b07b195036f028eae47151d4451d71dcee6c2ca0f254d2e2",
+        "test test/design-workspace-packages.test.ts:workspace imports accept installed external links but reject path aliases, uninstalled or misnamed packages, sources and declarations that escape": "sha256:3a91a2fe53511d0b35b7de2bd533ad290fcf7da8d83a4833e179ccbf2f89d7f1",
+        "test test/design-workspace-packages.test.ts:installed package links do not require workspace registration; directories without an installed link stay unavailable": "sha256:2413d0f7041a978bc1f8c8bd6cd8468a4503bd2084250c08d90773bdee6baf87",
         "test test/design-workspace-packages.test.ts:the declarations of linked workspace packages are review material and lock the types that use them, wherever the workspace lies": "sha256:f69e051da963daa9681242a86d2a0c291645649a52923eb0c589028266cfa5d8",
         "test test/design-workspace-packages.test.ts:whether a pnpm workspace package is installed does not depend on the order in which its declarations are reached": "sha256:ad1363c803ace6efe1dfa29ef87fb0de909ed6b0af58a18dfe391d815a629914",
         "test test/diagnostic-groups.test.ts:a clipped summary that hides the actual type difference leaves the full diagnostics separate": "sha256:4387c480459851402fd59d9266943d5fb20fc871ed506c5d7944e1e18ef066a7",
@@ -282,7 +285,7 @@
         "dependency src/review-record.ts": "sha256:adba54ab48a84e00eb205ca879cbae25d87ef61454a8502ff6f69629023d5bd2",
         "dependency src/review.ts": "sha256:c0d27b28e85300fafd0fc6701c68d338393a0a121444816a0b88be1cbf8b9262",
         "dependency test/helpers.ts": "sha256:160acc3375a8b3fe9d997d2d0838d90802267854e344e9823d7abd229f9490a1",
-        "dependency src/typescript.ts": "sha256:6ff9b12fcc08a6bb1852aefec888f252bfbf6543f93670ca6920da280db0f022",
+        "dependency src/typescript.ts": "sha256:a0a5c118da33d3b549fa7b1cd2bd197d2c739856f8b1e1c7da9568940c459dc4",
         "dependency src/contract-shape.ts": "sha256:6817641a81c13003bbfb2f4d9f6d3b4dac4f7a27fd879aff1ad090b81cac39f6",
         "dependency src/contract-inheritance.ts": "sha256:7ba415e47f08ecdcf4675228c165d05b6d27a325f2b3b8225ba2853dc5a4abc5",
         "dependency src/design-index.ts": "sha256:02112fa7e72d117c84740a79eae95f29c8ff394ec0fe01e7cbc3ce9a5f5a487c",
@@ -290,7 +293,7 @@
         "dependency src/coverage.ts": "sha256:2314611bd16763158bcc98cddbe06895ea746fe9febacf726990b9e2d459efb8",
         "dependency src/locks.ts": "sha256:4dad8b0f4981039bbec56e97e2b996d100c85e8b8507b08caaae8586e14faa8b",
         "dependency src/package-diagnostics.ts": "sha256:2eeeb112080ea3fdff8c259c8f0b494ac25ecfd57132c2c302d6d44105c02b58",
-        "dependency src/package-types.ts": "sha256:1ca666d1798c1daf3457015486c341f8e8139d439eb0ccd8140438a4a9b56719",
+        "dependency src/package-types.ts": "sha256:0476b377348da16c2368964d2bf34162781eb409782ba14f5df79942a22d9a8d",
         "dependency src/review-references.ts": "sha256:dbabd70b11819f08e963fa55ea9cee5ed7b9683d43fdd2f49cd4f2dfa9bd7734",
         "dependency src/review-fingerprint.ts": "sha256:8735958bdf4df69162c9f87b9237233adc55b613b15951d6733f347d52ca5ca9",
         "dependency src/review-groups.ts": "sha256:6f1c6031ff66d53d9a5f815b88ec19c117c099802f6e39e2184a5a3a1a528c50",
@@ -330,8 +333,8 @@
         {
           "invariant": "exact-signatures",
           "assessment": "adequate",
-          "reason": "Compiler-backed positive/negative cases distinguish parameter count, optional/default/rest, null acceptance, narrowed inputs/results, nested callbacks, readonly/optional fields, setter input domains and opaque/open surfaces. TS5/TS6 regressions now pass for intersection setters, mapped intersection fields, renamed generic conditional callbacks and labelled tuples. Conditional tests independently call the shape checker to avoid relying only on TS assignability. Primitive setter intersections retain per-constituent substitutions and are checked against actual compiler assignment diagnostics. Argument-independent recursive types pass; changed leaves/modifiers/argument-dependent shapes reject or fail explicitly, with comparison limits reset before the next check. Audit regressions distinguish declared generic/infer constraints (including nested callbacks), deferred keyof/indexed/template operators under substitutions, exact-optional tuple markers and inherited mapped setters. Independent compiler probes establish both equivalent cases and drift controls; unsupported operator instantiation remains explicit, never accepted by object identity. Shared-package mapped instances retain undefined in type arguments and exact-optional property markers; equivalent no-declaration mapped fields are compared instead of rejected. TS5/TS6 synthetic library fixtures and installed-package E2E exercise real Zod inheritance without type assertions, with wrong schema and surplus API rejected. The new recovery rules have mutation controls; unresolved generic growth remains an explicit error. The new cause analysis runs only after a mismatch and leaves the comparator unchanged; grouping regressions assert raw outcomes and mixed mismatches remain errors.",
-          "evidence": "test/contract-conditionals.test.ts:66; test/contract-conformance.test.ts:10; test/contract-defaults.test.ts:55; test/contract-gaps.test.ts:19; test/contract-intersection-setters.test.ts:36; test/contract-library-generics.test.ts:57; test/contract-mapped-arguments.test.ts:41; test/contract-mapped-bases.test.ts:40; test/contract-mapped-intersections.test.ts:25; test/contract-recursive.test.ts:24; test/contract-setter-operators.test.ts:22; test/contract-tuple-optional.test.ts:24; test/contract-tuples.test.ts:31; test/contract-type-parameter-constraints.test.ts:42",
+          "reason": "Compiler-backed positive/negative cases distinguish parameter count, optional/default/rest, null acceptance, narrowed inputs/results, nested callbacks, readonly/optional fields, setter input domains and opaque/open surfaces. TS5/TS6 regressions now pass for intersection setters, mapped intersection fields, renamed generic conditional callbacks and labelled tuples. Conditional tests independently call the shape checker to avoid relying only on TS assignability. Primitive setter intersections retain per-constituent substitutions and are checked against actual compiler assignment diagnostics. Argument-independent recursive types pass; changed leaves/modifiers/argument-dependent shapes reject or fail explicitly, with comparison limits reset before the next check. Audit regressions distinguish declared generic/infer constraints (including nested callbacks), deferred keyof/indexed/template operators under substitutions, exact-optional tuple markers and inherited mapped setters. Independent compiler probes establish both equivalent cases and drift controls; unsupported operator instantiation remains explicit, never accepted by object identity. Shared-package mapped instances retain undefined in type arguments and exact-optional property markers; equivalent no-declaration mapped fields are compared instead of rejected. TS5/TS6 synthetic library fixtures and installed-package E2E exercise real Zod inheritance without type assertions, with wrong schema and surplus API rejected. The new recovery rules have mutation controls; unresolved generic growth remains an explicit error. The new cause analysis runs only after a mismatch and leaves the comparator unchanged; grouping regressions assert raw outcomes and mixed mismatches remain errors. Linked-installation tests on both compiler versions additionally change the implementation result from the imported payload to number and require E_TYPE_MISMATCH and a blocking gate. Alias-linked declaration drift also produces E_TYPE_MISMATCH; package location never bypasses the existing comparator.",
+          "evidence": "test/contract-conditionals.test.ts:66; test/contract-conformance.test.ts:10; test/contract-defaults.test.ts:55; test/contract-gaps.test.ts:19; test/contract-intersection-setters.test.ts:36; test/contract-library-generics.test.ts:57; test/contract-mapped-arguments.test.ts:41; test/contract-mapped-bases.test.ts:40; test/contract-mapped-intersections.test.ts:25; test/contract-recursive.test.ts:24; test/contract-setter-operators.test.ts:22; test/contract-tuple-optional.test.ts:24; test/contract-tuples.test.ts:31; test/contract-type-parameter-constraints.test.ts:42; test/design-package-links.test.ts:67; test/design-package-links.test.ts:105",
           "suggestedChange": null
         },
         {
@@ -344,8 +347,8 @@
         {
           "invariant": "package-types",
           "assessment": "adequate",
-          "reason": "Compiler-backed TS5/TS6 cases reject broken selected declarations while honoring effective suppression and leaving unrelated invalid declarations outside the check. Alias, workspace, ambient, computed-key, global and augmentation cases inspect the selected dependency files; a linked CLI mutation test records review and final lock, changes only each of merged, computed-key and global contributor declarations, and requires both stale review and lock violation with changed material visible. Entry and internal route retargeting, duplicate versions and physical-copy swaps have positive and negative fingerprint controls, while source-only and unreadable dependencies are rejected. Module value queries are checked through both import syntaxes with paired value/type-only routes, export-equals and import-equals aliases, nested namespaces and destructured type annotations. Same-file ambient modules distinguish the owning module. Independent TS5/TS6 diagnostic probes confirmed the former false-green cases now fail and type-only star exports stay outside the selected value surface.",
-          "evidence": "test/package-dependency-selection.test.ts:25; test/package-dependency-selection.test.ts:38; test/package-diagnostics.test.ts:16; test/package-fingerprint-integrity.test.ts:56; test/package-fingerprint-integrity.test.ts:84; test/package-fingerprint-integrity.test.ts:204; test/package-fingerprint-integrity.test.ts:267; test/design-package-aliases.test.ts:114; test/design-workspace-packages.test.ts:178; test/design-package-types.test.ts:173; test/package-dependency-selection.test.ts:93; test/package-dependency-selection.test.ts:132; test/package-dependency-selection.test.ts:163; test/package-dependency-selection.test.ts:190",
+          "reason": "Compiler-backed TS5/TS6 cases reject broken selected declarations while honoring effective suppression and leaving unrelated invalid declarations outside the check. Alias, workspace, ambient, computed-key, global and augmentation cases inspect the selected dependency files; a linked CLI mutation test records review and final lock, changes only each of merged, computed-key and global contributor declarations, and requires both stale review and lock violation with changed material visible. Entry and internal route retargeting, duplicate versions and physical-copy swaps have positive and negative fingerprint controls, while source-only and unreadable dependencies are rejected. Module value queries are checked through both import syntaxes with paired value/type-only routes, export-equals and import-equals aliases, nested namespaces and destructured type annotations. Same-file ambient modules distinguish the owning module. Independent TS5/TS6 diagnostic probes confirmed the former false-green cases now fail and type-only star exports stay outside the selected value surface. External-installation regressions use the real project compilers (TS 5.9.3 and 6.0.3), package links, whole-node_modules links and pnpm layouts. They require identical complete check reports and fingerprints, byte-identical review/lock records, and unchanged successful gate outcomes after relocation. Changing a selected transitive declaration must change the fingerprint and violate the final lock; changing the implementation signature must fail conformance. Missing or compiler-invalid external declarations remain blocking with preserveSymlinks both on and off. Declared external npm aliases retain separate identities and detect drift; removing an alias declaration rejects it. Updated workspace fixtures still reject misnamed, uninstalled, source-only, disguised project and escaping declaration paths.",
+          "evidence": "test/package-dependency-selection.test.ts:25; test/package-dependency-selection.test.ts:38; test/package-diagnostics.test.ts:16; test/package-fingerprint-integrity.test.ts:56; test/package-fingerprint-integrity.test.ts:84; test/package-fingerprint-integrity.test.ts:204; test/package-fingerprint-integrity.test.ts:267; test/design-package-aliases.test.ts:114; test/design-workspace-packages.test.ts:178; test/design-package-types.test.ts:173; test/package-dependency-selection.test.ts:93; test/package-dependency-selection.test.ts:132; test/package-dependency-selection.test.ts:163; test/package-dependency-selection.test.ts:190; test/design-package-links.test.ts:67; test/design-package-links.test.ts:105; test/design-package-links.test.ts:141; test/design-package-types.test.ts:220; test/design-workspace-packages.test.ts:208; test/design-workspace-packages.test.ts:274",
           "suggestedChange": null
         },
         {
@@ -421,8 +424,8 @@
         {
           "invariant": "review-stale",
           "assessment": "adequate",
-          "reason": "Mutation tests change contract prose, code, assertions, suite setup and selected dependencies, then assert the recorded review becomes stale with the changed part named. Package tests mutate merged/global contributors and retarget entry or dependency edges without changing declaration text, requiring stale review and changed material in the packet; irrelevant package edits stay current.",
-          "evidence": "test/review.test.ts:295; test/review-scope.test.ts:539; test/review-scope.test.ts:558; test/package-fingerprint-integrity.test.ts:56; test/package-fingerprint-integrity.test.ts:84; test/package-fingerprint-integrity.test.ts:131",
+          "reason": "Mutation tests change contract prose, code, assertions, suite setup and selected dependencies, then assert the recorded review becomes stale with the changed part named. Package tests mutate merged/global contributors and retarget entry or dependency edges without changing declaration text, requiring stale review and changed material in the packet; irrelevant package edits stay current. Relocating the same package files behind an external link retains the entire current review and its fingerprint on TS5/TS6, including pnpm layout; a selected dependency declaration edit still changes the fingerprint. The test also compares persisted review bytes to prevent automatic renewal.",
+          "evidence": "test/review.test.ts:295; test/review-scope.test.ts:539; test/review-scope.test.ts:558; test/package-fingerprint-integrity.test.ts:56; test/package-fingerprint-integrity.test.ts:84; test/package-fingerprint-integrity.test.ts:131; test/design-package-links.test.ts:67",
           "suggestedChange": null
         },
         {
@@ -470,15 +473,15 @@
         {
           "invariant": "gate",
           "assessment": "adequate",
-          "reason": "Real CLI/hook inputs assert required missing/stale/weak reviews and ordinary errors block, while warn-policy findings do not. Mixed diagnostics stay filtered on initial blocks and after the session limit; success resets the session count. Shared-cause fixtures additionally assert grouped feedback still exits 2 and counts every structural blocker while preserving separate review blocks.",
-          "evidence": "test/gate.test.ts:27; test/diagnostic-groups.test.ts:255",
+          "reason": "Real CLI/hook inputs assert required missing/stale/weak reviews and ordinary errors block, while warn-policy findings do not. Mixed diagnostics stay filtered on initial blocks and after the session limit; success resets the session count. Shared-cause fixtures additionally assert grouped feedback still exits 2 and counts every structural blocker while preserving separate review blocks. External installation fixtures record a genuine test-based fixture verdict under review:require and pass before and after relocation. Independent signature edits, selected declaration compiler errors and missing declarations all retain gate exit 2; relocation itself does not weaken the gate policy.",
+          "evidence": "test/gate.test.ts:27; test/diagnostic-groups.test.ts:255; test/design-package-links.test.ts:67; test/design-package-links.test.ts:141",
           "suggestedChange": null
         },
         {
           "invariant": "locks",
           "assessment": "adequate",
-          "reason": "Real lock records reject edits to final or existing extendable members, including inherited mapped modifiers, while base comparison catches deletion from the lock file. Package lock tests mutate transitive and merged/global contributor declarations and retarget route edges with identical declaration sets; both dependency versions and same-version physical copies remain distinct, and a pure package-version update leaves the lock intact.",
-          "evidence": "test/locks.test.ts:60; test/contract-inherited-locks.test.ts:35; test/contract-package-locks.test.ts:65; test/package-fingerprint-integrity.test.ts:56; test/package-fingerprint-integrity.test.ts:84; test/package-fingerprint-integrity.test.ts:161; test/package-fingerprint-integrity.test.ts:204; test/lock-base.test.ts:77",
+          "reason": "Real lock records reject edits to final or existing extendable members, including inherited mapped modifiers, while base comparison catches deletion from the lock file. Package lock tests mutate transitive and merged/global contributor declarations and retarget route edges with identical declaration sets; both dependency versions and same-version physical copies remain distinct, and a pure package-version update leaves the lock intact. The linked-installation matrix records a real final-contract lock and compares unchanged persisted bytes and successful checks after relocation. Mutating a transitive external declaration subsequently requires E_LOCK_VIOLATION in design phase, separately from implementation errors.",
+          "evidence": "test/locks.test.ts:60; test/contract-inherited-locks.test.ts:35; test/contract-package-locks.test.ts:65; test/package-fingerprint-integrity.test.ts:56; test/package-fingerprint-integrity.test.ts:84; test/package-fingerprint-integrity.test.ts:161; test/package-fingerprint-integrity.test.ts:204; test/lock-base.test.ts:77; test/design-package-links.test.ts:67",
           "suggestedChange": null
         },
         {
@@ -528,7 +531,7 @@
     {
       "module": "src",
       "contract": "Codes",
-      "fingerprint": "sha256:code-v2:41ee15bbb6e2988190b1e41acfa392789dd2bb7dd2db25d3138b545e3848d22a",
+      "fingerprint": "sha256:code-v2:582ff59291fe5409ed4924de2463a8d0f1b863d80eda5f4ea339329fd25df531",
       "material": {
         "contract": "sha256:95d71c5d4dde2c0745b4e5a9c00167559a7fe78f496ff863de276b70a975634a",
         "design src/cage.cage.mdx": "sha256:ec7616c7cd457d67196708bc6e8c30cbe32d281476fcb0eaf882f5998d1498f7",
@@ -546,8 +549,8 @@
         "dependency src/extraction.ts": "sha256:53833e075910e2c84c2a1f405ad9d331da5e88f84f5a8006c91cb6be396a9d5f",
         "dependency src/location.ts": "sha256:68745832b1db80b8f548ee6c3f9c61a6f24e5a25ffa06861b4c10fe6e4289cf8",
         "dependency src/mdx.ts": "sha256:b2ab7ea0e4f8c6be0aec76cebf11a60dd61144e809943111b37e477c4315c92d",
-        "dependency src/package-types.ts": "sha256:1ca666d1798c1daf3457015486c341f8e8139d439eb0ccd8140438a4a9b56719",
-        "dependency src/typescript.ts": "sha256:6ff9b12fcc08a6bb1852aefec888f252bfbf6543f93670ca6920da280db0f022",
+        "dependency src/package-types.ts": "sha256:0476b377348da16c2368964d2bf34162781eb409782ba14f5df79942a22d9a8d",
+        "dependency src/typescript.ts": "sha256:a0a5c118da33d3b549fa7b1cd2bd197d2c739856f8b1e1c7da9568940c459dc4",
         "dependency src/contract-conformance.ts": "sha256:d4fdc6f471feaecec591ddb1eb95b2636877fafd2766f485ed03794e24631658",
         "dependency src/coverage.ts": "sha256:2314611bd16763158bcc98cddbe06895ea746fe9febacf726990b9e2d459efb8",
         "dependency src/implementations.ts": "sha256:513d63f51b70ca5840e5881d95deb6622228d3e3f62fa9a7b3bf503adc58a757",
@@ -573,7 +576,7 @@
     {
       "module": "src",
       "contract": "ConfigLoader",
-      "fingerprint": "sha256:code-v2:50cfe531d9c46c4ef3e4a4182a2b15921474dcfa240b4b0dc6aa38175d9bad1d",
+      "fingerprint": "sha256:code-v2:da6d3b486e5a4562355e673aa0837912047126cc1506540bedef87fddb5c4f6d",
       "material": {
         "contract": "sha256:aa0a8126dd82f22a748ad81b423273f326e04b343ac6073e5c1b246b92e33397",
         "design src/cage.cage.mdx": "sha256:ec7616c7cd457d67196708bc6e8c30cbe32d281476fcb0eaf882f5998d1498f7",
@@ -592,8 +595,8 @@
         "dependency src/design-index.ts": "sha256:02112fa7e72d117c84740a79eae95f29c8ff394ec0fe01e7cbc3ce9a5f5a487c",
         "dependency src/extraction.ts": "sha256:53833e075910e2c84c2a1f405ad9d331da5e88f84f5a8006c91cb6be396a9d5f",
         "dependency src/mdx.ts": "sha256:b2ab7ea0e4f8c6be0aec76cebf11a60dd61144e809943111b37e477c4315c92d",
-        "dependency src/package-types.ts": "sha256:1ca666d1798c1daf3457015486c341f8e8139d439eb0ccd8140438a4a9b56719",
-        "dependency src/typescript.ts": "sha256:6ff9b12fcc08a6bb1852aefec888f252bfbf6543f93670ca6920da280db0f022",
+        "dependency src/package-types.ts": "sha256:0476b377348da16c2368964d2bf34162781eb409782ba14f5df79942a22d9a8d",
+        "dependency src/typescript.ts": "sha256:a0a5c118da33d3b549fa7b1cd2bd197d2c739856f8b1e1c7da9568940c459dc4",
         "dependency src/contract-conformance.ts": "sha256:d4fdc6f471feaecec591ddb1eb95b2636877fafd2766f485ed03794e24631658",
         "dependency src/coverage.ts": "sha256:2314611bd16763158bcc98cddbe06895ea746fe9febacf726990b9e2d459efb8",
         "dependency src/implementations.ts": "sha256:513d63f51b70ca5840e5881d95deb6622228d3e3f62fa9a7b3bf503adc58a757",

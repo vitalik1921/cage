@@ -737,6 +737,44 @@ try {
   log("95-drafts", draftRuns.join("\n"));
   pass("10 drafts", "create, consumer-breaking candidate refused byte-identical, drafts invisible to check, live base conflict, activation, path escape refused");
 
+  // The installed CLI, its compiler and a design's dependency can all live behind an external installation link.
+  const linkedInstall = project("linked-installation");
+  const packageDirectory = path.join(linkedInstall, "node_modules/fixture-types");
+  fs.mkdirSync(packageDirectory);
+  fs.writeFileSync(path.join(packageDirectory, "package.json"), JSON.stringify({ name: "fixture-types", version: "1.0.0", types: "index.d.ts" }));
+  fs.writeFileSync(path.join(packageDirectory, "index.d.ts"), "export type AccountId = string;\n");
+  const linkedManifest = path.join(linkedInstall, "package.json");
+  const manifest = JSON.parse(fs.readFileSync(linkedManifest, "utf8"));
+  manifest.dependencies = { ...manifest.dependencies, "fixture-types": "1.0.0" };
+  fs.writeFileSync(linkedManifest, JSON.stringify(manifest));
+  const linkedDesign = path.join(linkedInstall, QUOTA_DESIGN);
+  fs.writeFileSync(linkedDesign, fs.readFileSync(linkedDesign, "utf8")
+    .replace("```ts design\n", '```ts design\nimport type { AccountId as ExternalAccountId } from "fixture-types";\n')
+    .replace("export type AccountId = string;", "export type AccountId = ExternalAccountId;"));
+  const copiedCheck = cage(linkedInstall, "check", "--format", "json");
+  assert.equal(copiedCheck.status, 0, copiedCheck.stdout);
+  const copiedPacket = json(cage(linkedInstall, "review", "Quota", "--format", "json"));
+  const externalModules = path.join(scratch, "external-installation", "node_modules");
+  fs.mkdirSync(path.dirname(externalModules));
+  fs.renameSync(path.join(linkedInstall, "node_modules"), externalModules);
+  fs.symlinkSync(externalModules, path.join(linkedInstall, "node_modules"), "dir");
+  const linkedCheck = cage(linkedInstall, "check", "--format", "json");
+  assert.equal(linkedCheck.status, 0, linkedCheck.stdout + linkedCheck.stderr + (linkedCheck.error ?? ""));
+  assert.equal(linkedCheck.stdout, copiedCheck.stdout);
+  assert.equal(cage(linkedInstall, "gate").status, 0);
+  assert.equal(json(cage(linkedInstall, "review", "Quota", "--format", "json")).contracts[0].fingerprint, copiedPacket.contracts[0].fingerprint);
+  fs.writeFileSync(path.join(packageDirectory, "index.d.ts"), "export type AccountId = number;\n");
+  const typeDrift = cage(linkedInstall, "check", "--format", "json");
+  assert.equal(typeDrift.status, 1);
+  assert.ok(json(typeDrift).diagnostics.some(({ code }) => code === "E_TYPE_MISMATCH" || code === "E_CONTRACT_SIGNATURE"));
+  assert.equal(cage(linkedInstall, "gate").status, 2);
+  fs.unlinkSync(path.join(packageDirectory, "index.d.ts"));
+  const noTypes = cage(linkedInstall, "check", "--format", "json");
+  assert.ok(json(noTypes).diagnostics.some(({ code }) => code === "E_DESIGN_IMPORT"));
+  assert.equal(cage(linkedInstall, "gate").status, 2);
+  log("96-linked-installation", `copied: ${copiedCheck.stdout}\nlinked: ${linkedCheck.stdout}\ndrift: ${typeDrift.stdout}\nmissing: ${noTypes.stdout}`);
+  pass("external installation links", "installed CLI and compiler follow linked node_modules; check and fingerprints match a copy; signature drift and missing declarations still block gate");
+
   console.log(`\ne2e: ${passed.length} scenarios passed; evidence in ${path.relative(repository, evidence)}`);
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });

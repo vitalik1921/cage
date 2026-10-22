@@ -67,7 +67,9 @@ const DEPENDENCY_FIELDS = ["dependencies", "optionalDependencies", "peerDependen
  * collects the declaration files each one reaches. What a design may import from a package is decided by where the
  * compiler finds it, not by how the specifier looks: the file must be a declaration file inside the directory of the
  * package the specifier names (or of its `@types` package), under a `node_modules` of the project or of a directory
- * above it, with a package.json that gives that name and a version. A package of the workspace the project belongs to
+ * above it (including links to external installations), with a package.json that gives that name and a version.
+ * External packages must be reachable through a normal node_modules entry of the project or an already reached
+ * package; a manifest elsewhere is not enough. A package of the workspace the project belongs to
  * counts as installed where such a node_modules links to it under its own name (an npm, Yarn or pnpm workspace link):
  * its files are the package's by their real path, inside the package's directory. A path alias that leads to a
  * project file, or to another package, does not make it one. Package files are read as text, nothing of them is executed.
@@ -96,7 +98,17 @@ export function createPackageTypesResolver(
   const ids = new Map<string, string>();
   const declared = new Map<string, Map<string, string>>();
   const links = new Map<string, { base: string; directory: string } | undefined>();
-  const shown = (real: string) => toProjectPath(realRoot, real);
+  // Keep existing package identities. Only newly supported external installations are displayed through the
+  // node_modules path that reaches them, so moving an installation behind a link does not stale its reviews.
+  const linkedPackages = new Map<string, { installed: Installed; logical: string }>();
+  const holders = new Set([realRoot]);
+  const candidates = new Map<string, Installed | null>();
+  const logicalPath = (real: string): string => {
+    const parent = [...linkedPackages.values()].filter(({ installed }) => within(installed.directory, real))
+      .sort((a, b) => b.installed.directory.length - a.installed.directory.length)[0];
+    return parent ? path.join(parent.logical, path.relative(parent.installed.directory, real)) : real;
+  };
+  const shown = (real: string) => toProjectPath(realRoot, logicalPath(real));
   const compilerLibDirectory = path.dirname(ts.getDefaultLibFilePath(options));
   const diagnostics = createPackageDiagnostics(ts, overlay, program);
 
@@ -182,7 +194,7 @@ export function createPackageTypesResolver(
   const memberInstalled = (member: Installed): boolean => installedWorkspacePackages().has(member.directory);
 
   /** The installed package that holds a real path, or why it is none. */
-  const installedAt = (real: string): Installed | string => {
+  const localInstalledAt = (real: string): Installed | string => {
     const memberDirectory = memberAt(path.dirname(real));
     const member = memberDirectory === undefined ? undefined : manifestAt(memberDirectory);
     // The workspace package that holds the project is the project: its files are no package's.
@@ -207,6 +219,61 @@ export function createPackageTypesResolver(
       }
     }
     return manifestAt(directory, name);
+  };
+
+  /** Find a package boundary without accepting it: a manifest alone is not an installation. */
+  const candidateAt = (real: string): Installed | undefined => {
+    const start = path.dirname(real);
+    const known = candidates.get(start);
+    if (known !== undefined) return known ?? undefined;
+    for (let directory = start; ; directory = path.dirname(directory)) {
+      if (fs.existsSync(path.join(directory, "package.json"))) {
+        const found = manifestAt(directory);
+        if (typeof found !== "string") {
+          candidates.set(start, found);
+          return found;
+        }
+      }
+      if (directory === path.dirname(directory)) break;
+    }
+    candidates.set(start, null);
+    return undefined;
+  };
+
+  /** Follow only a real node_modules entry, from the project or a package already reached by its declarations. */
+  const installedAt = (real: string): Installed | string => {
+    const local = localInstalledAt(real);
+    if (typeof local !== "string") {
+      holders.add(local.directory);
+      return local;
+    }
+    const candidate = candidateAt(real);
+    if (!candidate || within(candidate.directory, realRoot)) return local;
+    const known = linkedPackages.get(candidate.directory);
+    if (known) return known.installed;
+    for (const holder of holders) {
+      const names = new Set([candidate.name]);
+      // Aliases keep their existing manifest check; the name of a link alone does not rename a package.
+      for (let directory = holder; ; directory = path.dirname(directory)) {
+        for (const [name, spec] of dependenciesDeclaredIn(directory)) if (npmAliasTarget(spec) === candidate.name) names.add(name);
+        if (directory === path.dirname(directory)) break;
+      }
+      for (const name of names) {
+        const link = linkedFrom(holder, name);
+        if (!link || link.directory !== candidate.directory) continue;
+        const installed = { ...candidate, folder: name };
+        const modules = path.join(link.base, "node_modules");
+        const realModules = realpath(modules);
+        // Preserve pnpm's internal layout when the entire node_modules is linked, too.
+        const logical = within(realModules, candidate.directory)
+          ? path.join(logicalPath(modules), path.relative(realModules, candidate.directory))
+          : path.join(logicalPath(modules), ...name.split("/"));
+        linkedPackages.set(candidate.directory, { installed, logical });
+        holders.add(candidate.directory);
+        return installed;
+      }
+    }
+    return local;
   };
 
   /** One declaration file: its identity, text, digest and what it depends on; or why a design may not reach it. */
@@ -290,6 +357,14 @@ export function createPackageTypesResolver(
   const closure = (entry: string, entered: Installed, selection: PackageSelection): PackageTypesFile[] | string => {
     const files: PackageTypesFile[] = [];
     const aliased = new Map<string, Installed>();
+    // Establish the reachable package set before emitting paths or caching failures. A dependency can occur
+    // before its importer in the selected declarations, including cycles and ambient contributions.
+    const pending = new Set([entry, ...selection.dependencies].map(realpath));
+    while (pending.size > 0) {
+      const before = pending.size;
+      for (const file of pending) if (typeof installedAt(file) !== "string") pending.delete(file);
+      if (pending.size === before) break;
+    }
     let bytes = 0;
     for (const next of new Set([entry, ...selection.dependencies])) {
       const node = nodeOf(next);

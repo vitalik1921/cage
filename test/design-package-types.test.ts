@@ -217,7 +217,7 @@ test("package imports are type-only, resolve to installed declarations, and a pa
 
 /** @tests Cli
  * @covers package-types */
-test("a package linked in from outside the project and the node_modules above it is not imported", (t) => {
+test("packages installed through node_modules links may live outside the project, but uninstalled files still cannot be imported", (t) => {
   const root = project(t, "typescript");
   const elsewhere = scratchDirectory(t, "linked-package");
   writeFile(elsewhere, "plain/package.json", JSON.stringify({ name: "plain-kit", version: "1.0.0", types: "index.d.ts" }));
@@ -227,10 +227,14 @@ test("a package linked in from outside the project and the node_modules above it
   fs.symlinkSync(path.join(elsewhere, "plain"), path.join(root, "node_modules/plain-kit"), "dir");
   fs.symlinkSync(path.join(elsewhere, "node_modules/nested-kit"), path.join(root, "node_modules/nested-kit"), "dir");
   editFile(root, DESIGN, (text) => text.replace('import type { Schema } from "schema-kit";', 'import type { Schema } from "schema-kit";\nimport type { Secret } from "plain-kit";\nimport type { Secret as Other } from "nested-kit";'));
+  assert.deepEqual(checkDesigns(root).errors, []);
+  // An installed package does not authorize a relative escape to an uninstalled declaration.
+  writeFile(elsewhere, "secret.d.ts", "export type Secret = string;\n");
+  writeFile(elsewhere, "plain/index.d.ts", 'export type { Secret } from "../secret.js";\n');
+  editFile(root, DESIGN, (text) => text.replace("schema: Schema<string>;", "schema: Schema<string>;\n  secret: Secret;"));
   const errors = checkDesigns(root).errors;
-  assert.deepEqual(errors.map(located), [{ code: "E_DESIGN_IMPORT", ...at(root, "parser", '"plain-kit"') }, { code: "E_DESIGN_IMPORT", ...at(root, "parser", '"nested-kit"') }]);
-  assert.match(errors[0].message, /not to an installed package/);
-  assert.match(errors[1].message, /lies outside the project and the node_modules above it/);
+  assert.deepEqual(errors.map(located), [{ code: "E_DESIGN_IMPORT", ...at(root, "parser", '"plain-kit"') }]);
+  assert.match(errors[0].message, /not inside an installed package/);
 });
 
 /** @tests Cli

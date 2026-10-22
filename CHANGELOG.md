@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.9.1
+
+### Fixed
+
+- Design imports accept installed dependency declarations reached through symlinked `node_modules` or package directories outside the project. Existing hoisted installations remain supported. Equivalent linked and copied installations retain review fingerprints and Cage locks.
+- Project TypeScript selection follows the same installation links, including external stores and shared worktree installations.
+
 ## 0.6.0
 
 - Gate blocks only errors. Review warnings under `review: "warn"` remain visible in `check` but are silent in the gate; required reviews still block.

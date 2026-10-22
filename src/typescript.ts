@@ -55,9 +55,12 @@ function isInstalledIn(root: string, require: NodeJS.Require): boolean {
     if ((cause as NodeJS.ErrnoException).code === "MODULE_NOT_FOUND") return false;
     return true;
   }
-  // `require.resolve` answers with real paths, so compare with the real path of the root.
+  // Compare the actual package reached through each local installation. The node_modules directory or the
+  // package itself may be a link into another checkout or a package-manager store.
   for (let directory = fs.realpathSync(root); ; directory = path.dirname(directory)) {
-    if (manifest.startsWith(path.join(directory, "node_modules") + path.sep)) return true;
+    try {
+      if (fs.realpathSync(path.join(directory, "node_modules", "typescript", "package.json")) === fs.realpathSync(manifest)) return true;
+    } catch { /* No local installation here; do not count NODE_PATH or a global installation. */ }
     if (directory === path.dirname(directory)) return false;
   }
 }
