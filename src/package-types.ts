@@ -82,8 +82,8 @@ const DEPENDENCY_FIELDS = ["dependencies", "optionalDependencies", "peerDependen
  *
  * The closure follows the declarations selected by the imported names, including ambient and global contributors.
  * Every reached file must be one a design may import; the compiler's own default libraries are the boundary.
- * Compiler errors in selected declarations reject the import even under `skipLibCheck`, while effective suppression
- * directives and unrelated declarations follow the compiler diagnostic selection rules.
+ * Selected declaration type errors follow the project's `skipLibCheck`; syntax and unresolved selected bindings
+ * remain checked. Effective suppressions and unrelated declarations follow the compiler diagnostic selection rules.
  */
 export function createPackageTypesResolver(
   ts: TypeScript,

@@ -67,6 +67,16 @@ export function selectPackageDependencies(
     const target = resolved && program.getSourceFile(resolved)?.isDeclarationFile ? resolved : bound[0] ?? resolved;
     return { target, bound, mode };
   };
+  const missingImport = (binding: ts.Node): void => {
+    for (let node: ts.Node | undefined = binding; node && !ts.isSourceFile(node); node = node.parent) {
+      const literal = ts.isImportDeclaration(node) || ts.isExportDeclaration(node) ? node.moduleSpecifier
+        : ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference) ? node.moduleReference.expression : undefined;
+      if (literal && ts.isStringLiteral(literal)) {
+        if (!moduleTarget(literal).target) missing(literal, `"${literal.text}" resolves to nothing`);
+        return;
+      }
+    }
+  };
   const select = (node: ts.Node): void => {
     if (ts.isBindingElement(node)) {
       // A destructured export's type annotation belongs to the enclosing variable declaration. Binding patterns can
@@ -86,7 +96,8 @@ export function selectPackageDependencies(
     nodes.push(node);
     declarations.set(file.fileName, nodes);
     // The module literal is outside an import specifier's range. Its compiler error still belongs to that binding.
-    if (ts.isImportSpecifier(node) || ts.isExportSpecifier(node) || ts.isNamespaceImport(node)) {
+    if (ts.isImportSpecifier(node) || ts.isExportSpecifier(node) || ts.isNamespaceImport(node) || ts.isImportClause(node) || ts.isImportEqualsDeclaration(node)) {
+      missingImport(node);
       for (let parent: ts.Node | undefined = node.parent; parent && parent !== file; parent = parent.parent) {
         if (ts.isImportDeclaration(parent) || ts.isExportDeclaration(parent)) {
           if (!nodes.includes(parent)) nodes.push(parent);
@@ -129,6 +140,11 @@ export function selectPackageDependencies(
       if (anchor) missing(anchor, `${anchor.getText()} names nothing the compiler finds`);
       return;
     }
+    // The checker can reuse one unresolved symbol for several names. Keep every use so its own compiler
+    // diagnostic (including a suppression on that use) decides whether it is an unresolved dependency.
+    if (!symbol.declarations?.length && anchor && symbol.name !== "globalThis") {
+      missing(anchor, `${anchor.getText()} names nothing the compiler finds`);
+    }
     if (visited.has(symbol)) return;
     visited.add(symbol);
     const module = !!(symbol.flags & (ts.SymbolFlags.ValueModule | ts.SymbolFlags.NamespaceModule));
@@ -152,26 +168,31 @@ export function selectPackageDependencies(
         for (const statement of body) if (ts.isExportAssignment(statement)) follow(checker.getSymbolAtLocation(statement.expression), statement.expression);
       }
     }
-    if (!symbol.declarations?.length && anchor && symbol.name !== "globalThis") {
-      missing(anchor, `${anchor.getText()} names nothing the compiler finds`);
-    }
   };
-  const followName = (name: ts.Node) => follow(checker.getSymbolAtLocation(name), name);
+  const followName = (name: ts.Node) => {
+    const member = ts.isQualifiedName(name) ? name.right : ts.isPropertyAccessExpression(name) ? name.name : name;
+    follow(checker.getSymbolAtLocation(member), member);
+    let root = name;
+    while (ts.isQualifiedName(root) || ts.isPropertyAccessExpression(root)) root = ts.isQualifiedName(root) ? root.left : root.expression;
+    // A missing namespace import reports at its module literal, not at Namespace.Member. Probe that binding
+    // without following all namespace exports, which would select unrelated declarations from valid imports.
+    if (root !== member) for (const binding of checker.getSymbolAtLocation(root)?.declarations ?? []) missingImport(binding);
+  };
   const visit = (node: ts.Node): void => {
-    if (ts.isTypeReferenceNode(node)) followName(ts.isQualifiedName(node.typeName) ? node.typeName.right : node.typeName);
+    if (ts.isTypeReferenceNode(node)) followName(node.typeName);
     else if (ts.isExpressionWithTypeArguments(node)) {
       const expression = node.expression;
-      followName(ts.isPropertyAccessExpression(expression) ? expression.name : expression);
+      followName(expression);
     } else if (ts.isTypeQueryNode(node)) {
       const name = node.exprName;
-      followName(ts.isQualifiedName(name) ? name.right : name);
+      followName(name);
       // `typeof globalThis` includes package globals, even when a property is reached through an indexed type.
       if (ts.isIdentifier(name) && name.text === "globalThis") {
         const global = checker.getTypeAtLocation(name);
         for (const property of checker.getPropertiesOfType(global)) follow(property);
       }
     } else if (ts.isComputedPropertyName(node)) followName(node.expression);
-    else if (ts.isPropertyAccessExpression(node)) followName(node.name);
+    else if (ts.isPropertyAccessExpression(node)) followName(node);
     else if (ts.isImportTypeNode(node)) {
       if (ts.isLiteralTypeNode(node.argument) && ts.isStringLiteral(node.argument.literal)) {
         const literal = node.argument.literal;

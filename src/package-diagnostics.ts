@@ -14,9 +14,10 @@ export interface PackageDiagnostics {
 }
 
 /**
- * Type-check package declarations with the project's compiler, including when its tsconfig skips library checks.
- * Only the skipLibCheck option changes. The overlay's virtual design files and module-resolution host are reused.
- * A companion program is created lazily and each file's semantic diagnostics are requested once per resolver run.
+ * Check selected declarations with the project's compiler options, including skipLibCheck. Syntax errors remain
+ * errors, as in tsc. Only unresolved selected references need a companion with library checking enabled: skipping
+ * a library's type errors must not silently replace a missing dependency with any. Effective suppressions still apply.
+ * The companion reuses the overlay and parsed files; semantic diagnostics are cached per file and resolver run.
  */
 export function createPackageDiagnostics(ts: TypeScript, overlay: Pick<Overlay, "createProgram">, program: ts.Program): PackageDiagnostics {
   let checkingProgram: ts.Program | undefined;
@@ -46,7 +47,10 @@ export function createPackageDiagnostics(ts: TypeScript, overlay: Pick<Overlay, 
         if (!declarations.length) continue;
         const sourceFile = program.getSourceFile(fileName);
         if (!sourceFile) continue;
-        for (const diagnostic of reportedErrors(fileName)) {
+        const errors = program.getCompilerOptions().skipLibCheck
+          ? program.getSyntacticDiagnostics(sourceFile).filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)
+          : reportedErrors(fileName);
+        for (const diagnostic of errors) {
           // An unused @ts-expect-error (TS2578) does not alter the imported shape. A compiler error
           // without a position cannot be assigned to a smaller declaration, so charge it to this file.
           if (diagnostic.code === 2578) continue;

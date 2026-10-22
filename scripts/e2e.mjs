@@ -217,18 +217,31 @@ try {
     write("src/impl.ts", 'import type {Safe} from "declaration-probe";\n/** @implements DeclarationPort */\nexport class Reader {read():Safe{throw new Error("fixture");}}');
     const originalOptions = fs.readFileSync(path.join(root, "tsconfig.json"), "utf8");
     const declarationOptions = JSON.parse(originalOptions);
+    for (const skipLibCheck of [true, false]) {
+      declarationOptions.compilerOptions.skipLibCheck = skipLibCheck;
+      write("tsconfig.json", JSON.stringify(declarationOptions));
+      for (const [text, expected] of [
+        ['export type Safe = {id:string};\nexport type Unused = typeof import("optional-missing");\n', null],
+        ['// @ts-ignore\nexport type Safe = typeof import("optional-missing");\n', null],
+        ['export type Safe = {id:string}["missing"];\n', skipLibCheck ? null : "E_DESIGN_IMPORT"],
+        ['type Box<T> = {value:T};\nexport type Safe = Box;\n', skipLibCheck ? null : "E_DESIGN_IMPORT"],
+        ['interface SQLWrapper {getSQL():string;}\nexport declare class Safe implements SQLWrapper {all():string;}\n', skipLibCheck ? null : "E_DESIGN_IMPORT"],
+        ['export type Safe = import("missing-driver").Safe;\n', "E_DESIGN_IMPORT"],
+        ['import type Gone from "missing-driver";\nexport type Safe = Gone;\n', "E_DESIGN_IMPORT"],
+        ['import type * as Gone from "missing-driver";\nexport type Safe = Gone.Safe;\n', "E_DESIGN_IMPORT"],
+        ['import Gone = require("missing-driver");\nexport type Safe = Gone.Safe;\n', "E_DESIGN_IMPORT"],
+      ]) {
+        write("node_modules/declaration-probe/index.d.ts", text);
+        check(expected);
+      }
+    }
     declarationOptions.compilerOptions.skipLibCheck = true;
     write("tsconfig.json", JSON.stringify(declarationOptions));
-    for (const [text, expected] of [
-      ['export type Safe = {id:string};\nexport type Unused = typeof import("optional-missing");\n', null],
-      ['// @ts-ignore\nexport type Safe = typeof import("optional-missing");\n', null],
-      ['export type Safe = {id:string}["missing"];\n', "E_DESIGN_IMPORT"],
-      ['type Box<T> = {value:T};\nexport type Safe = Box;\n', "E_DESIGN_IMPORT"],
-    ]) {
-      write("node_modules/declaration-probe/index.d.ts", text);
-      check(expected);
-    }
-    pass(`selected declaration diagnostics TS${version}`, "unrelated broken declarations and compiler-suppressed fallbacks pass; selected errors block even with skipLibCheck and identical imported types");
+    write("node_modules/declaration-probe/index.d.ts", 'interface SQLWrapper {getSQL():string;}\nexport declare class Safe implements SQLWrapper {all():string;}\n');
+    write("src/impl.ts", '/** @implements DeclarationPort */\nexport class Reader {read():number{return 1;}}');
+    check("E_TYPE_MISMATCH");
+    write("src/impl.ts", 'import type {Safe} from "declaration-probe";\n/** @implements DeclarationPort */\nexport class Reader {read():Safe{throw new Error("fixture");}}');
+    pass(`selected declaration diagnostics TS${version}`, "project skipLibCheck controls selected library type errors; unrelated declarations and effective suppressions pass; signature drift and missing dependencies still block");
 
     // Both entry files already belong to the closure. Changing resolution alone must still break a final lock.
     write("node_modules/declaration-probe/index.d.ts", 'import type {} from "./other.js";\nexport interface Safe {id:string;}\n');

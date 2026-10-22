@@ -7,6 +7,8 @@ import { checkDesigns, contract, designProject, mdx } from "./helpers.ts";
 const COMPILERS = ["typescript-5", "typescript"] as const;
 const lines = (...parts: string[]) => `${parts.join("\n")}\n`;
 
+// Declaration-error controls enable library checking. The skipLibCheck matrix lives in package-skip-libcheck.test.ts.
+
 function project(t: Parameters<typeof designProject>[0], compiler: (typeof COMPILERS)[number], files: Record<string, string>, imported = "Selected"): string {
   const root = designProject(t, { reader: mdx(lines(
     `import type { ${imported} } from "api";`,
@@ -97,7 +99,7 @@ test("typeof module imports select value exports, excluding unrelated broken typ
         "node_modules/api/index.d.ts": `${query}\n`,
         "node_modules/dep/package.json": JSON.stringify({ name: "dep", version: "1.0.0", types: "index.d.ts" }),
         "node_modules/dep/index.d.ts": lines('export declare const value: { id: string };', 'export type Unrelated = { id: string }["missing"];'),
-        "tsconfig.json": JSON.stringify({ compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, skipLibCheck: true } }),
+        "tsconfig.json": JSON.stringify({ compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, skipLibCheck: false } }),
       }, "Value");
       const dep = path.join(root, "node_modules/dep/index.d.ts");
       assert.deepEqual(checkDesigns(root).errors, [], `${compiler}: unrelated type export: ${query}`);
@@ -118,7 +120,7 @@ test("typeof module imports follow export-equals callable declarations", (t) => 
       "node_modules/api/index.d.ts": 'export type Value = typeof import("dep");\n',
       "node_modules/dep/package.json": JSON.stringify({ name: "dep", version: "1.0.0", types: "index.d.ts" }),
       "node_modules/dep/index.d.ts": lines('declare function value(): { id: string }["missing"];', "export = value;"),
-      "tsconfig.json": JSON.stringify({ compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, skipLibCheck: true } }),
+      "tsconfig.json": JSON.stringify({ compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, skipLibCheck: false } }),
     }, "Value");
     const invalid = checkDesigns(root).errors;
     assert.ok(invalid.some((diagnostic) => diagnostic.code === "E_DESIGN_IMPORT" && diagnostic.message.includes("TS2339")), `${compiler}: ${invalid.map((error) => error.message)}`);
@@ -138,7 +140,7 @@ test("typeof module imports respect type-only class re-exports through direct an
         "node_modules/dep/index.d.ts": lines('declare class Hidden { value: { id: string }["missing"] }', 'export type { Hidden };', 'export declare const value: string;'),
         "node_modules/dep/hidden.d.ts": 'export declare class Hidden { value: { id: string }["missing"] }\n',
         "node_modules/dep/bridge.d.ts": 'export * from "./hidden.js";\n',
-        "tsconfig.json": JSON.stringify({ compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, skipLibCheck: true } }),
+        "tsconfig.json": JSON.stringify({ compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, skipLibCheck: false } }),
       }, "Value");
       const index = path.join(root, "node_modules/dep/index.d.ts");
       const cases = [
@@ -167,7 +169,7 @@ test("typeof module imports check exported import-equals aliases and destructure
         "node_modules/api/index.d.ts": `${query}\n`,
         "node_modules/dep/package.json": JSON.stringify({ name: "dep", version: "1.0.0", types: "index.d.ts" }),
         "node_modules/dep/index.d.ts": 'export declare const value: string;\n',
-        "tsconfig.json": JSON.stringify({ compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, skipLibCheck: true } }),
+        "tsconfig.json": JSON.stringify({ compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, skipLibCheck: false } }),
       }, "Value");
       const index = path.join(root, "node_modules/dep/index.d.ts");
       const invalid = [
@@ -196,7 +198,7 @@ test("type-only ambient star exports stay out of a module value even when both m
         'declare module "inner" { export class Broken { value: { id: string }["missing"] } }',
         'declare module "dep" { export type * from "inner"; export const value: string; }',
       ),
-      "tsconfig.json": JSON.stringify({ compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, skipLibCheck: true } }),
+      "tsconfig.json": JSON.stringify({ compilerOptions: { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, skipLibCheck: false } }),
     }, "Value");
     assert.deepEqual(checkDesigns(root).errors, [], compiler);
     fs.writeFileSync(path.join(root, "node_modules/dep/ambient.d.ts"), lines(

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.9.2
+
+### Fixed
+
+- Package declaration checks honor the project’s effective `skipLibCheck`, including inherited tsconfig options. Pre-existing library type errors no longer block imports when library checking is disabled; contract mismatches, syntax errors and unresolved selected dependencies remain blocking.
+
 ## 0.9.1
 
 ### Fixed

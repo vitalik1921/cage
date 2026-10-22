@@ -13,19 +13,19 @@ const compilers = ["typescript-5", "typescript"] as const;
 
 /** @tests Cli
  * @covers package-types */
-test("selected package declarations surface compiler errors while honoring suppression", (t) => {
+test("selected package declarations honor skipLibCheck and suppression while retaining syntax errors", (t) => {
   for (const compiler of compilers) {
     for (const skipLibCheck of [false, true]) {
-      for (const [declaration, expectedError] of [
-        ["export type Shape = { id: string }['missing'];\n", true],
-        ["export interface Shape { id: string", true],
-        ["export interface Shape { id: string\n  \n", true],
-        ["export interface Shape { id: string\n// trailing comment", true],
-        ["export interface Shape { id: string\n/* trailing comment */", true],
-        ["export type Shape = { id: string", true],
-        ["// @ts-ignore\nexport type Shape = { id: string }['missing'];\n", false],
-        ["// @ts-nocheck\nexport type Shape = { id: string }['missing'];\n", false],
-        ["export type Shape = any;\n", false],
+      for (const [declaration, error] of [
+        ["export type Shape = { id: string }['missing'];\n", "type"],
+        ["export interface Shape { id: string", "syntax"],
+        ["export interface Shape { id: string\n  \n", "syntax"],
+        ["export interface Shape { id: string\n// trailing comment", "syntax"],
+        ["export interface Shape { id: string\n/* trailing comment */", "syntax"],
+        ["export type Shape = { id: string", "syntax"],
+        ["// @ts-ignore\nexport type Shape = { id: string }['missing'];\n", null],
+        ["// @ts-nocheck\nexport type Shape = { id: string }['missing'];\n", null],
+        ["export type Shape = any;\n", null],
       ] as const) {
         const root = designProject(t, { reader: mdx('import type { Shape } from "kit";\n' + contract("Reader", "value: Shape;")) }, {
           "node_modules/kit/package.json": JSON.stringify({ name: "kit", version: "1.0.0", types: "index.d.ts" }),
@@ -36,7 +36,7 @@ test("selected package declarations surface compiler errors while honoring suppr
         });
         fs.symlinkSync(path.resolve(import.meta.dirname, "../node_modules", compiler), path.join(root, "node_modules", "typescript"), "dir");
         const errors = checkDesigns(root).errors;
-        assert.equal(errors.some((error) => error.code === "E_DESIGN_IMPORT"), expectedError, `${compiler}, skipLibCheck=${skipLibCheck}, ${declaration}`);
+        assert.equal(errors.some((diagnostic) => diagnostic.code === "E_DESIGN_IMPORT"), error === "syntax" || (error === "type" && !skipLibCheck), `${compiler}, skipLibCheck=${skipLibCheck}, ${declaration}`);
       }
     }
   }
@@ -142,13 +142,14 @@ for (const compiler of compilers) {
       }) satisfies typeof overlay.createProgram };
       const diagnostics = createPackageDiagnostics(ts, countedOverlay, overlay.program);
       for (const [name, code] of [["BadIndex", 2339], ["BadGeneric", 2314], ["Circular", 2456]] as const) {
-        assert.ok(diagnostics.diagnosticsFor(selection(name)).some((diagnostic) => diagnostic.code === code), `${compiler}: ${name}`);
+        assert.equal(diagnostics.diagnosticsFor(selection(name)).some((diagnostic) => diagnostic.code === code), !skipLibCheck, `${compiler}: ${name}`);
       }
       assert.ok(diagnostics.diagnosticsFor(selection("BrokenSyntax")).some((diagnostic) => diagnostic.code === 1110), `${compiler}: syntax`);
       for (const name of ["Suppressed", "Explicit", "IgnoredImport"]) {
         assert.deepEqual(diagnostics.diagnosticsFor(selection(name)), [], `${compiler}: ${name}`);
       }
-      assert.deepEqual(diagnostics.diagnosticsFor(selection("BadIndex")).map((diagnostic) => diagnostic.code), [2339], "unselected errors stay out");
+      assert.deepEqual(diagnostics.diagnosticsFor(selection("BadIndex")).map((diagnostic) => diagnostic.code), skipLibCheck ? [] : [2339], "unselected errors stay out");
+      assert.equal(companions, 0, "ordinary declaration checks do not override the project's options");
       const anchor = (name: string) => {
         const node = names.get(name)!;
         const literal = node.type;
