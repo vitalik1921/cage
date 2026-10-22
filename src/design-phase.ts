@@ -43,6 +43,7 @@ export interface DesignPhaseOptions {
   root: string;
   /** Relative to `root`. */
   tsconfig: string;
+  designImportableTypes?: readonly string[];
   designs: readonly DesignSource[];
   /** The `designs` patterns the sources were found with; named when there are none. */
   designPatterns?: readonly string[];
@@ -106,6 +107,9 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
   if (failed()) return done();
 
   const overlay = createOverlayProgram(ts, setup.options, new Map(modules.map((module) => [module.virtualFile, module.generated.text])));
+  // Opted-in project types also see ambient declarations and module augmentations from the project roots.
+  // Only their selected graph is diagnosed and fingerprinted, never all project implementation errors.
+  if (options.designImportableTypes?.length) overlay.program = overlay.createProgram([...overlay.program.getRootFileNames(), ...setup.fileNames]);
   const origins = new Map(
     modules.map((module): [ts.SourceFile, Origin] => [requireSourceFile(overlay.program, module.virtualFile), { module, extracted: module.generated }]),
   );
@@ -126,7 +130,7 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
     blockOf: (offset) => blockAt(origin.module.generated, offset),
     writtenSpecifier: (specifier) => origin.module.generated.writtenSpecifiers.get(specifier.getStart(sourceFile)) ?? specifier.text,
   }));
-  const packages = createPackageTypesResolver(ts, root, overlay, overlay.program, setup.options);
+  const packages = createPackageTypesResolver(ts, root, overlay, overlay.program, setup.options, options.designImportableTypes);
   const packageSpecifiers: { specifier: ts.StringLiteralLike; from: ts.SourceFile }[] = [];
   const indexed = indexDesigns(
     ts,
@@ -168,9 +172,15 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
   }
   // What a contract inherits is known from the resolved types only, and only types without errors can be relied on.
   if (failed()) return done();
-  diagnostics.push(...resolveInheritance(ts, overlay.program.getTypeChecker(), designs, indexed.index));
+  diagnostics.push(...resolveInheritance(ts, overlay.program.getTypeChecker(), designs, indexed.index, (file) => {
+    const id = packages.idOf(file);
+    const entry = indexed.index.packages.find((entry) => entry.files.some((selected) => selected.id === id));
+    if (!entry || !id) return undefined;
+    const packageName = /^((?:@[^/]+\/)?[^@/]+)@[^/]+\//.exec(id)?.[1];
+    return packageName ? { kind: "package", module: packageName } : { kind: "project", module: entry.name };
+  }));
   // A lock holds the package types its declaration depends on, behind design aliases and bases too.
-  capturePackageLocks(ts, overlay.program.getTypeChecker(), indexed.index, new Map([...origins].map(([sourceFile, origin]) => [sourceFile, origin.module.moduleId])));
+  capturePackageLocks(ts, overlay.program.getTypeChecker(), indexed.index, new Map([...origins].map(([sourceFile, origin]) => [sourceFile, origin.module.moduleId])), (specifier, from) => origins.get(from)?.module.generated.writtenSpecifiers.get(specifier.getStart(from)) ?? specifier.text);
 
   // The declarations each design names from a package, for its reviewers; the type check has bound them.
   const checker = overlay.program.getTypeChecker();

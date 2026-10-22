@@ -7,6 +7,8 @@ import { stripBom, toProjectPath } from "./location.ts";
 export interface Config {
   version: 1;
   tsconfig: string;
+  /** Exact project-relative file#export entries a design may import as types. */
+  designImportableTypes: string[];
   designs: string[];
   implementations: string[];
   tests: string[];
@@ -43,6 +45,7 @@ export const DEFAULT_CONFIG_FILE = ".cage/config.json";
 export const defaultConfig: Config = {
   version: 1,
   tsconfig: "tsconfig.json",
+  designImportableTypes: [],
   designs: ["src/**/*.cage.mdx"],
   implementations: ["src/**/*.ts"],
   tests: ["src/**/*.test.ts", "tests/**/*.test.ts"],
@@ -103,6 +106,11 @@ const isTextList = (value: unknown) => Array.isArray(value) && value.every(isTex
 const fields: Record<keyof Config, { expected: string; valid: (value: unknown) => boolean }> = {
   version: { expected: "1", valid: (value) => value === 1 },
   tsconfig: { expected: "a non-empty string", valid: isText },
+  designImportableTypes: {
+    expected: "an array of project-relative file#Export entries (no globs or parent traversal)",
+    valid: (value) => Array.isArray(value) && value.every((entry) => typeof entry === "string" &&
+      /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[^#*?\\]+\.[cm]?tsx?#[\p{ID_Start}_$][\p{ID_Continue}$]*$/u.test(entry)),
+  },
   designs: { expected: "an array of non-empty strings", valid: isTextList },
   implementations: { expected: "an array of non-empty strings", valid: isTextList },
   tests: { expected: "an array of non-empty strings", valid: isTextList },

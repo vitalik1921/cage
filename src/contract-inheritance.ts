@@ -16,7 +16,7 @@ interface DesignDeclaration {
 
 /** A declaration of an installed package's types, named through an `import type` of the design. */
 interface PackageDeclaration {
-  kind: "package";
+  kind: "package" | "project";
   name: string;
   /** The package name, from the path of its declaration file. */
   module: string;
@@ -24,15 +24,7 @@ interface PackageDeclaration {
 
 type Base = DesignDeclaration | PackageDeclaration;
 
-const keyOf = ({ kind, module, name }: { kind: string; module: string; name: string }) => `${kind === "package" ? "package" : "design"}\n${module}\n${name}`;
-
-/** The package a declaration file belongs to: the path segment(s) after its last `node_modules`. */
-const packageOf = (fileName: string): string | undefined => {
-  const parts = fileName.split(/[\\/]/);
-  const at = parts.lastIndexOf("node_modules");
-  if (at < 0 || at + 1 >= parts.length) return undefined;
-  return parts[at + 1].startsWith("@") && at + 2 < parts.length ? `${parts[at + 1]}/${parts[at + 2]}` : parts[at + 1];
-};
+const keyOf = ({ kind, module, name }: { kind: string; module: string; name: string }) => `${kind === "package" || kind === "project" ? kind : "design"}\n${module}\n${name}`;
 
 /**
  * Completes the contracts that extend other declarations, once the designs type-check. What a contract inherits
@@ -50,7 +42,7 @@ const packageOf = (fileName: string): string | undefined => {
  * contract's API that reaches it other than along `extends`, which would leave its invariants behind; and what the
  * exact comparison of implementations cannot check at the top of a contract, an index or a construct signature.
  */
-export function resolveInheritance(ts: TypeScript, checker: ts.TypeChecker, designs: readonly DesignSourceFile[], index: DesignIndex): Diagnostic[] {
+export function resolveInheritance(ts: TypeScript, checker: ts.TypeChecker, designs: readonly DesignSourceFile[], index: DesignIndex, importedOrigin?: (file: string) => { kind: "package" | "project"; module: string } | undefined): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
   const byFile = new Map(designs.map((design) => [design.sourceFile, design]));
   const print = signaturePrinter(ts);
@@ -84,9 +76,9 @@ export function resolveInheritance(ts: TypeScript, checker: ts.TypeChecker, desi
     }
     for (const declaration of symbol?.declarations ?? []) {
       const file = declaration.getSourceFile();
-      const module = packageOf(file.fileName);
+      const origin = importedOrigin?.(file.fileName);
       const named = ts.isInterfaceDeclaration(declaration) || ts.isClassDeclaration(declaration) || ts.isTypeAliasDeclaration(declaration);
-      if (imported && named && file.isDeclarationFile && module !== undefined) return { kind: "package", name: symbol!.name, module };
+      if (imported && named && origin) return { ...origin, name: symbol!.name };
     }
     return undefined;
   };
@@ -430,7 +422,7 @@ export function resolveInheritance(ts: TypeScript, checker: ts.TypeChecker, desi
     for (let queue = [start], next = queue.shift(); next; next = queue.shift()) {
       for (const type of heritageOf(next.node)) {
         const base = baseOf(type);
-        if (!base || base.kind === "package" || seen.has(keyOf(base))) continue;
+        if (!base || !("node" in base) || seen.has(keyOf(base))) continue;
         seen.add(keyOf(base));
         found.push(base);
         queue.push(base);
@@ -464,7 +456,7 @@ export function resolveInheritance(ts: TypeScript, checker: ts.TypeChecker, desi
     if (diagnostics.length > failed) continue;
     contract.bases = bases.map(({ base: { name, module, kind } }) => ({ name, module, kind }));
     for (const { base, type } of bases) {
-      if (base.kind !== "package") index.edges.push({ kind: "extends", from: contract.name, to: base.name, toKind: base.kind, fromModule: contract.module, toModule: base.module, location: locate(type) });
+      if ((base.kind !== "package" && base.kind !== "project")) index.edges.push({ kind: "extends", from: contract.name, to: base.name, toKind: base.kind, fromModule: contract.module, toModule: base.module, location: locate(type) });
     }
 
     // The effective API is the compiler's: it has merged the bases with the body and rejected what conflicts.

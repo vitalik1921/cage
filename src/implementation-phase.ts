@@ -211,11 +211,11 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
 
   diagnostics.push(...checkContractSurfaces(ts, checker, shapeBindings));
 
-  const { tests, rejected } = readTests(ts, program, overlay, root, convert, options.testAdapter, testFiles, contracts, index.invariants, diagnostics);
+  const { tests, rejected } = readTests(ts, program, overlay, root, convert, options.testAdapter, testFiles, new Map([...contracts].filter(([, contract]) => !contract.family)), index.invariants.filter((invariant) => !contracts.get(invariant.contract)?.family), diagnostics);
 
   for (const contract of contracts.values()) {
     // A rejected `@implements`, or one in a file that could not be read, is already reported; "no implementation" would be its consequence.
-    if (attempted.has(contract.name) || implementations.some((implementation) => implementation.contract === contract.name)) continue;
+    if (contract.family || attempted.has(contract.name) || implementations.some((implementation) => implementation.contract === contract.name)) continue;
     diagnostics.push({
       code: "E_IMPLEMENTATION_MISSING",
       severity: "error",
@@ -232,6 +232,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
   const keyOf = (test: TestDeclaration) => `${test.location.file}:${test.location.line}:${test.location.column}`;
   const describeTest = (test: TestDeclaration) => `"${[...test.suitePath, test.title].join(" > ")}" ${test.inactiveBecause} (${test.location.file}:${test.location.line})`;
   for (const invariant of index.invariants) {
+    if (contracts.get(invariant.contract)?.family) continue;
     const linked = testsLinkedTo(tests, invariant.contract, invariant.id);
     const inactive = linked.filter((test) => test.status === "empty" || test.status === "broken-import");
     if (linked.length > 0 && inactive.length === linked.length) {
@@ -480,7 +481,8 @@ function findImplementations(
     for (const name of read.rejected) attempted.add(name);
     if (read.found.length > 0) implementationFiles.push(tagged);
     for (const implementation of read.found) {
-      if (contracts.has(implementation.contract)) found.push(implementation);
+      if (contracts.get(implementation.contract)?.family) diagnostics.push({ code: "E_FAMILY_BINDING", severity: "error", message: `${implementation.contract} is a family: extend it with a concrete @contract and implement that contract`, ...implementation.tagLocation, contract: implementation.contract });
+      else if (contracts.has(implementation.contract)) found.push(implementation);
       else diagnostics.push(unknownContract(implementation.surface ? "implements-static" : "implements", implementation.contract, implementation.tagLocation));
     }
   }

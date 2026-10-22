@@ -73,6 +73,7 @@ export interface CheckReport {
       module: string;
       description: string | null;
       shape: "object" | "callable";
+      family?: true;
       lock: LockLevel | null;
       members: { name: string; description: string | null; location: SourceLocation }[];
       implementations: { name: string; kind: "class" | "function" | "const"; compatible: boolean; location: SourceLocation }[] | null;
@@ -136,7 +137,8 @@ export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lo
     return about.find((assessment) => assessment !== "adequate") ?? about[0] ?? null;
   };
   const activeTestCount = (contract: string, id: string) => (linking ? testsLinkedTo(linking.tests, contract, id).filter((test) => test.status === "active").length : null);
-  const invariants = index?.invariants.map(({ contract, id, member }) => ({ contract, id, member, linkedTestCount: linkedTestCount(contract, id), activeTestCount: activeTestCount(contract, id), review: reviewOf(contract, id) })) ?? null;
+  const families = new Set(index?.contracts.filter((contract) => contract.family).map((contract) => contract.name));
+  const invariants = index?.invariants.filter((invariant) => !families.has(invariant.contract)).map(({ contract, id, member }) => ({ contract, id, member, linkedTestCount: linkedTestCount(contract, id), activeTestCount: activeTestCount(contract, id), review: reviewOf(contract, id) })) ?? null;
   const declarationKey = (test: { location: { file: string; line: number; column: number } }) => `${test.location.file}:${test.location.line}:${test.location.column}`;
   return {
     schemaVersion: 1,
@@ -153,7 +155,7 @@ export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lo
     counts: {
       contracts: index?.contracts.length ?? null,
       data: index?.data.length ?? null,
-      invariants: index?.invariants.length ?? null,
+      invariants: invariants?.length ?? null,
       implementations: linking?.implementations.length ?? null,
       // One `it` tagged for two contracts is one declaration.
       testDeclarations: linking ? new Set(linking.tests.map(declarationKey)).size : null,
@@ -173,7 +175,8 @@ export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lo
     invariants,
     index: index
       ? {
-          contracts: index.contracts.map(({ name, module, description, shape, lock, members, location }) => ({
+          contracts: index.contracts.map(({ name, module, description, shape, lock, members, location, family }) => ({
+            ...(family ? { family } : {}),
             name,
             module,
             description,

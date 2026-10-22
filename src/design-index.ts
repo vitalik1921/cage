@@ -294,6 +294,7 @@ function readDesign(
       lock,
       location: design.locate(declaration.name.getStart(sourceFile)),
       source: declaration.getFullText(sourceFile).trim(),
+      ...(tags.has("family") ? { family: true as const } : {}),
     };
     index.contracts.push(contract);
     if (hasInvariantTags || inherits) withInvariantTags.add(contract);
@@ -316,15 +317,15 @@ function readDesign(
     }
 
     const all = docTags(declaration);
-    const isContract = all.some((tag) => tag.name === "contract");
+    const isContract = all.some((tag) => tag.name === "contract" || tag.name === "family");
     // Without a marker nobody knows yet what the declaration is: its other tags are not judged as those of a data type.
     const isData = all.some((tag) => tag.name === "data");
     const tags = readTags(
       all,
-      isContract || !isData ? ["contract", "data", "description", "uses", "invariant", "final", "extendable"] : ["contract", "data", "description", "final", "extendable"],
+      isContract || !isData ? ["contract", "family", "data", "description", "uses", "invariant", "final", "extendable"] : ["contract", "family", "data", "description", "final", "extendable"],
       isContract ? "on a contract" : "on a data type",
     );
-    const markers = [...(tags.get("contract") ?? []), ...(tags.get("data") ?? [])];
+    const markers = [...(tags.get("contract") ?? []), ...(tags.get("family") ?? []), ...(tags.get("data") ?? [])];
     for (const marker of markers) if (marker.text !== "") report("E_TAG_FORMAT", `\`@${marker.name}\` with text`, marker.start);
     if (markers.length === 0) {
       report("E_UNSUPPORTED_DECLARATION", `"${name}" without \`@contract\` or \`@data\``, at);
@@ -371,7 +372,7 @@ function readDesign(
         module: moduleId,
         kind: isContract ? "contract" : "data",
         level: lock,
-        members: signaturesOf(declaration),
+        members: { ...signaturesOf(declaration), ...(tags.has("family") ? { ":family": "abstract" } : {}) },
         invariants: Object.fromEntries(invariants),
         location: design.locate(at),
       };
@@ -473,6 +474,10 @@ function readDesign(
         index.packages.push(entry);
       }
       const { name, namedBindings } = declaration.importClause;
+      if (entry.origin === "project" && (!namedBindings || !ts.isNamedImports(namedBindings) || name)) {
+        report("E_DESIGN_IMPORT", "project vocabulary requires named type imports of designated exports", at);
+        return;
+      }
       const names = new Set(entry.names);
       if (name) names.add("default");
       if (namedBindings && ts.isNamespaceImport(namedBindings)) packageNamespaces.set(namedBindings.name.text, entry);

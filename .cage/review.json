@@ -4,11 +4,11 @@
     {
       "module": "src",
       "contract": "Cli",
-      "fingerprint": "sha256:code-v2:2ab7708360eb359442a4f253130bc5028df1c6f737f4eb23579ae5214fc60a5f",
+      "fingerprint": "sha256:code-v2:bfeb03ace99dfb98497b4a8c306e596fb3bb20ab92cea2bb637347cd7fff6588",
       "material": {
-        "contract": "sha256:99e166a21812110d478748db4bcf6cd83dab72810415f19cdd8a0ae69ba8b132",
+        "contract": "sha256:f5677f0ee1f461e299056e35be4471b3684d991e5e712f93f46ab4e9a3c95498",
         "design src/cage.cage.mdx": "sha256:ec7616c7cd457d67196708bc6e8c30cbe32d281476fcb0eaf882f5998d1498f7",
-        "implementation src/main.ts#runCli": "sha256:b73a774d4e5ea2cad917db27be31aa169f7017e7f34029c8d51bf8c9487b0fd6",
+        "implementation src/main.ts#runCli": "sha256:3241995318e43313e8ab43dc3abd657ad404452ba64e6b9d37053c79c2846129",
         "test test/accept.test.ts:review --accept records every contract in need of a review as accepted without a verdict, and check asks for none": "sha256:d5efcc289a48a38a8431f800255b2839e43e44cad1041dc8410490c9975add47",
         "test test/accept.test.ts:a change makes an acceptance outdated like a review; --accept without names renews only those, and keeps a verdict": "sha256:16309df019d309b72cecd5c2b5d576a7d4370a6c3da2630ca5fcd08524eec94c",
         "test test/check.test.ts:errors are exit 1 and warnings exit 0; a diagnostic names its contract and invariant": "sha256:03c763c431d6e621cdc8736550534995e1f61d5393b58603d8a8da244e0bf3c0",
@@ -54,7 +54,7 @@
         "test test/contract-inheritance.test.ts:a contract without bases keeps its material and lock record as they were": "sha256:0b920afac2b2948e72a4108449cc9da530d2b317555709a4fc1e6a3e1a4897b0",
         "test test/contract-inheritance.test.ts:inherited overloads, generic methods and a call signature next to members are the contract's API, compared exactly": "sha256:f04e7113a262f86036778bbf3cdda8aafa2bedaa5d53344daa7f5a05c930c41a",
         "test test/contract-inheritance.test.ts:identical overlapping bases and a redeclaration the compiler allows keep the effective API and every inherited promise": "sha256:1654c835c2008aee45cad05535557fd1b3e7568e90b36359baa2e51f60d72f19",
-        "test test/contract-inheritance.test.ts:a base may be a package's class or interface, named through an import: its public API, overloads and instantiation": "sha256:1a8a5de707c1ff67f19ab09ea4bc93a4bf1f2ad61663fe1b8247658f193d3984",
+        "test test/contract-inheritance.test.ts:a base may be a package's class or interface, named through an import: its public API, overloads and instantiation": "sha256:adc61b5450550b04dbd861c77bca9b4553600874ab12fcfeda47112f794d3bf8",
         "test test/contract-inheritance.test.ts:a lock on a contract extending an instantiated generic @data base notices a change of the argument": "sha256:6e1feb298d08d2b9b11f2053c78925088f1c3961a7ddbe29b01ea3a3f520042c",
         "test test/contract-inherited-locks.test.ts:a derived contract's lock holds the modifiers and types a mapped base gives its inherited members": "sha256:b0ef7fa6ceb284df753a04532dfccab14f71ce8088c516f6cd71c110071dba4b",
         "test test/contract-inherited-locks.test.ts:layout, comments and an equivalent alias of a mapped base leave a derived contract's lock as it was": "sha256:f67babd4c05096d07c7dc7d82fea3e684fa3615ac661b9f7eb4f7aa76c47fef1",
@@ -204,6 +204,13 @@
         "test test/package-skip-libcheck.test.ts:package diagnostics honor the selected tsconfig and inherited skipLibCheck on TS 5 and 6": "sha256:75f2e0396bb2197290fa8b13056f68b93a30176de5c9c1c888bad8de8314861a",
         "test test/package-skip-libcheck.test.ts:skipping a dependency's type errors never skips contract comparison or missing dependency checks": "sha256:ba258f4493754eca20744c292dc41c8c8988bffb9226808c8d1c40820ee64248",
         "test test/package-skip-libcheck.test.ts:missing selected imports retain their compiler diagnostic anchors for every binding form": "sha256:d147b5c0e0694f215b50f3becb0ee8700b2490f3a477b4d4d9974742b5812d5f",
+        "test test/project-vocabulary-family.test.ts:designated project aliases and enums pass on TS5/6; non-designated and runtime imports and signature drift block": "sha256:a4267ab78209b7a32676d082d723f706a5946a503d7df39c8d5dc6bdcd532a75",
+        "test test/project-vocabulary-family.test.ts:project vocabulary follows inferred schema dependencies into reviews and locks even when ordinary review dependencies are disabled": "sha256:128831c2f47e8395747f89ef88a801e0d589bf2d29748467dc6dadf8c3cc1668",
+        "test test/project-vocabulary-family.test.ts:families share invariants while each concrete child keeps its own implementation, tests and review": "sha256:d70d6a4e31cbeee9331de971e53d6ed37ef12198de10049856388dcbd1557648",
+        "test test/project-vocabulary-family.test.ts:normal duplicates still block and abstract families cannot be implemented or tested directly": "sha256:fbf564c418b36eceb216e640f2535c4e33bebf4f00c1cca5c4451df50020ab38",
+        "test test/project-vocabulary-family.test.ts:project vocabulary supports path aliases, type re-exports, project augmentations and draft validation": "sha256:ab1ce7b6435a7597cc97991c7cc0537d5c26fe53e3ebe33c1d56e54f2eaffa90",
+        "test test/project-vocabulary-family.test.ts:a designated source and its transitive dependencies cannot escape the project through symlinks": "sha256:d413cfa2a49695e718c14b036ca700c5469a89a6677f349346706e318cf2d5c0",
+        "test test/project-vocabulary-family.test.ts:explicit imported bases work for designated vocabulary and externally linked library classes without accepting extra project API": "sha256:f663aaddf586707ba0a591c3d7891377a0e1c80c0f6ef3bfc93b94c3a0b8a47a",
         "test test/review-boundaries.test.ts:a file reached through a link out of the project is not read: no packet, fingerprint or record holds its content": "sha256:813843e88e33c10b695be1ec6ec81f170d39705f7d55243315c03187fcd7b0b9",
         "test test/review-boundaries.test.ts:a dependency the review cannot read makes the packet incomplete and the record refuse, leaving the review file as it was": "sha256:d1bc36d95fd473d938e397829eef1aca5fde30806ab66024039ac0d2bbc0761f",
         "test test/review-boundaries.test.ts:a finding without a reason, or without evidence where its assessment needs some, is refused with the whole verdict": "sha256:7ce146fba6fc783228650d48010c8fb10cb4708cd64449ff02868b5ac9947b0d",
@@ -274,45 +281,45 @@
         "test test/review.test.ts:a verdict is refused when it is not about the designs as they are, and then nothing is recorded": "sha256:9be27c438ad05ad0a4774c5bcd035b351709b8f3d9ee5bf28eb460547db2f5b0",
         "test test/test-imports.test.ts:a test file whose project import names something the file does not export runs none of its tests: they are broken-import": "sha256:f7fd022f027246620cedead5eb7e91dfe2db68dfba2d86d2f27c14eee2a0138f",
         "test test/vitest.test.ts:Vitest declarations are recognised by their import from vitest": "sha256:815b643253eea6e8d010f0228a87ad43c6cc4f390b0eae99f635cee414de1eb3",
-        "dependency src/check.ts": "sha256:8cb240675be30c48d56992d4612b6de64655f1535ee9e7e532c91618605d2f32",
-        "dependency src/codes.ts": "sha256:b6df0fa3287f24ed9b0c3a9d3d58669989e4db5adf760bacd194e599f8ef71f4",
-        "dependency src/config.ts": "sha256:4084c1528fafb329e4533a53e51ad98ba8a60f0d6d06d7bb3593e61f388c3077",
+        "dependency src/check.ts": "sha256:86a34cfa3f62b7a53ad5ad7fdfa78b4b69c40d8c4b6b9fb025b92e99de322ce3",
+        "dependency src/codes.ts": "sha256:3889a96581fbbe216356aaea108e358618108dd0dc06aecaf32562c0d17b01bd",
+        "dependency src/config.ts": "sha256:182e0090f5ba912a551837c531f39a8f06cb32fb529fa540428719637dd8f8cf",
         "dependency src/diagnostic.ts": "sha256:ec13ed7da8b09f23980aaadab293070ddff66af332c1b99472b7a43e5611190e",
         "dependency src/discovery.ts": "sha256:ac4a40ace35c850a9676541ec8e8faa555515ec8543e4857253dd2f2874a7f77",
         "dependency src/draft-file.ts": "sha256:f867c88015aca19b7e9a9220aad1181bb6dd1311aad0067f1bc66ac1574774b4",
-        "dependency src/draft.ts": "sha256:da0b28ae27f6e7c170b87898a765cb388e3cead5a0fdfd4edf36d8e4d3bb4670",
+        "dependency src/draft.ts": "sha256:0b5c31ce30c47bb2b6b009d0e13ba4d6464d5f4bb00d29d0c7b3ab653b051393",
         "dependency src/gate.ts": "sha256:4b7faf8e7da44ecc867c50c13cdacf24d7682cf1dd14d72d93b3d86838107d4d",
         "dependency src/init.ts": "sha256:ca602a5cc2054b2b85aad842dc9147c04350318bbb571a267028210640b16c8c",
         "dependency src/lock-command.ts": "sha256:2dfa872cef2b06d837dc1c058bbac69915e6f3aadf99c88988c2a58f9afa7a17",
         "dependency src/report.ts": "sha256:6502d74ab0bc2af144a632b9e1594c98e8d52252f82f78cd80c9b34965180224",
-        "dependency src/review-record.ts": "sha256:adba54ab48a84e00eb205ca879cbae25d87ef61454a8502ff6f69629023d5bd2",
-        "dependency src/review.ts": "sha256:c0d27b28e85300fafd0fc6701c68d338393a0a121444816a0b88be1cbf8b9262",
+        "dependency src/review-record.ts": "sha256:c618c5b5c637e748c7127066fd8a01e254fe48534dd3c77a1a7654011c13ee34",
+        "dependency src/review.ts": "sha256:698bf426c99a09f454c9b56e40d2612f858d6ffb687c49072046453917a0b672",
         "dependency test/helpers.ts": "sha256:160acc3375a8b3fe9d997d2d0838d90802267854e344e9823d7abd229f9490a1",
         "dependency src/typescript.ts": "sha256:a0a5c118da33d3b549fa7b1cd2bd197d2c739856f8b1e1c7da9568940c459dc4",
-        "dependency src/contract-shape.ts": "sha256:6817641a81c13003bbfb2f4d9f6d3b4dac4f7a27fd879aff1ad090b81cac39f6",
-        "dependency src/contract-inheritance.ts": "sha256:7ba415e47f08ecdcf4675228c165d05b6d27a325f2b3b8225ba2853dc5a4abc5",
-        "dependency src/design-index.ts": "sha256:02112fa7e72d117c84740a79eae95f29c8ff394ec0fe01e7cbc3ce9a5f5a487c",
+        "dependency src/contract-shape.ts": "sha256:99ca8b4a61d3746a407ec23e9dccb08fcb2f7e31370f2e952bd6eb850164a77d",
+        "dependency src/contract-inheritance.ts": "sha256:9755d644b434bd8dbd59c49d6b8678d2a54e73742b4e01d19cc688b23a13e912",
+        "dependency src/design-index.ts": "sha256:41b49e469cf8ee20199faddb4b8baddf127e5d93d3d4f53eb3bff38753f0e1e6",
         "dependency src/implementations.ts": "sha256:513d63f51b70ca5840e5881d95deb6622228d3e3f62fa9a7b3bf503adc58a757",
         "dependency src/coverage.ts": "sha256:2314611bd16763158bcc98cddbe06895ea746fe9febacf726990b9e2d459efb8",
         "dependency src/locks.ts": "sha256:4dad8b0f4981039bbec56e97e2b996d100c85e8b8507b08caaae8586e14faa8b",
-        "dependency src/package-diagnostics.ts": "sha256:1fe04d7fccde388519cb4504598fc6859b6d864cac9d70a58ba5732f2e6b5424",
-        "dependency src/package-types.ts": "sha256:e9426bd7d7fb2f39f9437abfea957d2cb12c7f109fc4df29bc8371ad4bba4362",
+        "dependency src/package-diagnostics.ts": "sha256:d32e4366baa02ecb906cc9340ad43596d8f46a101d12e6d245ca1c6f13debdb7",
+        "dependency src/package-types.ts": "sha256:25d9e456768d962937864f70cbc5533f78b8eaee282555226c464127a168f447",
         "dependency src/review-references.ts": "sha256:dbabd70b11819f08e963fa55ea9cee5ed7b9683d43fdd2f49cd4f2dfa9bd7734",
         "dependency src/review-fingerprint.ts": "sha256:8735958bdf4df69162c9f87b9237233adc55b613b15951d6733f347d52ca5ca9",
         "dependency src/review-groups.ts": "sha256:6f1c6031ff66d53d9a5f815b88ec19c117c099802f6e39e2184a5a3a1a528c50",
         "dependency src/review-slice.ts": "sha256:87e2d4b574f4416d88db555314821a250189fa70b3280704c0cc77de10ced0c2",
         "dependency src/review-material.ts": "sha256:10ff3b17f8f36f30ead4d5987654cf8a73ac381fb056e23c4f7cbae00487c01d",
-        "dependency src/design-phase.ts": "sha256:da45fb7f47d505d35ec7181c9539cc1fabb85c96cf6a1522bd978dc85901347d",
-        "dependency src/implementation-phase.ts": "sha256:87044e9dccab880860996f7e4bcca97ddae99907c6d3536b139eca74c4272452",
+        "dependency src/design-phase.ts": "sha256:7b64fe862eb9cf7485156848642057c570414b0f95491c0b718a8ba0fc59d8d3",
+        "dependency src/implementation-phase.ts": "sha256:ea3d8d2be03bd173ff8ad6e49e73c1969dfd58f70810b0df3271989644dc7235",
         "dependency src/location.ts": "sha256:68745832b1db80b8f548ee6c3f9c61a6f24e5a25ffa06861b4c10fe6e4289cf8",
         "dependency src/extraction.ts": "sha256:53833e075910e2c84c2a1f405ad9d331da5e88f84f5a8006c91cb6be396a9d5f",
         "dependency src/record-file.ts": "sha256:ae40dbfe809d8be681f13c279a933c4397d287df9a307e7a72093ee44b514eda",
         "dependency src/gate-report.ts": "sha256:447032edeffa10de8a13c13f29295dcc0f6501052ccab3bc7dfe3aab5db8e3f7",
-        "dependency src/design-model.ts": "sha256:470fd2ac388fe7a358cac7468663defeb76ab43cbd7b075dda8d7c55fdd43542",
+        "dependency src/design-model.ts": "sha256:763ce6757c20539042a943748cbf65dc5742a21764a23171c73324cb1db2b5de",
         "dependency src/doc-comments.ts": "sha256:ef9b7687b1739e169b75d2bd9f90761a04cbd06ad08b97b5ada403e90530669b",
         "dependency src/graph.ts": "sha256:5005309477bfd774fce31d6e466b3715ddbdc84f25d838b40948cdf40c0a7ad5",
-        "dependency src/metadata.ts": "sha256:ef1ef69215d5032c5d8728b231a7702c6325fe58cc18ee86e6f9fa378852f242",
-        "dependency src/package-dependencies.ts": "sha256:359be11fddf22284bbcf7a689f9262d651be6782f51d52359d93fd4751c96302",
+        "dependency src/metadata.ts": "sha256:09cbbff98b9227f7966c1253d223a4fcca2d7b4154abacacdbbde46fa4227f7a",
+        "dependency src/package-dependencies.ts": "sha256:89d3450a419e9a6764606e0a2160bc88806d142ca9765d490c27f2856a01e8b0",
         "dependency src/review-members.ts": "sha256:dac214253a51d98d2ace2fee89460da89b24212a787ca2ead729e5b90d6c3a72",
         "dependency src/mdx.ts": "sha256:b2ab7ea0e4f8c6be0aec76cebf11a60dd61144e809943111b37e477c4315c92d",
         "dependency src/contract-conformance.ts": "sha256:d4fdc6f471feaecec591ddb1eb95b2636877fafd2766f485ed03794e24631658",
@@ -320,312 +327,327 @@
       },
       "findings": [
         {
-          "invariant": "exact-surface",
           "assessment": "adequate",
-          "reason": "Real TS5.9.3/TS6.0.3 projects check exact classes, fields, constructor parameter properties, inherited extras, object exports, private/protected/#private helpers and separate statics. Binding tests reject whitespace/comma lists, repeated tags and multiple direct implementations at independently computed locations, including check/gate exit codes. Inheritance composes callable members and overloads through one derived contract, with changed arity/extra members as negative controls. Local named export tests enforce coverage and retain type-only/imported/default exemptions.",
-          "evidence": "test/contract-conformance.test.ts:10; test/contract-single-binding.test.ts:31",
-          "suggestedChange": null
+          "reason": "Real TS5.9.3/TS6.0.3 projects check exact classes, fields, constructor parameter properties, inherited extras, object exports, private/protected/#private helpers and separate statics. Binding tests reject whitespace/comma lists, repeated tags and multiple direct implementations at independently computed locations, including check/gate exit codes. Inheritance composes callable members and overloads through one derived contract, with changed arity/extra members as negative controls. Local named export tests enforce coverage and retain type-only/imported/default exemptions. Family bases are now explicitly abstract; the new child-binding fixtures retain the one-contract/one-implementation rule for concrete contracts and reject extra API on imported project/library bases.",
+          "evidence": "test/contract-conformance.test.ts:10; test/contract-single-binding.test.ts:31; test/project-vocabulary-family.test.ts:38; test/project-vocabulary-family.test.ts:86; scripts/e2e.mjs:185",
+          "suggestedChange": null,
+          "invariant": "exact-surface"
         },
         {
-          "invariant": "design-coverage",
           "assessment": "adequate",
           "reason": "Compiler-backed direct/local-export fixtures compare exact independently located diagnostics, require/warn/off policy and CLI exit codes. TS5/TS6 cases retain type-only/default/imported exemptions and reject class/function/object/opaque-const gaps. Scalar literal/expression controls pass, assertions cannot disguise functions, explicit invalid bindings remain errors, ignored files and nearest-module ownership are exercised, and exempt scalar changes still invalidate consumer review fingerprints.",
           "evidence": "test/coverage-local-exports.test.ts:48; test/coverage.test.ts:26",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "design-coverage"
         },
         {
-          "invariant": "exact-signatures",
           "assessment": "adequate",
-          "reason": "Compiler-backed positive/negative cases distinguish parameter count, optional/default/rest, null acceptance, narrowed inputs/results, nested callbacks, readonly/optional fields, setter input domains and opaque/open surfaces. TS5/TS6 regressions now pass for intersection setters, mapped intersection fields, renamed generic conditional callbacks and labelled tuples. Conditional tests independently call the shape checker to avoid relying only on TS assignability. Primitive setter intersections retain per-constituent substitutions and are checked against actual compiler assignment diagnostics. Argument-independent recursive types pass; changed leaves/modifiers/argument-dependent shapes reject or fail explicitly, with comparison limits reset before the next check. Audit regressions distinguish declared generic/infer constraints (including nested callbacks), deferred keyof/indexed/template operators under substitutions, exact-optional tuple markers and inherited mapped setters. Independent compiler probes establish both equivalent cases and drift controls; unsupported operator instantiation remains explicit, never accepted by object identity. Shared-package mapped instances retain undefined in type arguments and exact-optional property markers; equivalent no-declaration mapped fields are compared instead of rejected. TS5/TS6 synthetic library fixtures and installed-package E2E exercise real Zod inheritance without type assertions, with wrong schema and surplus API rejected. The new recovery rules have mutation controls; unresolved generic growth remains an explicit error. The new cause analysis runs only after a mismatch and leaves the comparator unchanged; grouping regressions assert raw outcomes and mixed mismatches remain errors. Linked-installation tests on both compiler versions additionally change the implementation result from the imported payload to number and require E_TYPE_MISMATCH and a blocking gate. Alias-linked declaration drift also produces E_TYPE_MISMATCH; package location never bypasses the existing comparator. The new TS 5/6 fixture passes with a library TS2420 error and skipLibCheck enabled, then independently requires E_TYPE_MISMATCH and gate exit 2 after changing only the implementation return type; a missing selected dependency requires E_DESIGN_IMPORT and gate exit 2.",
-          "evidence": "test/contract-conditionals.test.ts:66; test/contract-conformance.test.ts:10; test/contract-defaults.test.ts:55; test/contract-gaps.test.ts:19; test/contract-intersection-setters.test.ts:36; test/contract-library-generics.test.ts:57; test/contract-mapped-arguments.test.ts:41; test/contract-mapped-bases.test.ts:40; test/contract-mapped-intersections.test.ts:25; test/contract-recursive.test.ts:24; test/contract-setter-operators.test.ts:22; test/contract-tuple-optional.test.ts:24; test/contract-tuples.test.ts:31; test/contract-type-parameter-constraints.test.ts:42; test/design-package-links.test.ts:67; test/design-package-links.test.ts:105; test/package-skip-libcheck.test.ts:66",
-          "suggestedChange": null
+          "reason": "Compiler-backed positive/negative cases distinguish parameter count, optional/default/rest, null acceptance, narrowed inputs/results, nested callbacks, readonly/optional fields, setter input domains and opaque/open surfaces. TS5/TS6 regressions now pass for intersection setters, mapped intersection fields, renamed generic conditional callbacks and labelled tuples. Conditional tests independently call the shape checker to avoid relying only on TS assignability. Primitive setter intersections retain per-constituent substitutions and are checked against actual compiler assignment diagnostics. Argument-independent recursive types pass; changed leaves/modifiers/argument-dependent shapes reject or fail explicitly, with comparison limits reset before the next check. Audit regressions distinguish declared generic/infer constraints (including nested callbacks), deferred keyof/indexed/template operators under substitutions, exact-optional tuple markers and inherited mapped setters. Independent compiler probes establish both equivalent cases and drift controls; unsupported operator instantiation remains explicit, never accepted by object identity. Shared-package mapped instances retain undefined in type arguments and exact-optional property markers; equivalent no-declaration mapped fields are compared instead of rejected. TS5/TS6 synthetic library fixtures and installed-package E2E exercise real Zod inheritance without type assertions, with wrong schema and surplus API rejected. The new recovery rules have mutation controls; unresolved generic growth remains an explicit error. The new cause analysis runs only after a mismatch and leaves the comparator unchanged; grouping regressions assert raw outcomes and mixed mismatches remain errors. Linked-installation tests on both compiler versions additionally change the implementation result from the imported payload to number and require E_TYPE_MISMATCH and a blocking gate. Alias-linked declaration drift also produces E_TYPE_MISMATCH; package location never bypasses the existing comparator. The new TS 5/6 fixture passes with a library TS2420 error and skipLibCheck enabled, then independently requires E_TYPE_MISMATCH and gate exit 2 after changing only the implementation return type; a missing selected dependency requires E_DESIGN_IMPORT and gate exit 2. Reviewed the recursive-intersection fast path: it succeeds only after exact equality of every constituent, under the same substitution rules; it introduces no assignability fallback. Installed E2E uses real Express Request plus rawBody: Buffer, and separately changes rawBody to string. Real Zod with designated project PayloadShape passes; wrong schema field and surplus member controls block on both compilers.",
+          "evidence": "test/contract-conditionals.test.ts:66; test/contract-conformance.test.ts:10; test/contract-defaults.test.ts:55; test/contract-gaps.test.ts:19; test/contract-intersection-setters.test.ts:36; test/contract-library-generics.test.ts:57; test/contract-mapped-arguments.test.ts:41; test/contract-mapped-bases.test.ts:40; test/contract-mapped-intersections.test.ts:25; test/contract-recursive.test.ts:24; test/contract-setter-operators.test.ts:22; test/contract-tuple-optional.test.ts:24; test/contract-tuples.test.ts:31; test/contract-type-parameter-constraints.test.ts:42; test/design-package-links.test.ts:67; test/design-package-links.test.ts:105; test/package-skip-libcheck.test.ts:66; test/project-vocabulary-family.test.ts:38; test/project-vocabulary-family.test.ts:86; scripts/e2e.mjs:185",
+          "suggestedChange": null,
+          "invariant": "exact-signatures"
         },
         {
-          "invariant": "contract-inheritance",
           "assessment": "adequate",
-          "reason": "TS5/TS6 projects cover local/imported data and contract bases, resolved member modifiers and origins, inherited test linkage, diamonds, conflicting invariant IDs, incompatible bases/redeclarations and cycles. CLI lock tests reject changed/removed inherited signatures/invariants and permit only extendable additions; generic substitutions and overloads are retained. Review mutations of local/imported bases invalidate the derived contract while an unrelated contract stays current; packet assertions expose inherited origins. Rich inherited call/member/generic/overloaded APIs have positive controls and structural drift mutations. Alias and mapped-type regressions reject copied contract members whose promises would disappear, follow imported and transparent generic aliases, and require explicit errors for unresolved origins. Composition, dead conditional branches and unselected copied fields are positive controls; extending the original contract restores its invariant and removing the derived test produces E_TEST_MISSING.",
-          "evidence": "test/contract-inheritance-aliases.test.ts:23; test/contract-inheritance.test.ts:66; test/contract-inherited-locks.test.ts:35; test/contract-package-locks.test.ts:65",
-          "suggestedChange": null
+          "reason": "TS5/TS6 projects cover local/imported data and contract bases, resolved member modifiers and origins, inherited test linkage, diamonds, conflicting invariant IDs, incompatible bases/redeclarations and cycles. CLI lock tests reject changed/removed inherited signatures/invariants and permit only extendable additions; generic substitutions and overloads are retained. Review mutations of local/imported bases invalidate the derived contract while an unrelated contract stays current; packet assertions expose inherited origins. Rich inherited call/member/generic/overloaded APIs have positive controls and structural drift mutations. Alias and mapped-type regressions reject copied contract members whose promises would disappear, follow imported and transparent generic aliases, and require explicit errors for unresolved origins. Composition, dead conditional branches and unselected copied fields are positive controls; extending the original contract restores its invariant and removing the derived test produces E_TEST_MISSING. Family tests exercise the same inheritance path with separate concrete child contracts. The package provenance callback now uses resolver identities instead of physical node_modules paths; the explicit external-link base fixture passes and an added project method fails.",
+          "evidence": "test/contract-inheritance-aliases.test.ts:23; test/contract-inheritance.test.ts:66; test/contract-inherited-locks.test.ts:35; test/contract-package-locks.test.ts:65; test/project-vocabulary-family.test.ts:38; test/project-vocabulary-family.test.ts:86; scripts/e2e.mjs:185",
+          "suggestedChange": null,
+          "invariant": "contract-inheritance"
         },
         {
-          "invariant": "package-types",
+          "invariant": "contract-families",
           "assessment": "adequate",
-          "reason": "The TS 5.9.3/6.0.3 matrix independently checks compiler diagnostics and asserts Cage uses the explicitly selected tsconfig and its extends chain. Selected TS2420 errors block only with skipLibCheck disabled; an unrelated broken declaration remains outside the selection. Syntax errors still block. Named, default, namespace and import-equals missing imports block at their actual compiler diagnostic locations; effective ignore, expect-error and nocheck directives and unused missing imports are paired passing controls. Existing alias, workspace, ambient, merged/global contributor and routing tests retain their dependency, review and lock assertions. Library-error selection controls explicitly enable library checking instead of relying on the superseded policy. Linked-installation tests retain equal reports/fingerprints and byte-identical recorded state after relocation; source-only, missing and unreadable selected dependencies still fail. The implementation changes diagnostic selection and unresolved-use locations, not signature comparison or material hashing.",
-          "evidence": "test/package-skip-libcheck.test.ts:39; test/package-skip-libcheck.test.ts:66; test/package-skip-libcheck.test.ts:83; test/package-diagnostics.test.ts:16; test/package-dependency-selection.test.ts:25; test/package-dependency-selection.test.ts:95; test/package-dependency-selection.test.ts:134; test/package-dependency-selection.test.ts:192; test/package-fingerprint-integrity.test.ts:56; test/package-fingerprint-integrity.test.ts:267; test/design-package-links.test.ts:67; test/design-package-links.test.ts:141",
+          "reason": "TS5/TS6 fixtures establish that an explicit abstract family needs no direct implementation or review. Both concrete children inherit the promise, require separate linked tests and separate verdicts, and both recorded reviews become stale after a family invariant edit. Removing only the second test yields E_TEST_MISSING for Second; changing only its input type yields E_TYPE_MISMATCH for Second. Ordinary duplicates and direct family implementations/test bindings are rejected. Existing inherited-lock and diamond tests continue to cover the reused inheritance algorithm. This establishes structural/linkage enforcement, not execution of behavioral tests.",
+          "evidence": "test/project-vocabulary-family.test.ts:86; test/project-vocabulary-family.test.ts:106; test/contract-inherited-locks.test.ts:35",
           "suggestedChange": null
         },
         {
-          "invariant": "test-linkage",
+          "invariant": "project-vocabulary",
+          "assessment": "adequate",
+          "reason": "Compiler-backed TS5/TS6 positive cases import the designated Database alias and Status enum. Independent mutations reject non-designated exports, value/namespace imports, designated runtime constants and genuine signature differences. Review recording followed by a nested column mutation proves transitive inferred values stale the review even at depth/maxFiles zero; a recorded final lock then rejects another nested mutation. Re-exports, path aliases and project ambient augmentations participate in material, and an augmentation edit changes its fingerprint. Draft validation uses the same configuration. Missing selected source names fail even with skipLibCheck enabled. Links escaping the source root, both at the entry and transitively, are rejected. Explicit project bases and external package class bases pass while an added public member still fails.",
+          "evidence": "test/project-vocabulary-family.test.ts:38; test/project-vocabulary-family.test.ts:59; test/project-vocabulary-family.test.ts:121; test/project-vocabulary-family.test.ts:145; test/project-vocabulary-family.test.ts:173",
+          "suggestedChange": null
+        },
+        {
+          "assessment": "adequate",
+          "reason": "The TS 5.9.3/6.0.3 matrix independently checks compiler diagnostics and asserts Cage uses the explicitly selected tsconfig and its extends chain. Selected TS2420 errors block only with skipLibCheck disabled; an unrelated broken declaration remains outside the selection. Syntax errors still block. Named, default, namespace and import-equals missing imports block at their actual compiler diagnostic locations; effective ignore, expect-error and nocheck directives and unused missing imports are paired passing controls. Existing alias, workspace, ambient, merged/global contributor and routing tests retain their dependency, review and lock assertions. Library-error selection controls explicitly enable library checking instead of relying on the superseded policy. Linked-installation tests retain equal reports/fingerprints and byte-identical recorded state after relocation; source-only, missing and unreadable selected dependencies still fail. The implementation changes diagnostic selection and unresolved-use locations, not signature comparison or material hashing. The new project-vocabulary exception is explicit and export-specific; normal package imports still reject source-only hidden dependencies. Its additional project roots supply selected ambient augmentations, not blanket project diagnostics. Imported library-base provenance is verified using resolved package identities.",
+          "evidence": "test/package-skip-libcheck.test.ts:39; test/package-skip-libcheck.test.ts:66; test/package-skip-libcheck.test.ts:83; test/package-diagnostics.test.ts:16; test/package-dependency-selection.test.ts:25; test/package-dependency-selection.test.ts:95; test/package-dependency-selection.test.ts:134; test/package-dependency-selection.test.ts:192; test/package-fingerprint-integrity.test.ts:56; test/package-fingerprint-integrity.test.ts:267; test/design-package-links.test.ts:67; test/design-package-links.test.ts:141; test/project-vocabulary-family.test.ts:38; test/project-vocabulary-family.test.ts:86; scripts/e2e.mjs:185",
+          "suggestedChange": null,
+          "invariant": "package-types"
+        },
+        {
           "assessment": "adequate",
           "reason": "Node and Vitest fixtures retain explicit skip/todo links, including suite inheritance and options, without inactive-test errors. Independent expectations reject an invariant with no test, reject unmarked empty callbacks and broken imports, and warn for an empty declaration beside either an active or explicitly skipped declaration. CLI counts distinguish linked from active declarations/invariants and keep executedTests null. Nothing runs or mocks a project test to establish those counts.",
           "evidence": "test/node-test.test.ts:187; test/test-imports.test.ts:22; test/vitest.test.ts:24",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "test-linkage"
         },
         {
-          "invariant": "exit-codes",
           "assessment": "adequate",
           "reason": "CLI fixtures assert usage/configuration/environment exit 2, rule-violation exit 1 and warning-only exit 0 with actual stdout/stderr. Linked draft scenarios extend that evidence to argument validation, configuration refusal and candidate violations, exercising the shared exit-code path used by the new dispatch.",
           "evidence": "test/check.test.ts:119; test/cli.test.ts:30; test/draft.test.ts:258; test/draft.test.ts:438",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "exit-codes"
         },
         {
-          "invariant": "diagnostic-line",
           "assessment": "adequate",
           "reason": "Exact check-format tests retain CODE, subject, location and indented details. Group tests retain each affected location and full JSON diagnostics. The linked draft fixture independently locates a real compiler error in the authored draft and asserts the complete E_TYPESCRIPT diagnostic line, separately from the candidate summary.",
           "evidence": "test/check.test.ts:119; test/diagnostic-groups.test.ts:16; test/diagnostic-groups.test.ts:123; test/draft.test.ts:165",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "diagnostic-line"
         },
         {
-          "invariant": "diagnostic-groups",
           "assessment": "adequate",
           "reason": "Real CLI projects on both compiler versions assert every original violation, severity, independently located member and contract, plus exact shared-cause rows for PageHandle, same-spelled Band aliases and inherited library members. Distinct same-spelled declarations, multiple mismatches, naked primitive/tuple mismatches and clipped-away differences stay separate. The text summary reveals resolved alias types; full JSON messages remain intact. Check and hook commands retain failing exit codes and total violation counts, and review blockers remain separate. An inherited static surface without its own contract keeps the explicit missing-static-contract explanation instead of a misleading shared-cause row with no affected contract.",
           "evidence": "test/diagnostic-groups.test.ts:16; test/diagnostic-groups.test.ts:123; test/diagnostic-groups.test.ts:255; test/diagnostic-groups.test.ts:302",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "diagnostic-groups"
         },
         {
-          "invariant": "check-limit",
           "assessment": "adequate",
           "reason": "Compiler-backed CLI cases compute independent expected priority/group selection for limits 0, 1, 3, 9 and 50, assert every shown subject and omitted count by code, and keep full error/warning totals. JSON still limits individual violations. Gate limits only blocker groups and keeps the full blocker total. Serialized whole and raw-limited reports format identically to their in-memory equivalents, so formatting does not depend on hidden object history.",
           "evidence": "test/max-diagnostics.test.ts:28; test/diagnostic-groups.test.ts:202; test/diagnostic-groups.test.ts:255",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "check-limit"
         },
         {
-          "invariant": "review-index",
           "assessment": "adequate",
           "reason": "Grouping tests assert connected shared changes, additional private changes, deterministic order and separate missing/unknown entries, with no packets for current/accepted entries. CLI tests assert executable commands, statuses, touched invariants and visible malformed-record errors.",
           "evidence": "test/review-groups.test.ts:11; test/review-index.test.ts:49",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "review-index"
         },
         {
-          "invariant": "review-packet",
           "assessment": "adequate",
           "reason": "CLI and formatter tests compare independently selected source ranges, changed/all/none/context modes, unchanged full findings and suggestions, and separate contract fingerprints. Compact-output tests reconstruct every source block and test link, distinguish identical titles at different locations and assert one schema example. Shared and overlapping excerpts retain their exact union without mutating JSON.",
           "evidence": "test/review-compact.test.ts:9; test/review-context.test.ts:16; test/review-index.test.ts:49; test/review-performance.test.ts:63; test/review-scope.test.ts:127",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "review-packet"
         },
         {
-          "invariant": "review-touched",
           "assessment": "adequate",
           "reason": "Tests mutate one linked test, evidence-cited tests, coverage links and non-test material, then assert exact touched sets. Reordered material with unchanged per-part digests takes the conservative all-invariants fallback; output mode must not change attribution.",
           "evidence": "test/review-context.test.ts:16; test/review-index.test.ts:140",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "review-touched"
         },
         {
-          "invariant": "review-scope-silent",
           "assessment": "adequate",
           "reason": "Bounded import-chain tests assert no scope-limit diagnostics in check, index or packets under warn and require. Linked gate tests exclude them from blocked and released feedback. Symlink cases assert the outside sentinel is never loaded under either review policy; chmod-based in-scope failures require E_ENVIRONMENT, incomplete packets, refusal to record and byte-identical existing records.",
           "evidence": "test/gate.test.ts:27; test/review-boundaries.test.ts:42; test/review-scope.test.ts:621",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "review-scope-silent"
         },
         {
-          "invariant": "record-refuses",
           "assessment": "adequate",
           "reason": "Actual recording commands reject stale fingerprints, unknown contracts/invariants, missing assessments, duplicate entries and blank reasons/evidence. Mixed valid/invalid submissions record nothing; unreadable in-scope dependencies also preserve the existing record bytes.",
           "evidence": "test/review-boundaries.test.ts:178; test/review.test.ts:295",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "record-refuses"
         },
         {
-          "invariant": "review-stale",
           "assessment": "adequate",
-          "reason": "Mutation tests change contract prose, code, assertions, suite setup and selected dependencies, then assert the recorded review becomes stale with the changed part named. Package tests mutate merged/global contributors and retarget entry or dependency edges without changing declaration text, requiring stale review and changed material in the packet; irrelevant package edits stay current. Relocating the same package files behind an external link retains the entire current review and its fingerprint on TS5/TS6, including pnpm layout; a selected dependency declaration edit still changes the fingerprint. The test also compares persisted review bytes to prevent automatic renewal.",
-          "evidence": "test/review.test.ts:295; test/review-scope.test.ts:539; test/review-scope.test.ts:558; test/package-fingerprint-integrity.test.ts:56; test/package-fingerprint-integrity.test.ts:84; test/package-fingerprint-integrity.test.ts:131; test/design-package-links.test.ts:67",
-          "suggestedChange": null
+          "reason": "Mutation tests change contract prose, code, assertions, suite setup and selected dependencies, then assert the recorded review becomes stale with the changed part named. Package tests mutate merged/global contributors and retarget entry or dependency edges without changing declaration text, requiring stale review and changed material in the packet; irrelevant package edits stay current. Relocating the same package files behind an external link retains the entire current review and its fingerprint on TS5/TS6, including pnpm layout; a selected dependency declaration edit still changes the fingerprint. The test also compares persisted review bytes to prevent automatic renewal. New project-type fixtures record real fixture verdicts, mutate inferred source dependencies and require stale diagnostics with dependency text in the packet; family edits stale both concrete children independently.",
+          "evidence": "test/review.test.ts:295; test/review-scope.test.ts:539; test/review-scope.test.ts:558; test/package-fingerprint-integrity.test.ts:56; test/package-fingerprint-integrity.test.ts:84; test/package-fingerprint-integrity.test.ts:131; test/design-package-links.test.ts:67; test/project-vocabulary-family.test.ts:38; test/project-vocabulary-family.test.ts:86; scripts/e2e.mjs:185",
+          "suggestedChange": null,
+          "invariant": "review-stale"
         },
         {
-          "invariant": "review-code-trivia",
           "assessment": "adequate",
           "reason": "The tests compare fingerprints before and after inert comments and spacing, then change syntax, literal contents and directive placement to show that meaningful edits stale the review. Package declaration tests similarly keep ordinary formatting inert while retaining compiler directives and reference directives in declaration digests.",
           "evidence": "test/review-fingerprint.test.ts:12; test/review-fingerprint.test.ts:28; test/review-fingerprint.test.ts:45; test/package-fingerprint-integrity.test.ts:147; test/package-fingerprint-integrity.test.ts:251",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "review-code-trivia"
         },
         {
-          "invariant": "review-fingerprint-legacy",
           "assessment": "adequate",
           "reason": "CLI cases construct legacy and code-v1 records and assert unchanged bytes/current status until relevant edits. Old fingerprints cannot be resubmitted for new material; fresh recording switches to code-v2 and only then ignores independent object members and ordinary code comments.",
           "evidence": "test/review-scope.test.ts:193",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "review-fingerprint-legacy"
         },
         {
-          "invariant": "review-dependency-relevant",
           "assessment": "adequate",
           "reason": "TS 5/6 and CLI mutation cases change selected fields/methods, sibling calls, helpers and shared mutable captures and require fingerprint changes/stale reviews. Cached selection tests compare exact selected declarations, connecting imports and distinct same-spelled relative targets; nested mutators cannot disappear.",
           "evidence": "test/review-members.test.ts:17; test/review-performance.test.ts:106; test/review-scope.test.ts:227; test/review-slice-edge.test.ts:24",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "review-dependency-relevant"
         },
         {
-          "invariant": "review-dependency-isolated",
           "assessment": "adequate",
           "reason": "Negative controls alter only independent declarations/methods and assert identical fingerprints/current records. Parameter and local-binding cases ensure they do not select the whole receiver. Multi-root caching tests prove private imports stay separate and reverse root order preserves the corresponding material.",
           "evidence": "test/review-members.test.ts:17; test/review-performance.test.ts:106; test/review-scope.test.ts:227; test/review-slice-edge.test.ts:24",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "review-dependency-isolated"
         },
         {
-          "invariant": "review-dependency-fallback",
           "assessment": "adequate",
           "reason": "Cases with getters, spreads, dynamic/whole-object uses, shared nested state, uncertain captures and observable initialization require whole-object/file retention. Changes to unrelated content then invalidate the fingerprint. Compiler-matrix boundary cases cover cycles and opaque syntax rather than assuming purity.",
           "evidence": "test/review-members.test.ts:43; test/review-performance.test.ts:106; test/review-scope.test.ts:252; test/review-slice-edge.test.ts:43",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "review-dependency-fallback"
         },
         {
-          "invariant": "accept",
           "assessment": "adequate",
           "reason": "CLI scenarios inspect acceptance flags, empty findings, separate accepted/reviewed counts and gate behavior. Repeating acceptance keeps bytes stable; mutations invalidate only affected material, and renewal retains current verdicts independently.",
           "evidence": "test/accept.test.ts:39",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "accept"
         },
         {
-          "invariant": "gate",
           "assessment": "adequate",
           "reason": "Real CLI/hook inputs assert required missing/stale/weak reviews and ordinary errors block, while warn-policy findings do not. Mixed diagnostics stay filtered on initial blocks and after the session limit; success resets the session count. Shared-cause fixtures additionally assert grouped feedback still exits 2 and counts every structural blocker while preserving separate review blocks. External installation fixtures record a genuine test-based fixture verdict under review:require and pass before and after relocation. Independent signature edits, selected declaration compiler errors when library checking is enabled and missing declarations all retain gate exit 2; relocation itself does not weaken the gate policy. The new TS 5/6 fixture passes with a library TS2420 error and skipLibCheck enabled, then independently requires E_TYPE_MISMATCH and gate exit 2 after changing only the implementation return type; a missing selected dependency requires E_DESIGN_IMPORT and gate exit 2.",
           "evidence": "test/gate.test.ts:27; test/diagnostic-groups.test.ts:255; test/design-package-links.test.ts:67; test/design-package-links.test.ts:141; test/package-skip-libcheck.test.ts:66",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "gate"
         },
         {
-          "invariant": "locks",
           "assessment": "adequate",
-          "reason": "Real lock records reject edits to final or existing extendable members, including inherited mapped modifiers, while base comparison catches deletion from the lock file. Package lock tests mutate transitive and merged/global contributor declarations and retarget route edges with identical declaration sets; both dependency versions and same-version physical copies remain distinct, and a pure package-version update leaves the lock intact. The linked-installation matrix records a real final-contract lock and compares unchanged persisted bytes and successful checks after relocation. Mutating a transitive external declaration subsequently requires E_LOCK_VIOLATION in design phase, separately from implementation errors.",
-          "evidence": "test/locks.test.ts:60; test/contract-inherited-locks.test.ts:35; test/contract-package-locks.test.ts:65; test/package-fingerprint-integrity.test.ts:56; test/package-fingerprint-integrity.test.ts:84; test/package-fingerprint-integrity.test.ts:161; test/package-fingerprint-integrity.test.ts:204; test/lock-base.test.ts:77; test/design-package-links.test.ts:67",
-          "suggestedChange": null
+          "reason": "Real lock records reject edits to final or existing extendable members, including inherited mapped modifiers, while base comparison catches deletion from the lock file. Package lock tests mutate transitive and merged/global contributor declarations and retarget route edges with identical declaration sets; both dependency versions and same-version physical copies remain distinct, and a pure package-version update leaves the lock intact. The linked-installation matrix records a real final-contract lock and compares unchanged persisted bytes and successful checks after relocation. Mutating a transitive external declaration subsequently requires E_LOCK_VIOLATION in design phase, separately from implementation errors. Project vocabulary is captured through the authored relative import specifier, so the virtual design path cannot lose its lock dependency. The test records a final lock then changes the transitive column and requires E_LOCK_VIOLATION.",
+          "evidence": "test/locks.test.ts:60; test/contract-inherited-locks.test.ts:35; test/contract-package-locks.test.ts:65; test/package-fingerprint-integrity.test.ts:56; test/package-fingerprint-integrity.test.ts:84; test/package-fingerprint-integrity.test.ts:161; test/package-fingerprint-integrity.test.ts:204; test/lock-base.test.ts:77; test/design-package-links.test.ts:67; test/project-vocabulary-family.test.ts:38; test/project-vocabulary-family.test.ts:86; scripts/e2e.mjs:185",
+          "suggestedChange": null,
+          "invariant": "locks"
         },
         {
-          "invariant": "codes",
           "assessment": "adequate",
           "reason": "CLI output is asserted equal to the legend formatter with exactly one line per emitted code and correct option handling. The separately linked legend invariant checks the source and documentation in both directions, including the conformance and duplicate-implementation diagnostics.",
           "evidence": "test/codes.test.ts:44",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "codes"
         },
         {
-          "invariant": "init-safe",
           "assessment": "adequate",
           "reason": "Tests preserve existing configuration, edited instructions/skills and unrelated hooks, then assert repeated initialization is stable. Generated hooks run with shell-sensitive paths and must pass exact arguments without creating injection markers; TOML must decode correctly.",
           "evidence": "test/init-safety.test.ts:46; test/init.test.ts:43",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "init-safe"
         },
         {
-          "invariant": "draft-isolation",
           "assessment": "adequate",
           "reason": "Broad-pattern fixtures compare the complete check, gate, lock and review outputs before and after valid and malformed drafts, and compare persisted state bytes. A binding that exists only in a draft remains unknown; real design imports reject draft paths in both active and candidate mode. The candidate fixture also proves that an unselected second draft never supplies missing declarations.",
           "evidence": "test/draft.test.ts:126; test/draft.test.ts:368",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "draft-isolation"
         },
         {
-          "invariant": "draft-create",
           "assessment": "adequate",
           "reason": "CLI fixtures independently compute the base SHA-256 and assert copied/scaffolded content, null versus existing baselines, unchanged active files and refusal to overwrite notes or dangling links. Header/version/digest/target failures, path escapes, symlinks and configured scope are exercised with filesystem snapshots, including outside sentinels. Fault injection and preexisting temporary-file sentinels verify ownership and honest reports after committed writes.",
           "evidence": "test/draft.test.ts:49; test/draft.test.ts:88; test/draft.test.ts:408; test/draft.test.ts:438; test/draft.test.ts:535; test/draft.test.ts:553; test/draft.test.ts:580",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "draft-create"
         },
         {
-          "invariant": "draft-candidate",
           "assessment": "adequate",
-          "reason": "Real compiler-backed fixtures resolve imports of a not-yet-existing target through the selected candidate and reject edits that break consumers. Diagnostics are compared with independently located draft lines and columns; snapshots prove no writes, and reports explicitly mark code, tests and reviews unchecked. Malformed lock records keep locks unchecked without falsely blaming the design. Separate installed TS5.9.3 and TS6.0.3 copies are asserted as the actual project compiler.",
-          "evidence": "test/draft.test.ts:126; test/draft.test.ts:165; test/draft.test.ts:200; test/draft.test.ts:517",
-          "suggestedChange": null
+          "reason": "Real compiler-backed fixtures resolve imports of a not-yet-existing target through the selected candidate and reject edits that break consumers. Diagnostics are compared with independently located draft lines and columns; snapshots prove no writes, and reports explicitly mark code, tests and reviews unchecked. Malformed lock records keep locks unchecked without falsely blaming the design. Separate installed TS5.9.3 and TS6.0.3 copies are asserted as the actual project compiler. A new alias/re-export vocabulary fixture checks its draft through the actual CLI and requires success with the designated exports configuration forwarded.",
+          "evidence": "test/draft.test.ts:126; test/draft.test.ts:165; test/draft.test.ts:200; test/draft.test.ts:517; test/project-vocabulary-family.test.ts:38; test/project-vocabulary-family.test.ts:86; scripts/e2e.mjs:185",
+          "suggestedChange": null,
+          "invariant": "draft-candidate"
         },
         {
-          "invariant": "draft-activate",
           "assessment": "adequate",
           "reason": "The lifecycle checks exact activated content, removed header/draft, unchanged lock/review records and stale prior material. Edited, deleted or newly created targets, malformed metadata/configuration, invalid candidates and broken consumers refuse with unchanged document bytes. Recorded final signatures, invariants, names, markers and data remain protected; extendable additions activate without rewriting the lock while existing-member edits refuse. Filesystem fault cases distinguish refusal before commit from cleanup failure after a real committed write.",
           "evidence": "test/draft.test.ts:49; test/draft.test.ts:200; test/draft.test.ts:220; test/draft.test.ts:258; test/draft.test.ts:286; test/draft.test.ts:329; test/draft.test.ts:408; test/draft.test.ts:535; test/draft.test.ts:553; test/draft.test.ts:580",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "draft-activate"
         }
       ]
     },
     {
       "module": "src",
       "contract": "Codes",
-      "fingerprint": "sha256:code-v2:b5f95d910edff075ab287427a59f963c930f682927664f7c600fd7b5b87302f6",
+      "fingerprint": "sha256:code-v2:2eab34fb81c9359328f48fbbe8088f2c6bdc349cb336071a2d09003389dd9b0b",
       "material": {
         "contract": "sha256:95d71c5d4dde2c0745b4e5a9c00167559a7fe78f496ff863de276b70a975634a",
         "design src/cage.cage.mdx": "sha256:ec7616c7cd457d67196708bc6e8c30cbe32d281476fcb0eaf882f5998d1498f7",
-        "implementation src/codes.ts#formatCodes": "sha256:7abc283bbd31e3cd36f9633fbfb634fb9acfa8efdf1790a912bd6e59c9511612",
+        "implementation src/codes.ts#formatCodes": "sha256:4ebc6084bdce318eb80ee52d935dad9a6155eed7115c83d58cfffa79ae5a0533",
         "test test/codes.test.ts:every code the source emits is in the legend, and the legend in the reference": "sha256:6e60b7a8531f10477273497ef289226d967a90cd939b51a1ed3a2a2b52799053",
         "dependency test/helpers.ts": "sha256:160acc3375a8b3fe9d997d2d0838d90802267854e344e9823d7abd229f9490a1",
-        "dependency src/config.ts": "sha256:4084c1528fafb329e4533a53e51ad98ba8a60f0d6d06d7bb3593e61f388c3077",
-        "dependency src/design-phase.ts": "sha256:da45fb7f47d505d35ec7181c9539cc1fabb85c96cf6a1522bd978dc85901347d",
+        "dependency src/config.ts": "sha256:182e0090f5ba912a551837c531f39a8f06cb32fb529fa540428719637dd8f8cf",
+        "dependency src/design-phase.ts": "sha256:7b64fe862eb9cf7485156848642057c570414b0f95491c0b718a8ba0fc59d8d3",
         "dependency src/diagnostic.ts": "sha256:ec13ed7da8b09f23980aaadab293070ddff66af332c1b99472b7a43e5611190e",
         "dependency src/discovery.ts": "sha256:ac4a40ace35c850a9676541ec8e8faa555515ec8543e4857253dd2f2874a7f77",
-        "dependency src/implementation-phase.ts": "sha256:87044e9dccab880860996f7e4bcca97ddae99907c6d3536b139eca74c4272452",
-        "dependency src/main.ts": "sha256:273cba461ebff21c7ad44a9e804cea307692fda5b92c514b6d07775322dc09f4",
-        "dependency src/contract-inheritance.ts": "sha256:7ba415e47f08ecdcf4675228c165d05b6d27a325f2b3b8225ba2853dc5a4abc5",
-        "dependency src/design-index.ts": "sha256:02112fa7e72d117c84740a79eae95f29c8ff394ec0fe01e7cbc3ce9a5f5a487c",
+        "dependency src/implementation-phase.ts": "sha256:ea3d8d2be03bd173ff8ad6e49e73c1969dfd58f70810b0df3271989644dc7235",
+        "dependency src/main.ts": "sha256:1da7c7e983cfd0629e21e41c9ec59fae909d6516d906737eba6a2d5939747376",
+        "dependency src/contract-inheritance.ts": "sha256:9755d644b434bd8dbd59c49d6b8678d2a54e73742b4e01d19cc688b23a13e912",
+        "dependency src/design-index.ts": "sha256:41b49e469cf8ee20199faddb4b8baddf127e5d93d3d4f53eb3bff38753f0e1e6",
         "dependency src/extraction.ts": "sha256:53833e075910e2c84c2a1f405ad9d331da5e88f84f5a8006c91cb6be396a9d5f",
         "dependency src/location.ts": "sha256:68745832b1db80b8f548ee6c3f9c61a6f24e5a25ffa06861b4c10fe6e4289cf8",
         "dependency src/mdx.ts": "sha256:b2ab7ea0e4f8c6be0aec76cebf11a60dd61144e809943111b37e477c4315c92d",
-        "dependency src/package-types.ts": "sha256:e9426bd7d7fb2f39f9437abfea957d2cb12c7f109fc4df29bc8371ad4bba4362",
+        "dependency src/package-types.ts": "sha256:25d9e456768d962937864f70cbc5533f78b8eaee282555226c464127a168f447",
         "dependency src/typescript.ts": "sha256:a0a5c118da33d3b549fa7b1cd2bd197d2c739856f8b1e1c7da9568940c459dc4",
         "dependency src/contract-conformance.ts": "sha256:d4fdc6f471feaecec591ddb1eb95b2636877fafd2766f485ed03794e24631658",
         "dependency src/coverage.ts": "sha256:2314611bd16763158bcc98cddbe06895ea746fe9febacf726990b9e2d459efb8",
         "dependency src/implementations.ts": "sha256:513d63f51b70ca5840e5881d95deb6622228d3e3f62fa9a7b3bf503adc58a757",
-        "dependency src/metadata.ts": "sha256:ef1ef69215d5032c5d8728b231a7702c6325fe58cc18ee86e6f9fa378852f242",
+        "dependency src/metadata.ts": "sha256:09cbbff98b9227f7966c1253d223a4fcca2d7b4154abacacdbbde46fa4227f7a",
         "dependency src/test-declarations.ts": "sha256:f62c40924375fb4d54d6d59a450c8ee8d519801baedc43759fe8cf07349ecb8d",
-        "dependency src/contract-shape.ts": "sha256:6817641a81c13003bbfb2f4d9f6d3b4dac4f7a27fd879aff1ad090b81cac39f6",
-        "dependency src/design-model.ts": "sha256:470fd2ac388fe7a358cac7468663defeb76ab43cbd7b075dda8d7c55fdd43542",
+        "dependency src/contract-shape.ts": "sha256:99ca8b4a61d3746a407ec23e9dccb08fcb2f7e31370f2e952bd6eb850164a77d",
+        "dependency src/design-model.ts": "sha256:763ce6757c20539042a943748cbf65dc5742a21764a23171c73324cb1db2b5de",
         "dependency src/doc-comments.ts": "sha256:ef9b7687b1739e169b75d2bd9f90761a04cbd06ad08b97b5ada403e90530669b",
         "dependency src/graph.ts": "sha256:5005309477bfd774fce31d6e466b3715ddbdc84f25d838b40948cdf40c0a7ad5",
-        "dependency src/package-dependencies.ts": "sha256:359be11fddf22284bbcf7a689f9262d651be6782f51d52359d93fd4751c96302",
-        "dependency src/package-diagnostics.ts": "sha256:1fe04d7fccde388519cb4504598fc6859b6d864cac9d70a58ba5732f2e6b5424"
+        "dependency src/package-dependencies.ts": "sha256:89d3450a419e9a6764606e0a2160bc88806d142ca9765d490c27f2856a01e8b0",
+        "dependency src/package-diagnostics.ts": "sha256:d32e4366baa02ecb906cc9340ad43596d8f46a101d12e6d245ca1c6f13debdb7"
       },
       "findings": [
         {
-          "invariant": "legend",
           "assessment": "adequate",
-          "reason": "The linked test derives emitted diagnostic literals from every source file, compares the set with CODES in both directions, checks every reference-table row and verifies exactly one formatted meaning/action line per code. This includes E_DRAFT, E_DRAFT_CONFLICT and the updated lock-warning explanation; omissions or extra entries fail the assertions.",
-          "evidence": "test/codes.test.ts:24",
-          "suggestedChange": null
+          "reason": "The linked test derives emitted diagnostic literals from every source file, compares the set with CODES in both directions, checks every reference-table row and verifies exactly one formatted meaning/action line per code. This includes E_DRAFT, E_DRAFT_CONFLICT and the updated lock-warning explanation; omissions or extra entries fail the assertions. The set-equality test also requires E_FAMILY_BINDING and the updated design-import guidance in the reference and formatted legend.",
+          "evidence": "test/codes.test.ts:24; test/project-vocabulary-family.test.ts:38; test/project-vocabulary-family.test.ts:86; scripts/e2e.mjs:185",
+          "suggestedChange": null,
+          "invariant": "legend"
         }
       ]
     },
     {
       "module": "src",
       "contract": "ConfigLoader",
-      "fingerprint": "sha256:code-v2:4f6028bc1375805ab4f90c464818c6de1db8dd7c983cc7afb127277447f9a2ae",
+      "fingerprint": "sha256:code-v2:2618e0d8f373825ef772316b308259e91ebea7af0af770c20ed15b526a1da7d4",
       "material": {
         "contract": "sha256:aa0a8126dd82f22a748ad81b423273f326e04b343ac6073e5c1b246b92e33397",
         "design src/cage.cage.mdx": "sha256:ec7616c7cd457d67196708bc6e8c30cbe32d281476fcb0eaf882f5998d1498f7",
-        "implementation src/config.ts#loadConfig": "sha256:4a0f4a6adb61c53065fc6bfbfb93146b45ff39820336f1382edf8fccadc95065",
+        "implementation src/config.ts#loadConfig": "sha256:51facfcbbf8ac280f94d0cfe16aadd7dc6da0578238b717bda2ae1fac4028df2",
         "test test/config.test.ts:defaults apply when there is no .cage/config.json": "sha256:248432346c48319d3b76ae92368454acf5ebefc3b8546fd5a19ae3b415bf4be7",
         "test test/config.test.ts:.cage/config.json is found; given fields replace the defaults, the rest stay": "sha256:a5d35fdc8d2de51b6746f7bc0c047c95557f36877c9241f12096c8aa1ceff854",
         "test test/config.test.ts:an invalid configuration is reported field by field": "sha256:a14af686fe1fe1d4ec67a9e369cf05bb9898e123e6a08d78dc2306948061acbd",
+        "test test/project-vocabulary-family.test.ts:project type allowlists reject globs, parent traversal and malformed export entries": "sha256:a86e97b5cf39ce4f4d1d64f51a5381021572ea0dd6852fb9b3d96e2ff6989984",
         "dependency src/location.ts": "sha256:68745832b1db80b8f548ee6c3f9c61a6f24e5a25ffa06861b4c10fe6e4289cf8",
         "dependency test/helpers.ts": "sha256:160acc3375a8b3fe9d997d2d0838d90802267854e344e9823d7abd229f9490a1",
-        "dependency src/design-phase.ts": "sha256:da45fb7f47d505d35ec7181c9539cc1fabb85c96cf6a1522bd978dc85901347d",
+        "dependency src/design-phase.ts": "sha256:7b64fe862eb9cf7485156848642057c570414b0f95491c0b718a8ba0fc59d8d3",
         "dependency src/diagnostic.ts": "sha256:ec13ed7da8b09f23980aaadab293070ddff66af332c1b99472b7a43e5611190e",
         "dependency src/discovery.ts": "sha256:ac4a40ace35c850a9676541ec8e8faa555515ec8543e4857253dd2f2874a7f77",
-        "dependency src/implementation-phase.ts": "sha256:87044e9dccab880860996f7e4bcca97ddae99907c6d3536b139eca74c4272452",
-        "dependency src/main.ts": "sha256:273cba461ebff21c7ad44a9e804cea307692fda5b92c514b6d07775322dc09f4",
-        "dependency src/contract-inheritance.ts": "sha256:7ba415e47f08ecdcf4675228c165d05b6d27a325f2b3b8225ba2853dc5a4abc5",
-        "dependency src/design-index.ts": "sha256:02112fa7e72d117c84740a79eae95f29c8ff394ec0fe01e7cbc3ce9a5f5a487c",
+        "dependency src/implementation-phase.ts": "sha256:ea3d8d2be03bd173ff8ad6e49e73c1969dfd58f70810b0df3271989644dc7235",
+        "dependency src/main.ts": "sha256:1da7c7e983cfd0629e21e41c9ec59fae909d6516d906737eba6a2d5939747376",
+        "dependency src/contract-inheritance.ts": "sha256:9755d644b434bd8dbd59c49d6b8678d2a54e73742b4e01d19cc688b23a13e912",
+        "dependency src/design-index.ts": "sha256:41b49e469cf8ee20199faddb4b8baddf127e5d93d3d4f53eb3bff38753f0e1e6",
         "dependency src/extraction.ts": "sha256:53833e075910e2c84c2a1f405ad9d331da5e88f84f5a8006c91cb6be396a9d5f",
         "dependency src/mdx.ts": "sha256:b2ab7ea0e4f8c6be0aec76cebf11a60dd61144e809943111b37e477c4315c92d",
-        "dependency src/package-types.ts": "sha256:e9426bd7d7fb2f39f9437abfea957d2cb12c7f109fc4df29bc8371ad4bba4362",
+        "dependency src/package-types.ts": "sha256:25d9e456768d962937864f70cbc5533f78b8eaee282555226c464127a168f447",
         "dependency src/typescript.ts": "sha256:a0a5c118da33d3b549fa7b1cd2bd197d2c739856f8b1e1c7da9568940c459dc4",
         "dependency src/contract-conformance.ts": "sha256:d4fdc6f471feaecec591ddb1eb95b2636877fafd2766f485ed03794e24631658",
         "dependency src/coverage.ts": "sha256:2314611bd16763158bcc98cddbe06895ea746fe9febacf726990b9e2d459efb8",
         "dependency src/implementations.ts": "sha256:513d63f51b70ca5840e5881d95deb6622228d3e3f62fa9a7b3bf503adc58a757",
-        "dependency src/metadata.ts": "sha256:ef1ef69215d5032c5d8728b231a7702c6325fe58cc18ee86e6f9fa378852f242",
+        "dependency src/metadata.ts": "sha256:09cbbff98b9227f7966c1253d223a4fcca2d7b4154abacacdbbde46fa4227f7a",
         "dependency src/test-declarations.ts": "sha256:f62c40924375fb4d54d6d59a450c8ee8d519801baedc43759fe8cf07349ecb8d",
-        "dependency src/contract-shape.ts": "sha256:6817641a81c13003bbfb2f4d9f6d3b4dac4f7a27fd879aff1ad090b81cac39f6",
-        "dependency src/design-model.ts": "sha256:470fd2ac388fe7a358cac7468663defeb76ab43cbd7b075dda8d7c55fdd43542",
+        "dependency src/contract-shape.ts": "sha256:99ca8b4a61d3746a407ec23e9dccb08fcb2f7e31370f2e952bd6eb850164a77d",
+        "dependency src/design-model.ts": "sha256:763ce6757c20539042a943748cbf65dc5742a21764a23171c73324cb1db2b5de",
         "dependency src/doc-comments.ts": "sha256:ef9b7687b1739e169b75d2bd9f90761a04cbd06ad08b97b5ada403e90530669b",
         "dependency src/graph.ts": "sha256:5005309477bfd774fce31d6e466b3715ddbdc84f25d838b40948cdf40c0a7ad5",
-        "dependency src/package-dependencies.ts": "sha256:359be11fddf22284bbcf7a689f9262d651be6782f51d52359d93fd4751c96302",
-        "dependency src/package-diagnostics.ts": "sha256:1fe04d7fccde388519cb4504598fc6859b6d864cac9d70a58ba5732f2e6b5424"
+        "dependency src/package-dependencies.ts": "sha256:89d3450a419e9a6764606e0a2160bc88806d142ca9765d490c27f2856a01e8b0",
+        "dependency src/package-diagnostics.ts": "sha256:d32e4366baa02ecb906cc9340ad43596d8f46a101d12e6d245ca1c6f13debdb7"
       },
       "findings": [
         {
-          "invariant": "defaults",
           "assessment": "adequate",
           "reason": "The tests compare the complete no-file result with defaultConfig, then provide only selected fields and assert all other defaults remain. A depth-only reviewDependencies value must retain maxFiles and exclude defaults.",
           "evidence": "test/config.test.ts:11; test/config.test.ts:18",
-          "suggestedChange": null
+          "suggestedChange": null,
+          "invariant": "defaults"
         },
         {
-          "invariant": "fields",
           "assessment": "adequate",
-          "reason": "The test supplies malformed JSON, invalid top-level objects, wrong field types and unknown fields, asserting E_CONFIG for each problem and an unchanged complete default configuration even when valid and invalid fields are mixed.",
-          "evidence": "test/config.test.ts:43",
-          "suggestedChange": null
+          "reason": "The test supplies malformed JSON, invalid top-level objects, wrong field types and unknown fields, asserting E_CONFIG for each problem and an unchanged complete default configuration even when valid and invalid fields are mixed. New configuration cases reject wildcard exports/paths, parent traversal, absolute paths, missing export markers and non-array values.",
+          "evidence": "test/config.test.ts:43; test/project-vocabulary-family.test.ts:38; test/project-vocabulary-family.test.ts:86; scripts/e2e.mjs:185",
+          "suggestedChange": null,
+          "invariant": "fields"
         }
       ]
     }

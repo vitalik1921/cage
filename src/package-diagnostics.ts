@@ -47,7 +47,7 @@ export function createPackageDiagnostics(ts: TypeScript, overlay: Pick<Overlay, 
         if (!declarations.length) continue;
         const sourceFile = program.getSourceFile(fileName);
         if (!sourceFile) continue;
-        const errors = program.getCompilerOptions().skipLibCheck
+        const errors = sourceFile.isDeclarationFile && program.getCompilerOptions().skipLibCheck
           ? program.getSyntacticDiagnostics(sourceFile).filter((diagnostic) => diagnostic.category === ts.DiagnosticCategory.Error)
           : reportedErrors(fileName);
         for (const diagnostic of errors) {

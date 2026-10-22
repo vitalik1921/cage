@@ -253,7 +253,7 @@ function compareBaseline(root: string, target: string, parsed: ParsedDraft, draf
 function checkCandidate(root: string, config: Config, target: string, parsed: ParsedDraft): { diagnostics: Diagnostic[]; validation: CandidateValidation } {
   const document = path.join(root, target);
   const designs = withDesignDocument(root, discoverDesigns(root, config), document);
-  const result = checkDesignPhase({ root, tsconfig: config.tsconfig, designs, designPatterns: config.designs, documents: new Map([[document, parsed.content]]) });
+  const result = checkDesignPhase({ root, tsconfig: config.tsconfig, designImportableTypes: config.designImportableTypes, designs, designPatterns: config.designs, documents: new Map([[document, parsed.content]]) });
   const diagnostics = [...result.diagnostics];
   let locks: CandidateValidation["locks"] = "not-checked";
   if (result.index && !hasErrors(diagnostics)) {

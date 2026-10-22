@@ -30,10 +30,12 @@ export interface ContractMember {
    * declaration (`module` is then the package name). Absent for a member of the contract's own body, including
    * one it redeclares.
    */
-  inheritedFrom?: { name: string; module: string; kind: "contract" | "data" | "package" };
+  inheritedFrom?: { name: string; module: string; kind: "contract" | "data" | "package" | "project" };
 }
 
 export interface Contract {
+  /** Abstract invariant-bearing base; concrete contracts extend it and have separate implementations and reviews. */
+  family?: true;
   name: string;
   /** Module ID: the project-relative path of the module root. */
   module: string;
@@ -51,7 +53,7 @@ export interface Contract {
    */
   source: string;
   /** What it extends directly, in the order of its `extends` clause; `module` of a package's declaration is the package name. */
-  bases?: { name: string; module: string; kind: "contract" | "data" | "package" }[];
+  bases?: { name: string; module: string; kind: "contract" | "data" | "package" | "project" }[];
 }
 
 export interface DataType {
@@ -144,6 +146,8 @@ export interface PackageTypesFile {
 
 /** An `import type` of an installed package's declarations in a design. Packages are types only: nothing of them is executed. */
 export interface PackageImport {
+  /** Explicit project vocabulary uses the same material/lock transport, without pretending to be an installed package. */
+  origin?: "project";
   /** The importing design. */
   module: string;
   /** As the document writes it: `zod`, `zod/v4`. */

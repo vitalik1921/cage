@@ -225,6 +225,7 @@ function run(argv: readonly string[], io: CliIo): number {
   const scope = {
     root,
     tsconfig: config.tsconfig,
+    designImportableTypes: config.designImportableTypes,
     // With an unusable configuration there is no scope: only its errors are reported.
     designs: diagnostics.length > 0 ? [] : discoverDesigns(root, config),
     designPatterns: config.designs,

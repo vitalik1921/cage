@@ -64,9 +64,9 @@ A layer runs only when the earlier ones left no error that its results would be 
 
 `cage check` without `--phase design` continues when the designs have no errors:
 
-6. **Implementations.** Every contract has exactly one direct implementation (`E_IMPLEMENTATION_MISSING` / `E_IMPLEMENTATION_DUPLICATE`), and the implementation’s public surface exactly matches it. Compiler incompatibility is `E_TYPE_MISMATCH`; extra members, missing optional members and signature drift have `E_CONTRACT_*` diagnostics.
+6. **Implementations.** Every concrete contract has exactly one direct implementation (`E_IMPLEMENTATION_MISSING` / `E_IMPLEMENTATION_DUPLICATE`), and the implementation’s public surface exactly matches it. Compiler incompatibility is `E_TYPE_MISMATCH`; extra members, missing optional members and signature drift have `E_CONTRACT_*` diagnostics.
 7. **Tests.** Every invariant has at least one test declaration tagged `@covers` inside a suite tagged `@tests` with its contract (`E_TEST_MISSING`), and at least one is active or explicitly marked skip/todo (`E_TEST_INACTIVE` rejects only unintended empty or broken-import links; see “Rules for tests”). The tests are read, never run: whether they pass is the test runner's to say, and `counts.executedTests` is always `null`.
-8. **Reviews.** Every contract has a recorded verdict of a substantive review for the material as it is now, or an acceptance of that material without a review (`cage review --accept`): `REVIEW_MISSING` / `REVIEW_STALE` / `REVIEW_WEAK`, warnings or errors depending on `"review"` in the configuration (see "`review`").
+8. **Reviews.** Every concrete contract has a recorded verdict of a substantive review for the material as it is now, or an acceptance of that material without a review (`cage review --accept`): `REVIEW_MISSING` / `REVIEW_STALE` / `REVIEW_WEAK`, warnings or errors depending on `"review"` in the configuration (see "`review`").
 
 ### Rules for implementations
 
@@ -94,6 +94,35 @@ export class Store {
 
 `StorePort` describes `get` and `put`, and `Factory` describes `create` with the exact signatures above. This is stricter than releases through 0.7.3: upgrading can reveal existing undeclared API and signature drift.
 
+### Families and project vocabulary
+
+A family writes shared API and invariants once. Give each implementation a small named contract that extends it:
+
+```ts
+/** @family
+ * @description Payload parsers.
+ * @invariant round-trip Returns the supplied string unchanged. */
+export interface Payload { parse(value: string): string; }
+/** @contract
+ * @description Profile payload parser. */
+export interface ProfilePayload extends Payload {}
+/** @contract
+ * @description Post payload parser. */
+export interface PostPayload extends Payload {}
+```
+
+Tag the implementations `@implements ProfilePayload` / `@implements PostPayload`, and their tests `@tests ProfilePayload` / `@tests PostPayload` with `@covers round-trip`. Each child needs its own evidence and verdict. Changing the family invalidates both reviews. `@family` replaces `@contract` on the abstract base; directly implementing or testing the family is rejected. Ordinary duplicate implementations still fail. Cage checks structure and test links; the project test runner and reviewer establish behavioral evidence.
+
+For a database/schema type that only the project can name, designate an export in `.cage/config.json`:
+
+```json
+{"version": 1, "designImportableTypes": ["src/db/types.ts#Database", "src/schema.ts#PayloadShape"]}
+```
+
+A design can then write `import type { Database } from "../db/types.ts"`. The selected type and its transitive dependencies participate in reviews and locks, including a `typeof schema` initializer graph. This applies during `check --phase design`, `check`, `gate`, `lock` and draft checking. Nothing is executed. Exact signature matching stays the default.
+
+A library instance needs no extra ignore marker: import its real type and extend the instantiated base, for example `interface PayloadSchema extends ZodObject<PayloadShape, "strip"> {}` for Zod 3. The library API is inherited; project-added members and incorrect field/signature types still fail. Choose the generic arguments of the installed library version. Equal recursive intersections are compared by their exact constituents before unfolding members; unproved comparisons still block, with no assignability fallback.
+
 ### Rules for tests
 
 `node:test` (the default) and Vitest are supported: `"testAdapter": "vitest"` in the configuration. The rules are the same.
@@ -116,11 +145,11 @@ In ordinary files only JSDoc comments that contain a binding tag (`@implements`,
 ### Rules for `ts design` blocks
 
 - A block may contain only `import type` and exported `interface` / `type`. Classes, functions, variables, enums, namespaces, re-exports, value imports, `import("…")` in types and non-exported declarations are errors.
-- Use `import type` from another design in scope, through its `*.cage.mdx` path (relative or a `paths` alias), or from an installed package’s declaration entry point. Importing implementation source, ordinary `.mdx` or any `/// <reference>` in a design is `E_DESIGN_IMPORT`; importing a design outside the scope is `E_DESIGN_OUT_OF_SCOPE`. Package types are resolved with the project’s compiler and configuration; nothing from the package is executed.
-- Every declaration has, in the JSDoc directly before it, exactly one marker, `@contract` or `@data`, and a non-empty `@description`. "Directly" means only whitespace and line breaks between the comment and the declaration. A comment that ends the line of the previous declaration belongs to it, not to the next one.
+- Use `import type` from another design in scope, through its `*.cage.mdx` path (relative or a `paths` alias), or from an installed package’s declaration entry point. Importing non-designated implementation source, ordinary `.mdx` or any `/// <reference>` in a design is `E_DESIGN_IMPORT`; importing a design outside the scope is `E_DESIGN_OUT_OF_SCOPE`. Package types are resolved with the project’s compiler and configuration; nothing from the package is executed.
+- Every declaration has, in the JSDoc directly before it, exactly one marker, `@contract`, `@family` or `@data`, and a non-empty `@description`. "Directly" means only whitespace and line breaks between the comment and the declaration. A comment that ends the line of the previous declaration belongs to it, not to the next one.
 - `@contract` goes only on an interface that has either one or more methods/properties with plain identifier names, or exactly one call signature. Optional members and readonly properties are supported. Own generic parameters, index signatures and overload declarations are not supported. A contract may use `extends` to inherit a complete API, including an empty own body. `@data` has none of these limits; note that a `@data` shape the code passes where it expects `Record<string, unknown>` has to be a `type` alias, since an `interface` has no implicit index signature.
 - Inherited API may include overloaded or generic methods, callable members and quoted/symbol keys; the resolved public surface is checked. Private/protected base members are not public API. Inherited index and construct signatures remain unsupported because they do not define a closed instance surface that Cage can compare.
-- Use `@data` bases for reusable structural shapes that need no implementation of their own. Extending a `@contract` also inherits its invariants, so tests of the derived contract must cover those promises. The base contract still needs its own implementation. A shared ancestor contributes its invariant once; conflicting invariant ids and incompatible bases are errors. Inherited signatures and invariants participate in locks and review freshness.
+- Use `@data` bases for reusable structural shapes that need no implementation of their own. Extending a `@contract` also inherits its invariants, so tests of the derived contract must cover those promises. An ordinary base contract still needs its own implementation; an explicit `@family` does not. A shared ancestor contributes its invariant once; conflicting invariant ids and incompatible bases are errors. Inherited signatures and invariants participate in locks and review freshness.
 - A base cannot copy another contract's members through `Pick`, `Record`, mapped types or aliases and discard its invariants. Extend that contract explicitly, or put the reusable shape in `@data`. Holding a contract in a field is ordinary composition. When the origin of an inherited member cannot be resolved (for example, an `infer` result or an unresolved key selecting a copied member), Cage reports `E_UNSUPPORTED_DECLARATION`; it does not silently accept the base.
 - `@uses A B` goes on a contract; the names have to be contracts in scope, not the contract itself.
 - `@invariant id text` goes on a contract or one of its named members. `id`: lower-case Latin letters, digits, hyphens. Ids are unique within a contract; different contracts may share them. An invariant on a call signature belongs to the contract as a whole.
@@ -318,6 +347,7 @@ Exit codes as for every command: `0` — created, valid or activated (warnings d
 - Symlinks are not followed during discovery.
 - `implementations` and `tests` say in which files `cage check` looks for `@implements` and `@tests` / `@covers`. Only `.ts` files (not `.d.ts`) are taken, whatever else matches; a test file is never an implementation, nor is anything in a `.design` directory.
 - `testAdapter`: `node:test` (the default) or `vitest`.
+- `designImportableTypes`: exact designated project type exports, for example `["src/db/types.ts#Database", "src/account/status.ts#AccountStatus"]`; empty by default. Only named `import type` of type aliases, interfaces and enums is allowed. Functions, objects, classes, namespace/default imports and undesignated exports are rejected. Relative imports and tsconfig path aliases use normal TypeScript resolution. Project source must stay inside the project’s real root, including transitive dependencies.
 - `review`: how `cage check` treats a contract without a fresh recorded review: `"warn"` (the default), `"require"` or `"off"`.
 - `coverage`: how `cage check` treats exported code of a module without `@implements`: `"warn"` (the default), `"require"` or `"off"`.
 - `reviewDependencies`: the bounds of the dependency part of review fingerprints (see “`review`”). `depth` 0–10 and `maxFiles` 0–1000 are whole numbers, `exclude` glob patterns; each is optional and the others keep their defaults.
@@ -337,7 +367,7 @@ What every diagnostic means and what to do about it; `cage codes` prints the sam
 | `E_DESIGN_BLOCK_EMPTY` | a ts design block has no code | declare the contracts in it, or remove it |
 | `E_DESIGN_BLOCK_LOCATION` | a ts design block is indented or nested; only top-level unindented blocks count | move it to the top level |
 | `E_DESIGN_BLOCK_MARKER` | the design marker is on a block whose language is not ts | make it ```ts design |
-| `E_DESIGN_IMPORT` | a design imports values, source code or unavailable declaration dependencies | use import type from a design or an installed package with complete declarations |
+| `E_DESIGN_IMPORT` | a design imports values, non-designated source or unavailable type dependencies | use import type from a design, installed package or designated project type export |
 | `E_DESIGN_OUT_OF_SCOPE` | a block imports a design document the designs patterns do not cover | widen the patterns, or do not import it |
 | `E_DESIGN_CYCLE` | modules depend on each other in a cycle through @uses or type imports | break the cycle |
 | `W_BUSINESS_CONTEXT_MISSING` | a module's documents have no prose; a reviewer judges contracts against business rules | write the purpose and the rules in prose |
@@ -355,6 +385,7 @@ What every diagnostic means and what to do about it; `cage codes` prints the sam
 | `W_NO_INVARIANTS` | a contract promises no rule; only its types are checked | write @invariant rules, each with a linked test |
 | `E_TYPESCRIPT` | the compiler rejects a ts design block or a file with @implements | fix the type error |
 | `W_WEAK_TYPECHECK` | strictNullChecks, strictFunctionTypes or noImplicitAny is off; implementations are compared more loosely | turn them on in tsconfig |
+| `E_FAMILY_BINDING` | a family is bound directly to an implementation | extend it with a concrete @contract; bind implementations and tests to that contract |
 | `E_IMPLEMENTATION_MISSING` | no exported class, function or const is marked @implements for the contract | tag the implementation |
 | `E_IMPLEMENTATION_DUPLICATE` | a contract has more than one direct implementation; one contract, one implementation | keep @implements on one declaration; give the other its own contract |
 | `E_TYPE_MISMATCH` | the compiler does not accept the implementation where the contract is expected; its explanation follows | fit the implementation to the contract, or change the contract |
@@ -387,6 +418,9 @@ What every diagnostic means and what to do about it; `cage codes` prints the sam
 
 ## Implementation notes
 
+- Project vocabulary is an explicit exception to design/source isolation. `designImportableTypes` takes exact project-relative `file.ts#Export` entries, not globs. The compiler loads the project's roots to include ambient/module augmentations, but only selected declarations are diagnosed. It follows selected type symbols and value initializers used to infer their types; every reached file is conservatively fingerprinted whole, with comments/layout ignored. The closure has the same 1000-file/32-MiB hard limit as package declarations; exceeding it blocks instead of recording partial material. Ordinary `reviewDependencies` limits never truncate vocabulary. Package and vocabulary material share the existing review/lock transport, so those formats do not change.
+- Families reuse contract inheritance with named concrete children. No implicit duplicate implementations or shared family verdicts: tests and reviews bind to the children. A family has no direct implementation, test links or review requirement; its promises and source enter every child's material. `check` counts invariants on concrete contracts; the index retains families with `family: true`.
+
 - **Installed package identity.** External packages are admitted only after an actual `node_modules/<name>` entry from the project or an already reached package resolves to their directory; a package manifest or `paths` alias alone does not establish ownership. Selection establishes the reachable package set before emitting material, so transitive links work independently of declaration order. Only newly supported external locations are represented by their installation paths (including pnpm’s internal layout when the entire `node_modules` is linked); already supported locations retain their existing identities. This preserves review and Cage lock digests when the same installation moves behind a link. No npm/pnpm/Yarn lockfile validation or missing-type warning mode is introduced. npm alias validation follows the actual installed link and dependency declaration. It records the target name and installed version; it does not independently validate semver ranges. Workspace membership is matched against declared paths, without scanning directories. Supported patterns use `*`, `?`, `**` and exclusions; brace expansion and YAML anchors are unsupported. The pnpm reader handles ordinary block lists and single-line flow lists. Declaration-only imports, closure bounds and unresolved-dependency errors apply equally to aliases and workspaces.
 
 - **Grouped diagnostics.** Structural checks attach a shared cause only when declaration identity and comparison evidence establish it. Grouping is presentation only: individual diagnostics and blocking counts remain intact. Human limits count groups, JSON limits count individual diagnostics; singleton and review messages retain their normal format.
@@ -402,7 +436,7 @@ What every diagnostic means and what to do about it; `cage codes` prints the sam
 - **Order of layers.** Declaration and tag errors do not stop type checking; only forbidden imports do, because the compiler would repeat them as unresolved modules or read a foreign file from disk. Every statement that names another module is an import: `export … from`, `import x = require(…)`. A `/// <reference>` at the start of a block is checked before the compiler.
 - **One mistake, one diagnostic.** Tags inside a rejected declaration are not reported as misplaced; `W_NO_INVARIANTS` is not given when invariants are written but rejected.
 - **`E_NO_CONTRACTS`** is reported only when the declarations have no other errors: otherwise it would be their consequence.
-- **Codes for rules without a code of their own.** A declaration without a marker, a non-exported declaration and forbidden `@ts-*` comments are `E_UNSUPPORTED_DECLARATION`. `@contract` / `@data` with text after the tag, or both markers at once, are `E_TAG_FORMAT`.
+- **Codes for rules without a code of their own.** A declaration without a marker, a non-exported declaration and forbidden `@ts-*` comments are `E_UNSUPPORTED_DECLARATION`. `@contract` / `@family` / `@data` with text after the tag, or both markers at once, are `E_TAG_FORMAT`.
 - **Interface merging.** TypeScript silently merges two interfaces with one name. In a design it is an error: two contracts are `E_CONTRACT_DUPLICATE`, otherwise `E_UNSUPPORTED_DECLARATION`.
 - **Cycles.** Every group of mutually dependent modules is reported once, by the shortest cycle through its first module.
 - **The conformance check.** For every implementation a file is created in memory next to it: type-only imports of the implementation and the contract, the expression `value satisfies design.Contract`, using the contract’s full inherited type. A compiler error on the expression becomes `E_TYPE_MISMATCH` at the implementation, with the compiler's explanation and a reference to the contract in the MDX. The import specifiers are chosen for the project's module resolution; when none resolves, the harness stops with an error instead of skipping the check. Nothing is written to disk. A second pass uses the same program and public Compiler API to compare the public API, both class surfaces and exact signatures. Private/protected state is excluded. Readonly modifiers follow intersection constituents; writable accessors compare their input types as well as their read types. Recursive pairs are cycle-guarded, and equivalent generic declarations and arguments provide a shortcut without unfolding library methods; other aliases fall back to their resolved members. For a generic growing against a fixed recursive shape, an argument-independent structural proof may establish equality without expanding forever; argument-dependent cases retain the explicit work/depth guard. Optional and default parameters are compared by the calls they accept, tuple labels are ignored while element kinds and readonly are retained, and conditional callbacks compare scoped type parameters and branches. No extra compiler program is created.

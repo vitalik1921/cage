@@ -74,7 +74,7 @@ try {
 
   // The installed CLI must load the project's compiler, including TS5, and retain honest test status counts.
   const matrixBase = project("compiler-matrix-base");
-  execFileSync("npm", ["install", "--silent", "--no-audit", "--no-fund", "--no-package-lock", "vitest@1.6.1", "zod@3.25.76"], { cwd: matrixBase, stdio: "inherit" });
+  execFileSync("npm", ["install", "--silent", "--no-audit", "--no-fund", "--no-package-lock", "vitest@1.6.1", "zod@3.25.76", "@types/express@5.0.3"], { cwd: matrixBase, stdio: "inherit" });
   for (const [compiler, version] of [["typescript-5", "5.9.3"], ["typescript", "6.0.3"]]) {
     const root = project(`structural-${version}`, matrixBase);
     fs.rmSync(path.join(root, "src"), { recursive: true });
@@ -145,6 +145,17 @@ try {
     assert.equal(check(null).counts.linkedInvariants, 2);
     fs.rmSync(path.join(root, "src/api.test.ts"));
     pass(`inherited promises TS${version}`, "copied contract API cannot drop promises; explicit extends requires the derived test link");
+    design(writer.replace("@contract", "@family"), contract("First extends Writer", ""), contract("Second extends Writer", ""));
+    write("src/impl.ts", '/** @implements First */\nexport class W {write():void{}}\n/** @implements Second */\nexport class S {write():void{}}');
+    write("src/api.test.ts", writerTest.replace("@tests Writer", "@tests First"));
+    check("E_TEST_MISSING");
+    write("src/api.test.ts", writerTest.replace("@tests Writer", "@tests First") + '/** @tests Second\n * @covers callable */\ntest("second",()=>assert.equal(typeof new S().write,"function"));');
+    assert.equal(check(null).counts.linkedInvariants, 2);
+    write("src/impl.ts", '/** @implements First */\nexport class W {write():void{}}\n/** @implements First */\nexport class S {write():void{}}');
+    check("E_IMPLEMENTATION_DUPLICATE");
+    fs.rmSync(path.join(root, "src/api.test.ts"));
+    pass(`contract families TS${version}`, "abstract base needs no implementation; each child needs its own linked evidence; ordinary duplicates still block");
+
     design(contract("Data", "get():{readonly size:number};"));
     write("src/impl.ts", 'type Row={readonly size:number};\n/** @implements Data */\nexport class Data {get():Row{return {size:1}}}');
     check(null);
@@ -172,6 +183,29 @@ try {
     write("src/impl.ts", 'import {z} from "zod";\n/** @implements Schema */\nexport const schema=z.object({id:z.number()});');
     check("E_TYPE_MISMATCH");
     pass(`package inheritance TS${version}`, "real Zod API inherits without copied methods; package declarations reach review; added API and changed field types block");
+    write(".cage/config.json", JSON.stringify({version:1,review:"off",coverage:"require",designImportableTypes:["src/vocabulary.ts#Payload","src/vocabulary.ts#WebhookRequest"]}));
+    write("src/.cageignore", "vocabulary.ts\n");
+    write("src/vocabulary.ts", 'import type {ZodString} from "zod";\nimport type {Request} from "express";\nexport type Payload={id:ZodString};\nexport type WebhookRequest=Request & {rawBody:Buffer};');
+    design('import type {ZodObject} from "zod";\nimport type {Payload} from "./vocabulary.ts";', contract('Schema extends ZodObject<Payload,"strip">', ""));
+    write("src/impl.ts", 'import {z} from "zod";\n/** @implements Schema */\nexport const schema=z.object({id:z.string()});');
+    check(null);
+    const vocabularyPacket = cage(root,"review","Schema","--format","json","--files","all");
+    assert.equal(vocabularyPacket.status,0,vocabularyPacket.stdout+vocabularyPacket.stderr);
+    assert.ok(json(vocabularyPacket).files.some(file=>file.path==="src/vocabulary.ts"));
+    write("src/impl.ts", 'import {z} from "zod";\n/** @implements Schema */\nexport const schema=Object.assign(z.object({id:z.string()}),{surplus:():void=>{}});');
+    check("E_CONTRACT_EXTRA_MEMBER");
+    write("src/impl.ts", 'import {z} from "zod";\n/** @implements Schema */\nexport const schema=z.object({id:z.number()});');
+    check("E_TYPE_MISMATCH");
+    design('import type {WebhookRequest} from "./vocabulary.ts";', contract("Webhook", "handle(req:WebhookRequest):void;"));
+    write("src/impl.ts", 'import type {Request} from "express";\n/** @implements Webhook */\nexport class Webhook {handle(req:Request & {rawBody:Buffer}):void{}}');
+    check(null);
+    write("src/impl.ts", 'import type {Request} from "express";\n/** @implements Webhook */\nexport class Webhook {handle(req:Request & {rawBody:string}):void{}}');
+    check("E_TYPE_MISMATCH");
+    fs.rmSync(path.join(root,"src/vocabulary.ts"));
+    fs.rmSync(path.join(root,"src/.cageignore"));
+    config("node:test");
+    pass(`project vocabulary TS${version}`, "real Zod with project shape and Express recursive intersection pass; wrong field/member/Buffer shape still block");
+
     // Alias identity comes from the installed package and the dependency declaration, not the import spelling.
     const manifestPath = path.join(root, "package.json");
     const packageManifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));

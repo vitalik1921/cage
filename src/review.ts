@@ -301,7 +301,7 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
   let ok = true;
   const selected: Contract[] = [];
   for (const name of names) {
-    const contract = index.contracts.find((candidate) => candidate.name === name);
+    const contract = index.contracts.find((candidate) => !candidate.family && candidate.name === name);
     if (contract) {
       if (!selected.includes(contract)) selected.push(contract);
     } else {
@@ -422,7 +422,7 @@ export function runReviewIndex(options: ImplementationPhaseOptions, selection: "
   });
   if (!index) return report([]);
   const entries: ReviewIndexEntry[] = [];
-  for (const contract of [...index.contracts].sort((a, b) => compareText(a.module, b.module) || compareText(a.name, b.name))) {
+  for (const contract of index.contracts.filter((contract) => !contract.family).sort((a, b) => compareText(a.module, b.module) || compareText(a.name, b.name))) {
     const material = materialOf(contract.name);
     // Unreadable dependencies are errors; configured scope bounds are not diagnostics.
     diagnostics.push(...materialErrors(material).filter((diagnostic) => !diagnostics.some((known) => known.code === diagnostic.code && known.contract === diagnostic.contract && known.file === diagnostic.file)));

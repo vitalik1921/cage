@@ -435,6 +435,9 @@ export function shapeChecker(ts: TypeScript, checker: ts.TypeChecker) {
         !(checker.isTypeAssignableTo(a, b) && checker.isTypeAssignableTo(b, a))) { limited = true; return false; }
       return true;
     }
+    // Equal constituents prove equal intersections without expanding recursive library APIs (Express Request).
+    // This is exact comparison, including each added field's modifiers and signature, never assignability fallback.
+    if (a.isIntersection() && b.isIntersection() && sameParts(a.types, b.types, eq)) return true;
     const ag = generic(a), bg = generic(b);
     if (ag && bg && ag.target === bg.target) {
       if (ag.arguments.length === bg.arguments.length && ag.arguments.every((t, i) => eq(t, bg.arguments[i]))) return true;

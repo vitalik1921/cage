@@ -16,7 +16,7 @@ import type { Overlay, TypeScript } from "./typescript.ts";
 export const PACKAGE_TYPES_LIMITS = { files: 1000, bytes: 32 * 1024 * 1024 };
 
 /** What resolving a design's package import found: the installed package and its declaration closure. */
-export type PackageEntry = Pick<PackageImport, "name" | "version" | "directory" | "files" | "resolution" | "resolutionFile">;
+export type PackageEntry = Pick<PackageImport, "name" | "version" | "directory" | "files" | "resolution" | "resolutionFile" | "origin">;
 
 export type PackageResolution = { entry: PackageEntry } | { problem: string };
 
@@ -91,8 +91,17 @@ export function createPackageTypesResolver(
   overlay: Pick<Overlay, "resolveModuleFull" | "resolveTypeReference" | "createProgram">,
   program: ts.Program,
   options: ts.CompilerOptions,
+  projectTypes: readonly string[] = [],
 ): PackageTypesResolver {
   const realRoot = realpath(path.resolve(root));
+  const vocabulary = new Map<string, Set<string>>();
+  for (const entry of projectTypes) {
+    const at = entry.lastIndexOf("#");
+    const file = realpath(path.resolve(root, entry.slice(0, at)));
+    if (!within(realRoot, file) || file.split(path.sep).includes("node_modules")) continue;
+    vocabulary.set(file, new Set([...(vocabulary.get(file) ?? []), entry.slice(at + 1)]));
+  }
+  const project: Installed = { name: "project", folder: "project", version: "", directory: realRoot };
   const manifests = new Map<string, Installed | string>();
   const nodes = new Map<string, FileNode | string>();
   const ids = new Map<string, string>();
@@ -277,18 +286,20 @@ export function createPackageTypesResolver(
   };
 
   /** One declaration file: its identity, text, digest and what it depends on; or why a design may not reach it. */
-  const nodeOf = (fileName: string): FileNode | string => {
-    const known = nodes.get(fileName);
+  const nodeOf = (fileName: string, allowProject = false): FileNode | string => {
+    const key = `${allowProject}\n${fileName}`;
+    const known = nodes.get(key);
     if (known !== undefined) return known;
     const real = realpath(fileName);
-    const installed = installedAt(real);
+    const local = allowProject && within(realRoot, real) && !real.split(path.sep).includes("node_modules");
+    const installed = local ? project : installedAt(real);
     let node: FileNode | string;
     if (typeof installed === "string") node = installed;
     else {
-      const id = `${installed.name}@${installed.version}/${path.relative(installed.directory, real).split(path.sep).join("/")}`;
+      const id = `${local ? "project" : `${installed.name}@${installed.version}`}/${path.relative(installed.directory, real).split(path.sep).join("/")}`;
       // Only a file of the program has the bindings the checker follows; a declaration file a design reaches is one.
-      const sourceFile = isDeclarationFile(real) ? program.getSourceFile(fileName) : undefined;
-      if (!isDeclarationFile(real)) node = `${id}, which is not a declaration file: a design takes a package's types from its declarations, never its source or JavaScript`;
+      const sourceFile = local || isDeclarationFile(real) ? program.getSourceFile(fileName) : undefined;
+      if (!local && !isDeclarationFile(real)) node = `${id}, which is not a declaration file: a design takes a package's types from its declarations, never its source or JavaScript`;
       else if (!sourceFile) node = `${id}, which the compiler did not load`;
       else {
         node = { file: { id, file: shown(real), digest: declarationDigest(ts, sourceFile), text: sourceFile.text.replace(/\r\n?/g, "\n"), routing: [] }, installed };
@@ -296,7 +307,7 @@ export function createPackageTypesResolver(
         ids.set(real, id);
       }
     }
-    nodes.set(fileName, node);
+    nodes.set(key, node);
     return node;
   };
 
@@ -354,7 +365,7 @@ export function createPackageTypesResolver(
   };
 
   /** Every selected file is checked for package provenance before entering the review material. */
-  const closure = (entry: string, entered: Installed, selection: PackageSelection): PackageTypesFile[] | string => {
+  const closure = (entry: string, entered: Installed, selection: PackageSelection, allowProject = false): PackageTypesFile[] | string => {
     const files: PackageTypesFile[] = [];
     const aliased = new Map<string, Installed>();
     // Establish the reachable package set before emitting paths or caching failures. A dependency can occur
@@ -367,11 +378,11 @@ export function createPackageTypesResolver(
     }
     let bytes = 0;
     for (const next of new Set([entry, ...selection.dependencies])) {
-      const node = nodeOf(next);
+      const node = nodeOf(next, allowProject);
       if (typeof node === "string") return node;
       const routing = (selection.routing.get(next) ?? []).map((route) => {
         const [kind, specifier, mode, target] = JSON.parse(route) as [string, string, string, string];
-        const routed = nodeOf(target);
+        const routed = nodeOf(target, allowProject);
         return JSON.stringify([kind, specifier, mode, typeof routed === "string" ? target : routed.file.id, shown(realpath(target))]);
       });
       files.push({ ...node.file, routing });
@@ -392,8 +403,16 @@ export function createPackageTypesResolver(
   return {
     resolve(specifier, fromFile, mode) {
       const name = packageNameOf(specifier);
-      if (name === undefined) return undefined;
+      if (name === undefined && vocabulary.size === 0) return undefined;
       const resolved = overlay.resolveModuleFull(specifier, fromFile, mode);
+      const allowed = resolved && vocabulary.get(realpath(resolved.resolvedFileName));
+      if (resolved && allowed && !resolved.isExternalLibraryImport) {
+        const file = realpath(resolved.resolvedFileName);
+        const node = nodeOf(resolved.resolvedFileName, true);
+        if (typeof node === "string") return { problem: node };
+        return { entry: { origin: "project", name: `project:${shown(file)}`, version: "", directory: shown(file), resolution: node.file.id, resolutionFile: shown(file), files: [] } };
+      }
+      if (name === undefined) return undefined;
       if (!resolved) return { problem: "resolves to no installed package's types: install the package, or correct the specifier" };
       const real = realpath(resolved.resolvedFileName);
       const installed = installedAt(real);
@@ -419,14 +438,30 @@ export function createPackageTypesResolver(
       const rootFile = overlay.resolveModuleFull(specifier, fromFile, mode)?.resolvedFileName;
       const sourceFile = rootFile && program.getSourceFile(rootFile);
       if (!sourceFile) return { problem: "has no declaration entry point loaded by the compiler" };
-      const entered = installedAt(realpath(rootFile));
+      const isProject = resolved.entry.origin === "project";
+      const entered = isProject ? project : installedAt(realpath(rootFile));
       if (typeof entered === "string") return { problem: entered };
+      if (isProject) {
+        const allowed = vocabulary.get(realpath(rootFile))!;
+        const checker = program.getTypeChecker();
+        const module = checker.getSymbolAtLocation(sourceFile);
+        const exported = module ? checker.getExportsOfModule(module) : [];
+        for (const name of names) {
+          if (!allowed.has(name)) return { problem: `${name} is not designated in designImportableTypes` };
+          const binding = exported.find((symbol) => symbol.name === name);
+          const symbol = binding && binding.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(binding) : binding;
+          if (!symbol || !(symbol.flags & (ts.SymbolFlags.TypeAlias | ts.SymbolFlags.Interface | ts.SymbolFlags.Enum))) {
+            return { problem: `${name} must export a type alias, interface or enum; runtime functions, objects and classes cannot be imported as contract vocabulary` };
+          }
+        }
+      }
       const selection = selectPackageDependencies(
         ts, program.getTypeChecker(), program, sourceFile, names,
         (module, from, usageMode) => overlay.resolveModuleFull(module, from, usageMode)?.resolvedFileName,
         (name, from, usageMode) => overlay.resolveTypeReference(name, from, usageMode)?.resolvedFileName,
+        isProject,
       );
-      const files = closure(rootFile, entered, selection);
+      const files = closure(rootFile, entered, selection, isProject);
       if (typeof files === "string") return { problem: `is not supported: its declarations reach ${files}` };
       const invalid = diagnostics.diagnosticsFor(selection)[0];
       if (invalid) {
@@ -560,7 +595,7 @@ export function typesDigest(imports: readonly PackageImport[]): string {
  * the package imports they come from. A package the module imports but nothing of this reaches is not recorded.
  * `designs` maps each design's generated file to its module.
  */
-export function capturePackageLocks(ts: TypeScript, checker: ts.TypeChecker, index: DesignIndex, designs: ReadonlyMap<ts.SourceFile, string>): void {
+export function capturePackageLocks(ts: TypeScript, checker: ts.TypeChecker, index: DesignIndex, designs: ReadonlyMap<ts.SourceFile, string>, writtenSpecifier: (specifier: ts.StringLiteralLike, file: ts.SourceFile) => string = (specifier) => specifier.text): void {
   const topLevel = (node: ts.Node): ts.Node | undefined => {
     let statement = node;
     while (statement.parent && !ts.isSourceFile(statement.parent)) statement = statement.parent;
@@ -571,7 +606,7 @@ export function capturePackageLocks(ts: TypeScript, checker: ts.TypeChecker, ind
     const statement = topLevel(declaration);
     const module = designs.get(declaration.getSourceFile());
     if (!statement || module === undefined || !ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) return undefined;
-    const specifier = statement.moduleSpecifier.text;
+    const specifier = writtenSpecifier(statement.moduleSpecifier, declaration.getSourceFile());
     return index.packages.find((entry) => entry.module === module && entry.specifier === specifier);
   };
   for (const locked of index.locked) {
@@ -649,10 +684,10 @@ export function packageMaterial(imports: readonly PackageImport[]): { text: stri
   const sorted = [...imports].sort((a, b) => compareText(a.module, b.module) || compareText(a.specifier, b.specifier));
   const files = collectedFiles(sorted)
     .sort((a, b) => compareText(a.id, b.id) || compareText(a.file, b.file));
-  const versions = [...new Set(sorted.map((entry) => `${entry.name}@${entry.version}`))].sort(compareText);
+  const versions = [...new Set(sorted.map((entry) => entry.origin === "project" ? entry.name : `${entry.name}@${entry.version}`))].sort(compareText);
   const declared = [...new Set(sorted.flatMap((entry) => entry.declarations.map((declaration) => `${declaration.name}: ${declaration.id}:${declaration.line}`)))];
   const lines = [
-    `package ${versions.join(", ")}: types only, never executed`,
+    `${sorted[0]?.origin === "project" ? "project vocabulary" : "package"} ${versions.join(", ")}: types only, never executed`,
     ...sorted.map((entry) => `imported by ${entry.module}: "${entry.specifier}" -> ${entry.resolution} (${entry.resolutionFile}); ${entry.names.length > 0 ? entry.names.join(", ") : "(no name used)"}`),
     ...(declared.length > 0 ? ["declared at:", ...declared] : []),
     "declaration files (each one in the material):",

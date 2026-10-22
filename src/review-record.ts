@@ -167,7 +167,7 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
   const code = (name: string) => `${level === "require" ? "E" : "W"}_REVIEW_${name}`;
   const { read } = createFileReader(root, diagnostics, result.linking?.sources);
 
-  for (const contract of index.contracts) {
+  for (const contract of index.contracts.filter((contract) => !contract.family)) {
     const subject = `contract "${contract.name}"`;
     const entry = reviews.entries.find((candidate) => candidate.module === contract.module && candidate.contract === contract.name);
     status.set(contract.name, { findings: null, accepted: false });
@@ -226,7 +226,7 @@ export function checkReviews(root: string, result: ImplementationPhaseResult, le
   }
   // An entry that no contract answers to any more says nothing about the designs; it goes when the next verdict is recorded.
   for (const entry of reviews.entries) {
-    if (index.contracts.some((contract) => contract.module === entry.module && contract.name === entry.contract)) continue;
+    if (index.contracts.some((contract) => !contract.family && contract.module === entry.module && contract.name === entry.contract)) continue;
     diagnostics.push({
       code: code("STALE"),
       severity,
@@ -316,7 +316,7 @@ export function recordVerdicts(options: ImplementationPhaseOptions, verdictsFile
   const entries = new Map(existing.entries.map((entry) => [keyOf(entry), entry]));
   const recorded: RecordReport["recorded"] = [];
   for (const [order, verdict] of given.entries()) {
-    const contract = result.index.contracts.find((candidate) => candidate.name === verdict.contract);
+    const contract = result.index.contracts.find((candidate) => !candidate.family && candidate.name === verdict.contract);
     const problem = (message: string) => diagnostics.push({ code: "E_REVIEW_VERDICT", severity: "error", message, file: verdictsPath, contract: verdict.contract });
     if (!contract) {
       diagnostics.push({ code: "E_REFERENCE_UNKNOWN", severity: "error", message: `no contract "${verdict.contract}"`, file: verdictsPath });
@@ -363,7 +363,7 @@ export function recordVerdicts(options: ImplementationPhaseOptions, verdictsFile
   }
   if (hasErrors(diagnostics)) return report([]);
   for (const [key, entry] of entries) {
-    if (result.index.contracts.some((contract) => contract.module === entry.module && contract.name === entry.contract)) continue;
+    if (result.index.contracts.some((contract) => !contract.family && contract.module === entry.module && contract.name === entry.contract)) continue;
     entries.delete(key);
     removed.push({ module: entry.module, contract: entry.contract });
   }
@@ -434,11 +434,11 @@ export function acceptContracts(options: ImplementationPhaseOptions, names: read
   const { index } = result;
   let selected: typeof index.contracts;
   if (names === "needed" || names === "all") {
-    selected = [...index.contracts];
+    selected = index.contracts.filter((contract) => !contract.family);
   } else {
     selected = [];
     for (const name of names) {
-      const contract = index.contracts.find((candidate) => candidate.name === name);
+      const contract = index.contracts.find((candidate) => !candidate.family && candidate.name === name);
       if (!contract) diagnostics.push({ code: "E_REFERENCE_UNKNOWN", severity: "error", message: `no contract "${name}"` });
       else if (!selected.includes(contract)) selected.push(contract);
     }
@@ -472,7 +472,7 @@ export function acceptContracts(options: ImplementationPhaseOptions, names: read
   }
   if (hasErrors(diagnostics)) return report([]);
   for (const [key, entry] of entries) {
-    if (index.contracts.some((contract) => contract.module === entry.module && contract.name === entry.contract)) continue;
+    if (index.contracts.some((contract) => !contract.family && contract.module === entry.module && contract.name === entry.contract)) continue;
     entries.delete(key);
     removed.push({ module: entry.module, contract: entry.contract });
   }

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.10.0
+
+### Added
+
+- Explicit `designImportableTypes` entries let designs import designated project aliases, interfaces and enums. Their transitive dependencies, including inferred schema values and ambient augmentations, participate in reviews and locks without weakening exact signature checks.
+- `@family` declares an abstract shared contract. Named concrete contracts inherit its API and invariants while retaining separate implementations, test links and review verdicts. Ordinary duplicate implementations remain errors.
+
+### Fixed
+
+- Equal recursive intersections compare exact constituent types before unfolding library members, so Express request intersections can be checked without an assignability fallback.
+- Inherited package API provenance follows resolved package identity, including symlinked installations; designated project vocabulary may also serve as an explicit base.
+
 ## 0.9.2
 
 ### Fixed

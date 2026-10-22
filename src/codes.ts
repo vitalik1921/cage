@@ -13,7 +13,7 @@ export const CODES: Record<string, { means: string; then: string }> = {
   E_DESIGN_BLOCK_EMPTY: { means: "a ts design block has no code", then: "declare the contracts in it, or remove it" },
   E_DESIGN_BLOCK_LOCATION: { means: "a ts design block is indented or nested; only top-level unindented blocks count", then: "move it to the top level" },
   E_DESIGN_BLOCK_MARKER: { means: "the design marker is on a block whose language is not ts", then: "make it ```ts design" },
-  E_DESIGN_IMPORT: { means: "a design imports values, source code or unavailable declaration dependencies", then: "use import type from a design or an installed package with complete declarations" },
+  E_DESIGN_IMPORT: { means: "a design imports values, non-designated source or unavailable type dependencies", then: "use import type from a design, installed package or designated project type export" },
   E_DESIGN_OUT_OF_SCOPE: { means: "a block imports a design document the designs patterns do not cover", then: "widen the patterns, or do not import it" },
   E_DESIGN_CYCLE: { means: "modules depend on each other in a cycle through @uses or type imports", then: "break the cycle" },
   W_BUSINESS_CONTEXT_MISSING: { means: "a module's documents have no prose; a reviewer judges contracts against business rules", then: "write the purpose and the rules in prose" },
@@ -34,6 +34,7 @@ export const CODES: Record<string, { means: string; then: string }> = {
   E_TYPESCRIPT: { means: "the compiler rejects a ts design block or a file with @implements", then: "fix the type error" },
   W_WEAK_TYPECHECK: { means: "strictNullChecks, strictFunctionTypes or noImplicitAny is off; implementations are compared more loosely", then: "turn them on in tsconfig" },
   // Implementations.
+  E_FAMILY_BINDING: { means: "a family is bound directly to an implementation", then: "extend it with a concrete @contract; bind implementations and tests to that contract" },
   E_IMPLEMENTATION_MISSING: { means: "no exported class, function or const is marked @implements for the contract", then: "tag the implementation" },
   E_IMPLEMENTATION_DUPLICATE: { means: "a contract has more than one direct implementation; one contract, one implementation", then: "keep @implements on one declaration; give the other its own contract" },
   E_TYPE_MISMATCH: { means: "the compiler does not accept the implementation where the contract is expected; its explanation follows", then: "fit the implementation to the contract, or change the contract" },

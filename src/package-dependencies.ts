@@ -34,6 +34,7 @@ export function selectPackageDependencies(
   names: readonly string[],
   resolveModule: (specifier: string, fromFile: string, mode: ts.ResolutionMode) => string | undefined,
   resolveTypes: (name: string, fromFile: string, mode: ts.ResolutionMode) => string | undefined,
+  followSourceValues = false,
 ): PackageSelection {
   const declarations = new Map<string, ts.Node[]>();
   const dependencies = new Set<string>([entry.fileName]);
@@ -179,6 +180,11 @@ export function selectPackageDependencies(
     if (root !== member) for (const binding of checker.getSymbolAtLocation(root)?.declarations ?? []) missingImport(binding);
   };
   const visit = (node: ts.Node): void => {
+    // Inferred source types (typeof schema, factory results) depend on value initializers and their helpers too.
+    if (followSourceValues && !node.getSourceFile().isDeclarationFile && ts.isIdentifier(node)) {
+      const symbol = checker.getSymbolAtLocation(node);
+      if (symbol) follow(symbol);
+    }
     if (ts.isTypeReferenceNode(node)) followName(node.typeName);
     else if (ts.isExpressionWithTypeArguments(node)) {
       const expression = node.expression;

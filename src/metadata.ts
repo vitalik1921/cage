@@ -12,7 +12,7 @@ export interface DocTag {
 }
 
 /** Tags that bind code to a design, or parts of a design to each other. */
-export const BINDING_TAGS: ReadonlySet<string> = new Set(["contract", "data", "uses", "invariant", "implements", "implements-static", "tests", "covers"]);
+export const BINDING_TAGS: ReadonlySet<string> = new Set(["contract", "family", "data", "uses", "invariant", "implements", "implements-static", "tests", "covers"]);
 
 /** How far a declaration of a design may change: not at all, or only by additions. Without either it is open. */
 export const LOCK_TAGS: ReadonlySet<string> = new Set(["final", "extendable"]);

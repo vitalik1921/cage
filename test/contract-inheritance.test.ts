@@ -497,7 +497,7 @@ function packageBases(t: TestContext, compiler: string, design: string) {
   const semantic = program.getSemanticDiagnostics(sourceFile).map((diagnostic) => typescript.flattenDiagnosticMessageText(diagnostic.messageText, "\n"));
   // What the design phase would say about the import is not the subject here.
   const { index } = indexDesigns(typescript, designs, () => ({ moduleId: "pkg", documents: [] }));
-  const diagnostics = resolveInheritance(typescript, program.getTypeChecker(), designs, index);
+  const diagnostics = resolveInheritance(typescript, program.getTypeChecker(), designs, index, (file) => file === path.join(root, "node_modules/pkg/index.d.ts") ? { kind: "package", module: "pkg" } : undefined);
   return { index, diagnostics, semantic, version: typescript.version, position: (needle: string) => ({ file: "design.ts", ...find(design, needle) }) };
 }
 
