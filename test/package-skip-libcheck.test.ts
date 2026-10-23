@@ -63,7 +63,7 @@ test("package diagnostics honor the selected tsconfig and inherited skipLibCheck
 
 /** @tests Cli
  * @covers package-types exact-signatures gate */
-test("skipping a dependency's type errors never skips contract comparison or missing dependency checks", (t) => {
+test("skipping a dependency's type errors never skips contract comparison or missing direct design imports", (t) => {
   for (const compiler of compilers) {
     const root = project(t, compiler, true, true);
     assert.equal(cli(root, "gate").code, 0);
@@ -71,7 +71,7 @@ test("skipping a dependency's type errors never skips contract comparison or mis
     const drift = JSON.parse(cli(root, "check", "--format", "json").stdout) as CheckReport;
     assert.ok(drift.diagnostics.some(({ code }) => code === "E_TYPE_MISMATCH"));
     assert.equal(cli(root, "gate").code, 2);
-    writeFile(root, "node_modules/database-kit/index.d.ts", 'export type Database = import("missing-database-driver").Database;\n');
+    writeFile(root, "src/reader/reader.cage.mdx", mdx('import type {Database} from "missing-database-driver";', contract("Reader", "read():Database;")));
     const missing = JSON.parse(cli(root, "check", "--format", "json").stdout) as CheckReport;
     assert.ok(missing.diagnostics.some(({ code }) => code === "E_DESIGN_IMPORT"));
     assert.equal(cli(root, "gate").code, 2);
@@ -93,10 +93,29 @@ test("missing selected imports retain their compiler diagnostic anchors for ever
       for (const suppression of ["", "// @ts-ignore\n", "// @ts-expect-error\n", "// @ts-nocheck\n"]) {
         writeFile(root, "node_modules/database-kit/index.d.ts", `${suppression}${binding}\nexport type Database = ${selected};\n`);
         const errors = check();
-        assert.equal(errors.some(({ code }) => code === "E_DESIGN_IMPORT"), suppression === "", `${compiler}, skipLibCheck=${skipLibCheck}: ${suppression}${binding}: ${JSON.stringify(errors)}`);
+        assert.equal(errors.some(({ code }) => code === "E_DESIGN_IMPORT"), !skipLibCheck && suppression === "", `${compiler}, skipLibCheck=${skipLibCheck}: ${suppression}${binding}: ${JSON.stringify(errors)}`);
       }
       writeFile(root, "node_modules/database-kit/index.d.ts", `${binding}\nexport interface Database { id: string; }\n`);
       assert.deepEqual(check(), [], "an unused missing import does not affect the selected shape");
     }
+  }
+});
+
+/** @tests Cli
+ * @covers package-types project-vocabulary exact-signatures gate */
+test("missing package bindings recover like tsc while other fields, own declarations and direct imports remain strict", t => {
+  for (const compiler of compilers) {
+    const root = project(t, compiler, true, true);
+    writeFile(root, "node_modules/database-kit/index.d.ts", 'import type {Browser} from "absent-browser";export interface Database{browser:Browser;id:string}');
+    assert.equal(cli(root, "gate").code, 0);
+    writeFile(root, "src/reader/reader.ts", 'import type {Database} from "database-kit";declare const value:Database;\n/** @implements Reader */\nexport class Reader{read():{browser:Database["browser"];id:number}{return {browser:value.browser,id:1}}}');
+    const errors = () => (JSON.parse(cli(root,"check","--format","json").stdout) as CheckReport).diagnostics.filter(d=>d.severity==="error");
+    assert.ok(errors().some(d=>d.code==="E_TYPE_MISMATCH"));
+    assert.equal(cli(root, "gate").code, 2);
+    writeFile(root, ".cage/config.json", JSON.stringify({version:1,tsconfig:"tsconfig.app.json",review:"off",coverage:"off",designImportableTypes:["src/vocab.d.ts#Database"]}));
+    writeFile(root, "src/vocab.d.ts", 'import type {Gone} from "absent-own-type";export type Database={browser:Gone};');
+    writeFile(root, "src/reader/reader.cage.mdx", mdx('import type {Database} from "../vocab.d.ts";',contract("Reader","read():Database;")));
+    assert.ok(errors().some(d=>d.code==="E_DESIGN_IMPORT"));
+    assert.equal(cli(root, "gate").code, 2);
   }
 });

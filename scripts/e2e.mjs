@@ -183,6 +183,42 @@ try {
     write("src/impl.ts", 'import {z} from "zod";\n/** @implements Schema */\nexport const schema=z.object({id:z.number()});');
     check("E_TYPE_MISMATCH");
     pass(`package inheritance TS${version}`, "real Zod API inherits without copied methods; package declarations reach review; added API and changed field types block");
+
+    const payloadRules = contract("PayloadRules", "", "valid accepts a valid payload").replace("@contract", "@family");
+    const instanceContract = contract('Schema extends PayloadRules, ZodObject<{id:ZodString},"strip">', "").replace("@contract", "@contract\n * @package-instance");
+    design('import type {ZodObject,ZodString} from "zod";', payloadRules, instanceContract);
+    const instanceSource = 'import {z} from "zod";\n/** @implements Schema */\nexport const schema=z.object({id:z.string()});';
+    write("src/impl.ts", instanceSource);
+    write("src/api.test.ts", 'import {test} from "node:test";import assert from "node:assert/strict";import {schema} from "./impl.ts";\n/** @tests Schema\n * @covers valid */\ntest("valid payload",()=>assert.equal(schema.safeParse({id:"x"}).success,true));');
+    assert.equal(check(null).counts.linkedInvariants, 1);
+    const executed = sh(process.execPath, ["--test", "src/api.test.ts"], { cwd: root });
+    assert.equal(executed.status, 0, executed.stdout + executed.stderr);
+    write("src/impl.ts", instanceSource.replace('id:z.string()', 'id:z.number()'));
+    check("E_CONTRACT_SIGNATURE");
+    write("src/impl.ts", instanceSource.replace('z.object({id:z.string()})', 'Object.assign(z.object({id:z.string()}),{surplus():void{}})'));
+    check("E_CONTRACT_EXTRA_MEMBER");
+    write("src/impl.ts", instanceSource.replace('z.object({id:z.string()})', 'Object.assign(z.object({id:z.string()}),{safeParse(input:unknown):{success:boolean}{return {success:true}}})'));
+    check("E_CONTRACT_EXTRA_MEMBER");
+    write("src/impl.ts", instanceSource);
+    design('import type {ZodObject,ZodString} from "zod";', payloadRules, instanceContract.replace('{}', '{safeParse(input:string):ReturnType<ZodObject<{id:ZodString},"strip">["safeParse"]>;}'));
+    check("E_CONTRACT_SIGNATURE");
+    fs.rmSync(path.join(root, "src/api.test.ts"));
+    pass(`explicit package instance TS${version}`, "real Zod with memberless family passes and its linked test runs; shape, added members, overridden methods and declared signature drift block");
+
+    design(contract("Rules", "", "identity returns input").replace("@contract", "@family"), contract("One extends Rules", "(input:string):string;"), contract("Two extends Rules", "(input:string,label:string):string;"));
+    write("src/impl.ts", '/** @implements One */\nexport const one=(input:string):string=>input;\n/** @implements Two */\nexport const two=(input:string,label:string):string=>input;');
+    write("src/api.test.ts", 'import {test} from "node:test";import assert from "node:assert/strict";import {one,two} from "./impl.ts";\n/** @tests One\n * @covers identity */\ntest("one",()=>assert.equal(one("x"),"x"));\n/** @tests Two\n * @covers identity */\ntest("two",()=>assert.equal(two("x","label"),"x"));');
+    assert.equal(check(null).counts.linkedInvariants, 2);
+    write("src/impl.ts", '/** @implements One */\nexport const one=(input:string):string=>input;\n/** @implements Two */\nexport const two=(input:string,label?:string):string=>input;');
+    check("E_CONTRACT_SIGNATURE");
+    design(contract("Lifecycle", "run():string;", "value returns the hook value"));
+    write("src/impl.ts", '/** @implements Lifecycle */\nexport abstract class Base {protected abstract value():string;run():string{return this.value()}}');
+    write("src/api.test.ts", 'import {test} from "node:test";import assert from "node:assert/strict";import {Base} from "./impl.ts";class Probe extends Base{protected value():string{return "x"}}\n/** @tests Lifecycle\n * @covers value */\ntest("lifecycle",()=>assert.equal(new Probe().run(),"x"));');
+    check(null);
+    write("src/impl.ts", '/** @implements Lifecycle */\nexport abstract class Base {abstract extra():void;protected abstract value():string;run():string{return this.value()}}');
+    check("E_CONTRACT_EXTRA_MEMBER");
+    fs.rmSync(path.join(root, "src/api.test.ts"));
+    pass(`memberless families and abstract bases TS${version}`, "different arities and a tested abstract lifecycle pass; signature drift and undeclared abstract API block");
     write(".cage/config.json", JSON.stringify({version:1,review:"off",coverage:"require",designImportableTypes:["src/vocabulary.ts#Payload","src/vocabulary.ts#WebhookRequest"]}));
     write("src/.cageignore", "vocabulary.ts\n");
     write("src/vocabulary.ts", 'import type {ZodString} from "zod";\nimport type {Request} from "express";\nexport type Payload={id:ZodString};\nexport type WebhookRequest=Request & {rawBody:Buffer};');
@@ -274,10 +310,10 @@ try {
         ['export type Safe = {id:string}["missing"];\n', skipLibCheck ? null : "E_DESIGN_IMPORT"],
         ['type Box<T> = {value:T};\nexport type Safe = Box;\n', skipLibCheck ? null : "E_DESIGN_IMPORT"],
         ['interface SQLWrapper {getSQL():string;}\nexport declare class Safe implements SQLWrapper {all():string;}\n', skipLibCheck ? null : "E_DESIGN_IMPORT"],
-        ['export type Safe = import("missing-driver").Safe;\n', "E_DESIGN_IMPORT"],
-        ['import type Gone from "missing-driver";\nexport type Safe = Gone;\n', "E_DESIGN_IMPORT"],
-        ['import type * as Gone from "missing-driver";\nexport type Safe = Gone.Safe;\n', "E_DESIGN_IMPORT"],
-        ['import Gone = require("missing-driver");\nexport type Safe = Gone.Safe;\n', "E_DESIGN_IMPORT"],
+        ['export type Safe = import("missing-driver").Safe;\n', skipLibCheck ? null : "E_DESIGN_IMPORT"],
+        ['import type Gone from "missing-driver";\nexport type Safe = Gone;\n', skipLibCheck ? null : "E_DESIGN_IMPORT"],
+        ['import type * as Gone from "missing-driver";\nexport type Safe = Gone.Safe;\n', skipLibCheck ? null : "E_DESIGN_IMPORT"],
+        ['import Gone = require("missing-driver");\nexport type Safe = Gone.Safe;\n', skipLibCheck ? null : "E_DESIGN_IMPORT"],
       ]) {
         write("node_modules/declaration-probe/index.d.ts", text);
         check(expected);
@@ -289,7 +325,7 @@ try {
     write("src/impl.ts", '/** @implements DeclarationPort */\nexport class Reader {read():number{return 1;}}');
     check("E_TYPE_MISMATCH");
     write("src/impl.ts", 'import type {Safe} from "declaration-probe";\n/** @implements DeclarationPort */\nexport class Reader {read():Safe{throw new Error("fixture");}}');
-    pass(`selected declaration diagnostics TS${version}`, "project skipLibCheck controls selected library type errors; unrelated declarations and effective suppressions pass; signature drift and missing dependencies still block");
+    pass(`selected declaration diagnostics TS${version}`, "project skipLibCheck controls selected library type errors; unrelated declarations and effective suppressions pass; signature drift still blocks; missing internal references follow skipLibCheck");
 
     // Both entry files already belong to the closure. Changing resolution alone must still break a final lock.
     write("node_modules/declaration-probe/index.d.ts", 'import type {} from "./other.js";\nexport interface Safe {id:string;}\n');

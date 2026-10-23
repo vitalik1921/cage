@@ -240,7 +240,6 @@ test("@implements needs an exported, named class, function or const", (t) => {
     "default-class": "/** @implements Store */\nexport default class DefaultStore {}\n",
     "default-value": "const store = {};\n/** @implements Store */\nexport default store;\n",
     local: "/** @implements Store */\nclass LocalStore {}\nexport { LocalStore };\n",
-    abstract: "/** @implements Store */\nexport abstract class AbstractStore {}\n",
     generic: "/** @implements Store */\nexport class GenericStore<T, U = string> {\n  value?: T;\n  other?: U;\n}\n",
     overloaded: "export function clean(input: string): string;\n/** @implements CleanTitle */\nexport function clean(input: string, extra?: number): string {\n  return input + String(extra);\n}\n",
     destructured: "/** @implements Store */\nexport const { store } = { store: {} };\n",
@@ -312,7 +311,7 @@ test("a rejected @implements is one error: its contract is not also reported as 
     { m: mdx(STORE, CLEAN) },
     {
       "src/m/contracts.test.ts": TESTS,
-      "src/m/abstract-store.ts": "/** @implements Store */\nexport abstract class AbstractStore {}\n",
+      "src/m/abstract-store.ts": "/** @implements Store */\nexport abstract class AbstractStore<T> {}\n",
       "src/m/ambient.ts": "/** @implements CleanTitle */\nexport declare function clean(input: string): string;\n",
     },
   );

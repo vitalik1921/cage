@@ -57,7 +57,6 @@ export function readImplementations(ts: TypeScript, sourceFile: ts.SourceFile, f
     return {
       exported: kinds.includes(ts.SyntaxKind.ExportKeyword) && !kinds.includes(ts.SyntaxKind.DefaultKeyword),
       declared: kinds.includes(ts.SyntaxKind.DeclareKeyword),
-      abstract: kinds.includes(ts.SyntaxKind.AbstractKeyword),
     };
   };
 
@@ -74,11 +73,10 @@ export function readImplementations(ts: TypeScript, sourceFile: ts.SourceFile, f
 
   /** The exported name and kind of a statement that can implement a contract, or why it cannot. */
   const describe = (statement: ts.Statement): { name: ts.Identifier; kind: FoundImplementation["kind"] } | string => {
-    const { exported, declared, abstract } = modifiersOf(statement);
+    const { exported, declared } = modifiersOf(statement);
     if (declared) return "a `declare` declaration has no code: it is not an implementation";
     if (ts.isClassDeclaration(statement)) {
       if (!exported || !statement.name) return SUPPORTED;
-      if (abstract) return "an abstract class cannot be checked against a contract";
       // A generic class is checked at the defaults of its type parameters; without them there is no one type to check.
       if (statement.typeParameters?.some((parameter) => !parameter.default)) return "a generic class can be checked against a contract only when every type parameter has a default";
       return { name: statement.name, kind: "class" };

@@ -8,6 +8,7 @@ import { IGNORE_FILE, ownerOf, readModuleScopes, type ModuleScope } from "./cove
 import { compareDiagnostics, compareText, hasErrors, type Diagnostic } from "./diagnostic.ts";
 import type { SourceFiles } from "./discovery.ts";
 import { readImplementations, type FoundImplementation } from "./implementations.ts";
+import { packageDeclarationFiles, packageInstanceChecker } from "./package-instance.ts";
 import { stripBom, toProjectPath } from "./location.ts";
 import { BINDING_TAGS } from "./metadata.ts";
 import { readTestDeclarations, type RejectedLink, type TestAdapter } from "./test-declarations.ts";
@@ -139,11 +140,14 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
     const fileName = `${implementationFile.slice(0, -".ts".length)}.cage-check-${order + 1}.ts`;
     const designFile = modules.find((module) => module.moduleId === contract.module)!.virtualFile;
     const subject = implementation.kind === "class" && !implementation.surface ? `implementation.${implementation.name}` : `typeof implementation.${implementation.name}`;
+    const expected = contract.packageInstance
+      ? `Pick<design.${contract.name}, ${contract.packageInstanceMembers!.map(name => JSON.stringify(name)).join(" | ") || "never"}>`
+      : `design.${contract.name}`;
     const text = [
       `import type * as implementation from ${JSON.stringify(specifierFor(overlay, fileName, implementationFile))};`,
       `import type * as design from ${JSON.stringify(specifierFor(overlay, fileName, designFile))};`,
       `declare const value: ${subject};`,
-      `value satisfies design.${contract.name};`,
+      `value satisfies ${expected};`,
       "",
     ].join("\n");
     return { implementation, contract, fileName, text };
@@ -174,6 +178,7 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
   }
 
   const checker = program.getTypeChecker();
+  const packageInstances = packageInstanceChecker(ts, checker, packageDeclarationFiles(root, index));
   const shapeBindings: ShapeBinding[] = [];
   const implementations = checks.map(({ implementation, contract, fileName }): Implementation => {
     const sourceFile = requireSourceFile(program, fileName);
@@ -205,11 +210,18 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
     if (!ts.isVariableStatement(declaration) || !declaration.declarationList.declarations[0].type || !ts.isExpressionStatement(question) || !ts.isSatisfiesExpression(question.expression)) throw new Error("Invalid generated contract comparison");
     const source = requireSourceFile(program, path.join(root, location.file));
     const classNode = source.statements.find((node): node is ts.ClassDeclaration => ts.isClassDeclaration(node) && node.name?.text === name);
-    shapeBindings.push({ implementation: result, contract, actual: checker.getTypeFromTypeNode(declaration.declarationList.declarations[0].type), expected: checker.getTypeFromTypeNode(question.expression.type), node: declaration, declaration: classNode });
+    let packageInstance;
+    if (contract.packageInstance) {
+      const designFile = requireSourceFile(program, modules.find(module => module.moduleId === contract.module)!.virtualFile);
+      const contractNode = designFile.statements.find((node): node is ts.InterfaceDeclaration => ts.isInterfaceDeclaration(node) && node.name.text === contract.name)!;
+      packageInstance = packageInstances.scope(checker.getTypeAtLocation(contractNode));
+      if (!packageInstance) throw new Error(`Package instance boundary disappeared for ${contract.name}`);
+    }
+    shapeBindings.push({ implementation: result, contract, actual: checker.getTypeFromTypeNode(declaration.declarationList.declarations[0].type), expected: checker.getTypeFromTypeNode(question.expression.type), node: declaration, declaration: classNode, packageInstance });
     return result;
   });
 
-  diagnostics.push(...checkContractSurfaces(ts, checker, shapeBindings));
+  diagnostics.push(...checkContractSurfaces(ts, checker, shapeBindings, packageInstances));
 
   const { tests, rejected } = readTests(ts, program, overlay, root, convert, options.testAdapter, testFiles, new Map([...contracts].filter(([, contract]) => !contract.family)), index.invariants.filter((invariant) => !contracts.get(invariant.contract)?.family), diagnostics);
 

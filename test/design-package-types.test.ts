@@ -314,7 +314,7 @@ test("every declaration file of an imported package is review material, with its
 
 /** @tests Cli
  * @covers package-types */
-test("with skipLibCheck, a selected declaration that leads nowhere blocks the import; ambient modules and globals are followed", (t) => {
+test("missing selected package declarations follow skipLibCheck; ambient modules and globals are followed", (t) => {
   for (const compiler of COMPILERS) {
     const options = { target: "ES2022", module: "NodeNext", moduleResolution: "NodeNext", strict: true, noEmit: true, allowImportingTsExtensions: true, skipLibCheck: true, types: ["node"] };
     const root = project(t, compiler, { "tsconfig.json": JSON.stringify({ compilerOptions: options }) });
@@ -327,12 +327,17 @@ test("with skipLibCheck, a selected declaration that leads nowhere blocks the im
     for (const line of missing) {
       // The dependency occurs in Brand, the declaration selected by Schema's public type.
       writeFile(root, "node_modules/brand-kit/index.d.ts", `${line}\n`);
+      writeFile(root, "tsconfig.json", JSON.stringify({ compilerOptions: options }));
+      assert.deepEqual(checkDesigns(root).errors, [], `${compiler} ${line}`);
+      assert.equal(cli(root, "check", "--phase", "design").code, 0);
+      writeFile(root, "tsconfig.json", JSON.stringify({ compilerOptions: { ...options, skipLibCheck: false } }));
       const errors = checkDesigns(root).errors;
       assert.deepEqual(errors.map(located), [{ code: "E_DESIGN_IMPORT", ...at(root, "parser", '"schema-kit"') }], `${compiler} ${line}`);
       assert.match(errors[0].message, /^"schema-kit" (?:has an error in a selected declaration|has an unresolved selected declaration): /);
       // Blocked, not merely reported: the check fails and nothing is reviewed.
       assert.equal(cli(root, "check").code, 1);
     }
+    writeFile(root, "tsconfig.json", JSON.stringify({ compilerOptions: options }));
 
     // An ambient module and a global of an installed package: their declaration files are in the closure.
     writeFile(root, "node_modules/brand-kit/index.d.ts", 'import type { Stats } from "node:fs";\nexport type Brand = { readonly tag: string; stats?: Stats; bytes?: Buffer };\n');
@@ -343,13 +348,13 @@ test("with skipLibCheck, a selected declaration that leads nowhere blocks the im
     assert.ok(ids.some((id) => /^@types\/node@[^/]+\/buffer(\.buffer)?\.d\.ts$/.test(id)), `${compiler}: ${ids.join(", ")}`);
     assert.ok(ids.every((id) => !id.startsWith("typescript")), "the default library is the compiler's boundary");
 
-    // A global a project file declares is not a package's: the design's program does not even have it.
+    // Project globals are visible even without a vocabulary allowlist, and become review material.
     writeFile(root, "src/globals.d.ts", "declare global { interface ProjectThing { x: number } }\nexport {};\n");
     writeFile(root, "node_modules/brand-kit/index.d.ts", "export type Brand = { readonly tag: string; thing?: ProjectThing };\n");
     writeFile(root, "tsconfig.json", JSON.stringify({ compilerOptions: options, include: ["src/**/*.ts"] }));
-    const unknown = checkDesigns(root).errors;
-    assert.equal(unknown.length, 1, compiler);
-    assert.match(unknown[0].message, /ProjectThing/);
+    const augmented = checkDesigns(root);
+    assert.deepEqual(augmented.errors, [], compiler);
+    assert.ok(augmented.index.packages[0].files.some(file => file.id === "project/src/globals.d.ts"));
     // And a reference that brings the project file in reaches a file outside every package.
     writeFile(root, "node_modules/brand-kit/index.d.ts", '/// <reference path="../../src/globals.d.ts" />\nexport type Brand = { readonly tag: string; thing?: ProjectThing };\n');
     const local = checkDesigns(root).errors;

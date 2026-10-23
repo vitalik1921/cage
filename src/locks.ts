@@ -204,6 +204,7 @@ const subjectOf = ({ kind, name }: Pick<LockEntry, "kind" | "name">) => `${kind 
 
 const UNNAMED: Readonly<Record<string, string>> = {
   ":type": "its type",
+  ":package-instance": "its package-instance comparison boundary",
   ":call": "its call signature",
   ":construct": "its construct signature",
   ":index": "its index signature",

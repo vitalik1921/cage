@@ -480,6 +480,9 @@ export function createPackageTypesResolver(
         return { problem: `has an error in a selected declaration: ${where} TS${invalid.code} ${ts.flattenDiagnosticMessageText(invalid.messageText, " ")}` };
       }
       for (const missing of selection.unresolved) {
+        // skipLibCheck is also the project's decision about missing types inside package declarations.
+        // Keep the compiler's recovered type; project declarations and design imports stay strict.
+        if (options.skipLibCheck && missing.file.isDeclarationFile && !isProjectFile(missing.file.fileName)) continue;
         if (diagnostics.hasErrorAt(missing.file.fileName, missing.start, missing.end)) {
           const location = missing.file.getLineAndCharacterOfPosition(missing.start);
           return { problem: `has an unresolved selected declaration: ${shown(realpath(missing.file.fileName))}:${location.line + 1}:${location.character + 1} ${missing.message}` };

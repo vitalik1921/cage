@@ -570,7 +570,7 @@ export function resolveInheritance(ts: TypeScript, checker: ts.TypeChecker, desi
       }
     }
     const ownCall = node.members.some(ts.isCallSignatureDeclaration);
-    if (members.length === 0 && calls.length === 0 && !ownCall && !refused) unsupported("a contract needs at least one member or a call signature");
+    if (members.length === 0 && calls.length === 0 && !ownCall && !refused && !contract.family) unsupported("a contract needs at least one member or a call signature");
     if (diagnostics.length > failed) continue;
     contract.members = members;
     if (calls.length > 0) contract.shape = "callable";

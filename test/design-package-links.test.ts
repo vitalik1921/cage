@@ -138,12 +138,13 @@ test("external npm aliases retain their declared package identities and detect t
 
 /** @tests Cli
  * @covers package-types gate */
-test("external packages retain declaration errors and missing-type errors, including preserveSymlinks", (t) => {
+test("external packages with library checking retain declaration errors and missing-type errors, including preserveSymlinks", (t) => {
   for (const compiler of compilers) for (const preserveSymlinks of [false, true]) {
     const { root, elsewhere } = fixture(t, compiler);
     editFile(root, "tsconfig.json", (text) => {
       const config = JSON.parse(text);
       config.compilerOptions.preserveSymlinks = preserveSymlinks;
+      config.compilerOptions.skipLibCheck = false;
       return JSON.stringify(config);
     });
     assert.equal(cli(root, "lock").code, 0);

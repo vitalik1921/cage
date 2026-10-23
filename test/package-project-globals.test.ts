@@ -25,9 +25,10 @@ const packet = (root: string) => JSON.parse(cli(root, "review", "Reader", "--for
 
 /** @tests Cli
  * @covers package-types project-vocabulary exact-signatures gate */
-test("an unused type designation and project Window augmentation do not reject package imports", (t) => {
-  for (const compiler of compilers) {
+test("package imports include project Window augmentations with or without a vocabulary designation", (t) => {
+  for (const compiler of compilers) for (const designated of [true, false]) {
     const root = project(t, compiler);
+    if (!designated) writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, review: "off", coverage: "off" }));
     assert.deepEqual(errors(root), [], compiler);
     assert.equal(cli(root, "gate").code, 0);
     assert.ok(packet(root).files.some((f) => f.path === "src/globals.ts"), compiler);

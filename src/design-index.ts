@@ -283,7 +283,10 @@ function readDesign(
     }
     if (calls.length > 1) unsupported("overloads are not supported", calls[1]);
     if (calls.length > 0 && members.length > 0) unsupported("a contract has either methods or a call signature, not both", calls[0]);
-    if (declaration.members.length === 0 && !inherits) unsupported("a contract needs at least one member or a call signature", declaration.name);
+    if (declaration.members.length === 0 && !inherits && !tags.has("family")) unsupported("a contract needs at least one member or a call signature", declaration.name);
+    const instance = tags.get("package-instance") ?? [];
+    if (instance.length > 1 || instance.some(tag => tag.text)) report("E_TAG_FORMAT", "`@package-instance` occurs once, without text", instance[0].start);
+    if (instance.length && tags.has("family")) unsupported("`@package-instance` belongs on a concrete contract, not a family", declaration.name);
 
     const contract: Contract = {
       name,
@@ -295,6 +298,7 @@ function readDesign(
       location: design.locate(declaration.name.getStart(sourceFile)),
       source: declaration.getFullText(sourceFile).trim(),
       ...(tags.has("family") ? { family: true as const } : {}),
+      ...(instance.length ? { packageInstance: true as const } : {}),
     };
     index.contracts.push(contract);
     if (hasInvariantTags || inherits) withInvariantTags.add(contract);
@@ -322,7 +326,7 @@ function readDesign(
     const isData = all.some((tag) => tag.name === "data");
     const tags = readTags(
       all,
-      isContract || !isData ? ["contract", "family", "data", "description", "uses", "invariant", "final", "extendable"] : ["contract", "family", "data", "description", "final", "extendable"],
+      isContract || !isData ? ["contract", "family", "data", "description", "uses", "invariant", "package-instance", "final", "extendable"] : ["contract", "family", "data", "description", "final", "extendable"],
       isContract ? "on a contract" : "on a data type",
     );
     const markers = [...(tags.get("contract") ?? []), ...(tags.get("family") ?? []), ...(tags.get("data") ?? [])];
@@ -372,7 +376,7 @@ function readDesign(
         module: moduleId,
         kind: isContract ? "contract" : "data",
         level: lock,
-        members: { ...signaturesOf(declaration), ...(tags.has("family") ? { ":family": "abstract" } : {}) },
+        members: { ...signaturesOf(declaration), ...(tags.has("family") ? { ":family": "abstract" } : {}), ...(tags.has("package-instance") ? { ":package-instance": "declared-members" } : {}) },
         invariants: Object.fromEntries(invariants),
         location: design.locate(at),
       };

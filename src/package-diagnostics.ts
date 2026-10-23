@@ -15,8 +15,8 @@ export interface PackageDiagnostics {
 
 /**
  * Check selected declarations with the project's compiler options, including skipLibCheck. Syntax errors remain
- * errors, as in tsc. Only unresolved selected references need a companion with library checking enabled: skipping
- * a library's type errors must not silently replace a missing dependency with any. Effective suppressions still apply.
+ * errors, as in tsc. Unresolved selected project references need a companion with library checking enabled;
+ * the caller skips missing references in package declarations under skipLibCheck. Effective suppressions still apply.
  * The companion reuses the overlay and parsed files; semantic diagnostics are cached per file and resolver run.
  */
 export function createPackageDiagnostics(ts: TypeScript, overlay: Pick<Overlay, "createProgram">, program: ts.Program): PackageDiagnostics {

@@ -18,7 +18,8 @@ export const CODES: Record<string, { means: string; then: string }> = {
   E_DESIGN_CYCLE: { means: "modules depend on each other in a cycle through @uses or type imports", then: "break the cycle" },
   W_BUSINESS_CONTEXT_MISSING: { means: "a module's documents have no prose; a reviewer judges contracts against business rules", then: "write the purpose and the rules in prose" },
   // Declarations and tags.
-  E_UNSUPPORTED_DECLARATION: { means: "a declaration cage cannot check: not an exported interface or type in a design, a generic or overloaded contract, a default export or abstract class as an implementation, a test without a plain title", then: "declare it in a supported form; the message says which" },
+  E_UNSUPPORTED_DECLARATION: { means: "a declaration cage cannot check: not an exported interface or type in a design, a generic or overloaded contract, a default export as an implementation, a test without a plain title", then: "declare it in a supported form; the message says which" },
+  E_CONTRACT_INSTANCE: { means: "a package-instance contract is bound to a different library class, a project class or a structural lookalike", then: "bind the declared installed-package class instance, or use an ordinary complete contract for project code" },
   E_DESCRIPTION_MISSING: { means: "a contract or data type has no @description", then: "add one" },
   E_TAG_FORMAT: { means: "a tag is written wrongly: punctuation after its name, no id or name, text where none goes, a tag given twice", then: "write the tag as the message says" },
   E_TAG_LOCATION: { means: "a tag stands where it does not belong: @implements in a design, a design tag on a field, @extendable on a type alias", then: "move or remove the tag" },

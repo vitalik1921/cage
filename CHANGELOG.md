@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.11.0
+
+### Added
+
+- Memberless `@family` contracts share invariant promises while concrete children declare their own signatures. Each child still needs its own implementation, test links and review.
+- Abstract classes may implement contracts; their complete public surface, including abstract members, is checked. Test subclasses can exercise the base without automatically supplying evidence for other descendants.
+- Explicit `@package-instance` contracts validate an installed library class's identity, exact type arguments and authored members without recursively comparing unchanged inherited library methods. Project-added or overridden members, project classes and structural lookalikes remain checked or rejected. The rule is independent of library names; ordinary contracts retain full exact checking.
+
+### Fixed
+
+- Unresolved references inside installed package declarations now follow the project's `skipLibCheck`, retaining TypeScript's recovered types. Direct design imports, selected project references, syntax errors and genuine signature drift remain blocking.
+- Package imports see and fingerprint project global type contributions even without `designImportableTypes`, so the design and implementation comparison use the same ambient types.
+
 ## 0.10.1
 
 ### Fixed

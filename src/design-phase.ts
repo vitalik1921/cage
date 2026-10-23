@@ -10,6 +10,7 @@ import { blockAt, buildGeneratedModule, CAGE_DIRECTORY, extractBlock, toSourceOf
 import { lineStarts, positionAt, stripBom, toProjectPath, type Position } from "./location.ts";
 import { parseDesignMdx, type DesignBlock } from "./mdx.ts";
 import { capturePackageLocks, createPackageTypesResolver, namedDeclarations } from "./package-types.ts";
+import { packageDeclarationFiles, packageInstanceChecker } from "./package-instance.ts";
 import {
   createOverlayProgram,
   loadTypeScript,
@@ -107,9 +108,16 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
   if (failed()) return done();
 
   const overlay = createOverlayProgram(ts, setup.options, new Map(modules.map((module) => [module.virtualFile, module.generated.text])));
-  // Opted-in project types also see ambient declarations and module augmentations from the project roots.
-  // Only their selected graph is diagnosed and fingerprinted, never all project implementation errors.
-  if (options.designImportableTypes?.length) overlay.program = overlay.createProgram([...overlay.program.getRootFileNames(), ...setup.fileNames]);
+  // Package types see the same ambient declarations as the implementation comparison. This matters even
+  // without designated imports: otherwise skipLibCheck could recover a missing global as any here while
+  // the full program resolves it to unfingerprinted project declarations later. Only the selected graph
+  // is diagnosed and fingerprinted, never unrelated project implementation errors.
+  const importsExternalTypes = modules.some(module => requireSourceFile(overlay.program, module.virtualFile).statements.some(statement => {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteralLike(statement.moduleSpecifier)) return false;
+    const resolved = overlay.resolveModule(statement.moduleSpecifier, statement.getSourceFile());
+    return resolved !== undefined && !modules.some(target => overlay.sameFile(target.virtualFile, resolved));
+  }));
+  if (options.designImportableTypes?.length || importsExternalTypes) overlay.program = overlay.createProgram([...overlay.program.getRootFileNames(), ...setup.fileNames]);
   const origins = new Map(
     modules.map((module): [ts.SourceFile, Origin] => [requireSourceFile(overlay.program, module.virtualFile), { module, extracted: module.generated }]),
   );
@@ -179,6 +187,16 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
     const packageName = /^((?:@[^/]+\/)?[^@/]+)@[^/]+\//.exec(id)?.[1];
     return packageName ? { kind: "package", module: packageName } : { kind: "project", module: entry.name };
   }));
+  const instanceChecker = packageInstanceChecker(ts, overlay.program.getTypeChecker(), packageDeclarationFiles(root, indexed.index));
+  for (const contract of indexed.index.contracts.filter(contract => contract.packageInstance)) {
+    const file = designs.find(design => design.moduleId === contract.module)!.sourceFile;
+    const node = file.statements.find((node): node is ts.InterfaceDeclaration => ts.isInterfaceDeclaration(node) && node.name.text === contract.name)!;
+    const type = overlay.program.getTypeChecker().getTypeAtLocation(node);
+    const scope = instanceChecker.scope(type);
+    if (!scope || overlay.program.getTypeChecker().getSignaturesOfType(type, ts.SignatureKind.Call).length) {
+      diagnostics.push({ code: "E_UNSUPPORTED_DECLARATION", severity: "error", message: `${contract.name}: \`@package-instance\` requires one inherited installed-package class type and no call signature`, ...contract.location, contract: contract.name });
+    } else contract.packageInstanceMembers = scope.members;
+  }
   // A lock holds the package types its declaration depends on, behind design aliases and bases too.
   capturePackageLocks(ts, overlay.program.getTypeChecker(), indexed.index, new Map([...origins].map(([sourceFile, origin]) => [sourceFile, origin.module.moduleId])), (specifier, from) => origins.get(from)?.module.generated.writtenSpecifiers.get(specifier.getStart(from)) ?? specifier.text);
 

@@ -36,6 +36,10 @@ export interface ContractMember {
 export interface Contract {
   /** Abstract invariant-bearing base; concrete contracts extend it and have separate implementations and reviews. */
   family?: true;
+  /** Explicitly check the package class identity/arguments and authored members, not its inherited library methods. */
+  packageInstance?: true;
+  /** Resolved names of the authored API in the explicit package-instance mode. */
+  packageInstanceMembers?: string[];
   name: string;
   /** Module ID: the project-relative path of the module root. */
   module: string;

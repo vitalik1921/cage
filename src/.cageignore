@@ -17,6 +17,7 @@ contract-inheritance.ts
 package-types.ts
 package-dependencies.ts
 package-diagnostics.ts
+package-instance.ts
 design-model.ts
 design-phase.ts
 metadata.ts

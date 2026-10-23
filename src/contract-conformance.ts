@@ -3,6 +3,7 @@ import type { Contract, Implementation } from "./design-model.ts";
 import type { Diagnostic } from "./diagnostic.ts";
 import { shapeChecker } from "./contract-shape.ts";
 import type { TypeScript } from "./typescript.ts";
+import type { packageInstanceChecker, PackageInstanceScope } from "./package-instance.ts";
 
 export interface ShapeBinding {
   implementation: Implementation;
@@ -11,10 +12,11 @@ export interface ShapeBinding {
   expected: ts.Type;
   node: ts.Node;
   declaration: ts.ClassDeclaration | undefined;
+  packageInstance?: PackageInstanceScope;
 }
 
 /** Exact public surface of every tagged declaration, against its single instance or static contract. */
-export function checkContractSurfaces(ts: TypeScript, checker: ts.TypeChecker, bindings: ShapeBinding[]): Diagnostic[] {
+export function checkContractSurfaces(ts: TypeScript, checker: ts.TypeChecker, bindings: ShapeBinding[], packageInstances?: ReturnType<typeof packageInstanceChecker>): Diagnostic[] {
   const shape = shapeChecker(ts, checker), causes = causeFinder(ts, checker, shape), diagnostics: Diagnostic[] = [];
   const assignable = new Set(bindings.filter(b => b.implementation.compatible));
   const groups = new Map<string, ShapeBinding[]>();
@@ -48,8 +50,18 @@ export function checkContractSurfaces(ts: TypeScript, checker: ts.TypeChecker, b
         continue;
       }
       const expectedNames = new Set(selected.flatMap(b => shape.properties(b.expected).map(p => p.escapedName)));
+      const scope = selected[0]?.packageInstance;
+      const packageBase = scope && packageInstances?.instance(actual, scope);
+      if (scope && !packageBase) {
+        report("E_CONTRACT_INSTANCE", `${label}: must have the installed-package class type named by the contract; project classes and structural lookalikes do not qualify`, selected);
+        continue;
+      }
+      if (packageBase && !shape.equal(packageBase, scope!.base)) {
+        report(shape.limited ? "E_CONTRACT_UNCHECKABLE" : "E_CONTRACT_SIGNATURE", `${label}: package class type arguments differ from ${selected[0].contract.name} or cannot be compared exactly`, selected);
+      }
       const actualMembers = shape.properties(actual).filter(p => !(side === "static" && p.name === "prototype"));
       for (const member of actualMembers) if (!expectedNames.has(member.escapedName)) {
+        if (packageBase && packageInstances!.supplied(member, packageBase, actual)) continue;
         report("E_CONTRACT_EXTRA_MEMBER", `${label}.${member.name}: public member is absent from ${selected.length ? selected.map(b => b.contract.name).join(", ") : `the ${side ?? "instance"} contracts`}`, selected, member.valueDeclaration ?? member.declarations?.[0], causes.inherited(member, classNode), `${label}.${member.name}`);
       }
       if (checker.getIndexInfosOfType(actual).length) report("E_CONTRACT_UNCHECKABLE", `${label}: an index signature leaves the public surface open`, selected);
