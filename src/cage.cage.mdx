@@ -123,6 +123,16 @@ export interface ReviewDependencies {
 
 /**
  * @data
+ * @description The core design lint policies, size limits and additional history patterns.
+ */
+export interface LintConfig {
+  severity: Record<string, "off" | "warn" | "error">;
+  limits: { contractsPerModule: number; membersPerContract: number; rulesPerContract: number };
+  historyPatterns: string[];
+}
+
+/**
+ * @data
  * @description The project's configuration, every field present: the file's values over the defaults.
  */
 export interface Config {
@@ -137,6 +147,7 @@ export interface Config {
   review: "off" | "warn" | "require";
   coverage: "off" | "warn" | "require";
   examples: "off" | "warn" | "require";
+  lint: false | LintConfig;
   reviewDependencies: ReviewDependencies;
   maxDiagnostics: number | "all";
 }
@@ -166,13 +177,23 @@ export interface LoadedConfig {
  * @invariant gherkin-carriers Every Gherkin promise has a kebab-case id and a nonempty sentence, and binds to exactly one contract, family or named member of its module through its own carrier tag or the Feature's default. Ids are unique across all members of the same contract or family and both formats; examples have distinct normalized titles within their rule. Invalid bindings and unsupported enforcement tags are explicit errors.
  * @invariant gherkin-flags A property rule remains an invariant. An assumption has no carrier and makes no implementation or test promise; its text, examples and context remain available as document material. Ordinary lowercase labels confer no enforcement, and reserved unsupported enforcement tags never silently pass as labels.
  * @invariant gherkin-inheritance Gherkin rules and their examples follow the same inheritance, diamond deduplication, conflicts and concrete-child test bindings as JSDoc invariants. Existing contract locks retain their invariant protection across both formats, including inherited rules.
- * @invariant gherkin-compatibility Without a Gherkin design block, parsing, indexing, diagnostics and existing review fingerprints remain unchanged. Gherkin text never enters the virtual TypeScript module; its Feature supplies business context, and existing module prose remains review material.
+ * @invariant gherkin-compatibility Without a Gherkin design block, parsing, indexing, structural diagnostics and existing review fingerprints remain unchanged. Gherkin text never enters the virtual TypeScript module; its Feature supplies business context, and existing module prose remains review material.
  * @invariant example-links An Example links only to an active test of its concrete carrier and rule whose normalized title matches.
  * @invariant example-templates Outline and table-test title placeholders do not contribute to their title match.
  * @invariant example-policy The examples policy controls diagnostics for unlinked Examples and non-property Gherkin rules without Examples.
  * @invariant gherkin-review-material Review fingerprints retain all existing material and the complete Gherkin documents supplying the contract's rules.
  * @invariant gherkin-review-touched A change confined to a Gherkin rule or its Examples marks that rule touched, while a change to shared document context marks every rule touched.
  * @invariant gherkin-review-packet Review packets pair Examples with their linked tests and list unlinked Examples and tests without Examples alongside the authored Gherkin and document assumptions.
+ * @invariant lint-history Core history lint reports explicit historical notation outside Example content, tables and doc strings.
+ * @invariant lint-questions Settled Open questions are reported at their item.
+ * @invariant lint-numbering Numbered Business rules and Open questions follow source order from one without gaps or suffixes.
+ * @invariant lint-size Authored module and contract sizes are checked against the configured core limits.
+ * @invariant lint-references Numbered rule citations resolve in their document or the uniquely named target document.
+ * @invariant lint-types Repeated data type names across modules are reported with every declaration's location.
+ * @invariant lint-suppressions A reasoned suppression silences only its named lint code in the next designated block.
+ * @invariant lint-suppression-audit A suppression with no reason is rejected and a suppression that silences nothing is reported.
+ * @invariant lint-policy Core lint defaults to warnings after existing warnings, and disabling lint preserves legacy checks and recorded reviews.
+ * @invariant lint-phase The lint phase reads designs without checking types, implementations, tests, locks or reviews.
  * @invariant package-instances Only an explicit package-instance contract may omit inherited installed-package class members from exact member comparison. Its single package class identity and type arguments, all authored members and all project-added or overridden members remain checked. Project classes and structural lookalikes do not qualify. Package declarations, inherited promises and the explicit boundary remain review and lock material; ordinary contracts retain full exact checking.
  * @invariant project-vocabulary Only named type imports of exact designated project aliases, interfaces and enums are allowed. Their selected transitive dependencies, including values that infer schema types, enter review fingerprints and locks regardless of ordinary review bounds. Runtime imports, non-designated exports, unavailable designated exports or project-source dependencies, and structural mismatches block.
  * @invariant package-types Designs may import types from installed package declarations and other designs, including declared npm aliases, workspace packages and external packages reached through node_modules links. A copied installation and the same installation behind a link retain their package review and lock identities and use the project's compiler. Package declaration dependencies used by the design, including merged and global contributions and resolved import routes, are included in review material and lock protection without collapsing installed copies. Project global augmentations and their helpers are type contributions, not package-to-project module imports; direct package module imports and references into project files still block. Type errors and unresolved references inside selected package declarations follow the project's effective skipLibCheck option, retaining the compiler's recovered types. Syntax errors, unresolved direct design imports and unresolved selected project bindings still block unless an applicable compiler suppression is honored. Unrelated invalid declarations do not block. Non-designated source imports, hidden source dependencies and unreadable declaration dependencies never silently pass.
