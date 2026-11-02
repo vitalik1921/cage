@@ -1,14 +1,28 @@
 # Changelog
 
-## Unreleased
+## Unreleased — 1.0.0 candidate
 
 ### Added
+
+- Seven core lint codes cover history, settled questions, numbering, module/contract size, rule citations and duplicate data names. Warnings are the default; configurable severities, limits, history patterns and reasoned local suppressions keep exceptions explicit. `cage check --phase lint` runs without type checking.
+- `cage migrate gherkin` creates ordinary drafts, preserves every carrier/id/logical sentence and retained prose, supports mixed-format documents, previews diffs and refuses edited drafts. Its title-only Feature follows the H1; authors fold existing Purpose into it.
+- `cage graph` reports declared uses, inheritance and type imports, with focused reverse traversal through `--used-by` and text/JSON/Mermaid output.
+- Updated design/review skills use Rules and Examples, external assumptions, concrete children of families and draft migration. The README Quota design has runnable tests and an adequate review acceptance fixture.
 
 - Link Gherkin Examples to active tests by rule and normalized title (`examples`: off/warn/require); title links do not establish assertion or outline-row coverage.
 - Show Gherkin contexts and Example/test pairs in review packets; retain complete document fingerprints and track rule-specific edits for touched marks.
 - Optional Gherkin design blocks: rules bind to contracts, families and named members; examples, outlines, backgrounds, assumptions and source positions are retained without running steps. Rules participate in the existing invariant inheritance and declaration locks. Unsupported enforcement tags are explicit errors.
 
+### Fixed
+
+- Draft checks and activation apply core lint to the candidate in place of its target, reporting draft locations and checked phases. Warnings remain nonblocking; promoted errors prevent activation.
+- Settled Open question statuses produce one finding; singular/plural rule citations check each number, including lists followed by other parenthetical text.
+
 ### Upgrade notes
+
+- From 0.11.0, existing JSDoc projects keep their structural results and recorded reviews. Default lint adds warnings only; `lint: false` preserves legacy check output. New Gherkin checks are opt-in, and adding a suppression opts into its reason/usage validation.
+- Activating a Gherkin migration changes review material; no review is automatically carried forward. Drafts alone stale no review. The complete Gherkin block adds to existing review material, including external `@assumption` statements.
+- Gherkin `@live` and enforcement tags such as `@final` are rejected explicitly. TypeScript declaration locks remain supported. Typed tables, constant drift checks, Gherkin rule locks, advisory lint and review carry-over are deferred.
 
 - The compatibility baseline for this change is 0.11.0. Projects upgrading from 0.7.x also encounter the stricter signatures, single-contract bindings, single implementations and review-material changes already present in 0.11.0; those migration and review costs are not introduced by Gherkin support.
 

@@ -1,0 +1,16 @@
+[
+  {
+    "invariant": "empty",
+    "assessment": "adequate",
+    "reason": "The test starts with zero sends and asserts refusal on repeated requests and an unknown account, using the real in-memory implementation.",
+    "evidence": "src/quota.test.ts:8-13",
+    "suggestedChange": null
+  },
+  {
+    "invariant": "consume",
+    "assessment": "adequate",
+    "reason": "From two sends the test observes exactly two successes followed by refusal, then independently consumes the other account’s one send; every Example outcome is asserted.",
+    "evidence": "src/quota.test.ts:16-23",
+    "suggestedChange": null
+  }
+]

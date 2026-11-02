@@ -1,0 +1,41 @@
+# Quota
+
+```gherkin design
+Feature: Sending quota
+  Each account has a limited number of sends.
+  Not: replenishing the quota.
+
+  @Quota.take
+  Rule: empty — an empty quota refuses a send
+    Example: refuses when nothing is left
+      Given account "a" has zero sends
+      When a send is requested for "a"
+      Then the request is refused
+
+  @Quota.take
+  Rule: consume — each successful request consumes exactly one send from that account
+    Example: takes exactly one send
+      Given account "a" has two sends
+      When three sends are requested for "a"
+      Then the first two requests succeed
+      And the third request is refused
+```
+
+## Glossary
+- **Send** — one unit consumed by an accepted request.
+
+```ts design
+/**
+ * @data
+ * @description Account identifier.
+ */
+export type AccountId = string;
+
+/**
+ * @contract
+ * @description Keeps the remaining sends of each account.
+ */
+export interface Quota {
+  take(accountId: AccountId): Promise<boolean>;
+}
+```

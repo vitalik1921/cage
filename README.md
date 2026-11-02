@@ -22,11 +22,11 @@ Cage keeps the three in sync — **the spec** (what a TypeScript module promises
   </picture>
 </p>
 
-- **The spec** is a Markdown file next to the code (`quota.cage.mdx`): TypeScript interfaces, and the rules they promise, written as plain sentences — `@invariant consume A successful take uses exactly one send.`
+- **The spec** is a Markdown file next to the code (`quota.cage.mdx`): TypeScript interfaces, Gherkin Rules stating observable promises, and Examples showing concrete cases. Legacy JSDoc `@invariant` rules also work.
 - **The code** binds one contract per API surface (`@implements Quota`); **the tests** say which rules they check (`@covers consume`).
 - **Cage checks deterministically** — no model involved, the same answer on every run — that public methods, fields and signatures match the declared contracts exactly (using TypeScript types), that every rule has a linked test with a body or an explicit skip/todo, and that the review of those tests is up to date. **It does not run your tests**: whether they pass is your test runner's job, so CI runs both (see [In CI](#in-ci)).
 - **The review** is your agent's written verdict that the tests really check the rules: the judgement is the agent's, whether it is still up to date is Cage's. Cage stores it with a hash of the contract, the spec's prose, the code and tests, and their fingerprinted local dependencies. New reviews ignore ordinary code comments and spacing; changes to code, requirements or significant annotations ask for a new review, naming what changed.
-- **When the agent says it is done** (the Stop hook of Claude Code or Codex), Cage sends whatever is out of sync back to it. After three tries in one session it lets the agent stop, with the report.
+- **When the agent says it is done** (the Stop hook of Claude Code or Codex), Cage sends blocking errors back to it. Warnings stay in `cage check`. After three tries in one session it lets the agent stop, with the report.
 
 Cage runs locally and makes no model calls: your agent does the judging, your test runner runs the tests. Start with one module — the bundled skills can write its spec from existing code. Node ≥ 24.11, TypeScript 5 or 6.
 
@@ -35,13 +35,13 @@ Cage runs locally and makes no model calls: your agent does the judging, your te
 | Green means | It does not mean |
 | --- | --- |
 | Every contract has an implementation with matching public members and signatures; extra public instance/static members are errors | That the implementation behaves as the rules say |
-| Every rule (`@invariant`) has a linked test (`@covers`), and at least one has a body or is explicitly `skip`/`todo` (its own or its suite's), with no broken import of a project file; skip/todo stays inactive in counts | That the test asserts the rule, or that it passes — Cage reads tests, it never runs them; a test can also be skipped at run time |
+| Every concrete contract's rule (Gherkin or JSDoc) has a linked test (`@covers`), and at least one has a body or is explicitly `skip`/`todo` (its own or its suite's), with no broken import of a project file; skip/todo stays inactive in counts | That the test asserts the rule, or that it passes — Cage reads tests, it never runs them; a test can also be skipped at run time |
 | With `examples: "require"`, every Gherkin Example has an active test linked by its rule and title | That the test checks its Given/When/Then or every outline row |
 | With `review: "require"`, every contract has a recorded verdict for its material as it is now | That the verdict is right: it is a reviewer's attestation, often the coding agent's own |
 
 ## What it catches
 
-Real output, on the Quota example from [Start](#start).
+Examples of diagnostics for Quota, introduced in [Start](#start).
 
 **A rule with no test.** The spec promises that a take uses exactly one send; no test is linked to that rule.
 
@@ -49,7 +49,7 @@ Real output, on the Quota example from [Start](#start).
 E_TEST_MISSING: Quota.consume (src/quota/quota.cage.mdx:20:6)
 ```
 
-**A test that changed after its review.** The agent “simplified” the test of that rule; it still passes. Cage names the test, and sends the agent back to review it:
+**A test that changed after its review.** The agent “simplified” the test of that rule; it still passes. Cage names the test. This warning becomes a blocking error under `review: "require"`:
 
 ```text
 W_REVIEW_STALE: Quota (src/quota/quota.cage.mdx:16:18)
@@ -82,7 +82,7 @@ Two skills come with Cage: **`cage-design`** writes and changes specs, **`cage-r
 Write the spec for src/modules/accounts from its code and tests.
 ```
 
-`cage-design` reads the module's public surface and its tests, picks the few contracts worth keeping (services, ports — not helpers or DTOs, which go to `.cageignore`), writes rules no stronger than the tests can show, tags the code and the tests, and runs `cage check` until it is clean. What it could not decide goes under “Open questions” in the spec.
+`cage-design` reads the module's public surface and its tests, picks the few contracts worth keeping (services, ports — not helpers or DTOs, which go to `.cageignore`), states the intended promises, adds missing tests, tags the code and tests, and runs `cage check`. Test gaps belong in the review, not in a weakened rule. What it could not decide goes under “Open questions” in the spec.
 
 **Plan a new module, spec first.**
 
@@ -90,7 +90,7 @@ Write the spec for src/modules/accounts from its code and tests.
 Plan a spec for a send quota: each account gets N sends a month; a send is refused when none are left.
 ```
 
-`cage-design` writes the spec — purpose, glossary, business rules, data, contracts, out of scope, open questions — and checks it with `cage check --phase design`. You read it; then `Implement the spec.` From here the Stop hook holds the agent to it: code that does not fit, or a rule with no test, comes back before the agent may finish.
+`cage-design` writes the spec — Feature context, Rules and Examples, glossary, TypeScript declarations and undecided open questions — and checks it with `cage check --phase design`. You read it; then `Implement the spec.` From here the Stop hook holds the agent to it: code that does not fit, or a rule with no test, comes back before the agent may finish.
 
 **Change behaviour through the spec.**
 
@@ -98,7 +98,7 @@ Plan a spec for a send quota: each account gets N sends a month; a send is refus
 A deleted organization must not come back from a late webhook. Change the spec first, then the code.
 ```
 
-The agent edits the rule, then the code and its tests. Those edits make the recorded review outdated, so on “done” Cage sends the agent to `cage-review`, which judges the changed rule against the new tests and records the verdict.
+The agent edits the rule, then the code and its tests. Those edits make the recorded review outdated, so when review is required or requested the agent uses `cage-review`, which judges the changed rule against the new tests and records the verdict.
 
 **Review a change someone else made.**
 
@@ -180,7 +180,29 @@ Write a spec for a module in a `*.cage.mdx` file next to its code — or ask you
 ````mdx
 # Quota
 
-Each account gets a number of sends. The quota is checked before every send.
+```gherkin design
+Feature: Sending quota
+  Each account has a limited number of sends.
+  Not: replenishing the quota.
+
+  @Quota.take
+  Rule: empty — an empty quota refuses a send
+    Example: refuses when nothing is left
+      Given account "a" has zero sends
+      When a send is requested for "a"
+      Then the request is refused
+
+  @Quota.take
+  Rule: consume — each successful request consumes exactly one send from that account
+    Example: takes exactly one send
+      Given account "a" has two sends
+      When three sends are requested for "a"
+      Then the first two requests succeed
+      And the third request is refused
+```
+
+## Glossary
+- **Send** — one unit consumed by an accepted request.
 
 ```ts design
 /**
@@ -194,17 +216,12 @@ export type AccountId = string;
  * @description Keeps the remaining sends of each account.
  */
 export interface Quota {
-  /**
-   * @description Takes one send from the account's quota.
-   * @invariant empty An empty quota refuses.
-   * @invariant consume A successful take uses exactly one send.
-   */
   take(accountId: AccountId): Promise<boolean>;
 }
 ```
 ````
 
-`@contract` marks an interface the code must implement, `@invariant` a rule it promises (an id, then a sentence), `@data` a type it uses. Prose outside the `ts design` blocks is for people.
+`@contract` marks an interface the code implements; `@data` marks a type. A Gherkin Rule has an id, a sentence and a carrier such as `@Quota.take`. Each Example links to an active test of that rule by title. The reviewer checks its assertions: a title link is not proof. Legacy JSDoc `@invariant` remains supported, including during migration. The [runnable Quota fixture](test/fixtures/quota-gherkin) contains this exact design, implementation, tests and review findings.
 
 Share an API through `extends`: a reusable `@data` interface needs no implementation; extending a `@contract` also inherits its invariants. Each contract has one direct implementation, with one `@implements` name per API surface. Designs can import types from installed packages whose entry points resolve to declarations; Cage includes those declarations in review material.
 
@@ -232,7 +249,7 @@ Run `npx cage check`. It reports, with file and line, every contract with no imp
 | Command | What it does |
 | --- | --- |
 | `cage init` | First configuration, the Stop hook, and two skills for the agent (`cage-design`, `cage-review`). Run once. |
-| `cage check` | Everything: designs, implementations, test links, locks, coverage, reviews. Exit 1 on a violation. |
+| `cage check` | Designs, implementations, test and Example links, locks, coverage, reviews and lint. Exit 1 on a violation. |
 | `cage check --phase design` | Specs only — while you write them. |
 | `cage check --phase lint` | Seven core design lint checks, without type checking. |
 | `cage migrate gherkin <module-dir…>` | Propose Gherkin Rules in ordinary drafts; `--dry-run` previews the diff. |
@@ -243,7 +260,7 @@ Run `npx cage check`. It reports, with file and line, every contract with no imp
 | `cage review --accept` | Takes the current spec, code and tests of every unreviewed contract as accepted, without a verdict: `check` asks for a review only when they change, and counts them apart from reviewed ones. For a person adopting Cage on an existing project; `--all` includes the reviewed contracts too. |
 | `cage lock` | Freezes the contracts marked `@final` (no changes) or `@extendable` (additions only); `check` refuses other changes. |
 | `cage draft create <spec>` | Writes `<name>.cage.draft.mdx` next to `<name>.cage.mdx`: a copy of the spec, or a new spec when there is none. A short header records the spec's path and the SHA-256 it was copied from. Never overwrites a file. |
-| `cage draft check <draft>` | Checks the draft in memory in place of its spec, with every other spec, its consumers and the locks. Implementations, tests and reviews are not checked; nothing is written. |
+| `cage draft check <draft>` | Checks the draft in memory in place of its spec, with every other spec, its consumers, locks and lint. Lint warnings do not block; promoted severities apply. Implementations, tests and reviews are not checked; nothing is written. |
 | `cage draft activate <draft>` | Checks again, then replaces the spec with the draft (header removed) and deletes the draft — only while the spec is still the text the draft was copied from. Records no lock and no review. |
 | `cage gate` | `check` for the agent's Stop hook: only errors go back to the agent; reviews block only under `review: "require"`. `init` wires it up. |
 | `cage codes` | What every diagnostic code means and what to do about it. A diagnostic line itself names only the thing and the place. |
@@ -259,7 +276,7 @@ A draft is how a spec change is proposed without touching the spec in force: `ch
 3. For a review: the agent runs `cage review`, then the suggested `cage review NameA NameB` commands. Connected shared changes form one packet so a consumer appears only once; missing or unknown reviews stay separate. It reads common material once, judges the touched rules of each contract afresh, confirms or revises previous findings on the others, and records the group's verdicts together with `cage review --record`. Additional changes remain visible for each contract. Cage checks that each verdict is complete and is for its contract's current material; the judgement itself is the reviewer's, which may be the same agent. The verdict is tied to a fingerprint of the contract, the prose of its module's spec, its implementations and the tests linked to it — each with the code of its own file it calls and its suite's setup — and their fingerprinted local dependencies, followed a few levels deep (`reviewDependencies`). Where the bounds stop, Cage says so instead of staying silent.
 4. `cage check` is clean; the agent stops.
 
-The rules the agent needs are in the `CLAUDE.md` / `AGENTS.md` section that `init` adds (or in the plugin), and in the two skills: `cage-design` — what deserves a contract and what goes to `.cageignore`, and the spec's structure (purpose, glossary, business rules, data, contracts, out of scope, open questions); `cage-review` — how to judge the tests against the rules and record the verdict.
+The rules the agent needs are in the `CLAUDE.md` / `AGENTS.md` section that `init` adds (or in the plugin), and in the two skills: `cage-design` — what deserves a contract and what goes to `.cageignore`, and the spec's structure (Feature context, Rules and Examples, glossary, TypeScript declarations and undecided open questions); `cage-review` — how to judge the tests against the rules and record the verdict.
 
 New review fingerprints (`sha256:code-v2:…`) exclude ordinary comments and spacing in implementations, tests, setup and dependencies, including dependencies kept whole. Packets still show the original source. Cage tags, annotated comments and tooling directives remain material; line-sensitive suppressions retain line layout. Literal contents and syntax affected by a newline remain significant. Contract declarations and the spec's prose are still hashed as text, and code with parse errors conservatively keeps its text fingerprint.
 
@@ -289,6 +306,7 @@ Existing `code-v1` fingerprints keep their declaration-level scope; unversioned 
 - `testAdapter`: `node:test` or `vitest`.
 - `review`: a contract without an up-to-date review is a warning (`warn`), an error (`require`) or nothing (`off`). The Stop hook blocks on missing, outdated or weak reviews only under `require`; under `warn` they remain visible in `cage check`.
 - `coverage`: exported code of a module with a spec but without `@implements` is a warning, an error, or not looked at. Standalone scalar constants such as `const LIMIT = 300` need no contract. A `.cageignore` next to the spec lists files that need none.
+- `examples`: `off`, `warn` (default) or `require` for unlinked Examples and Gherkin rules without Examples; `@property` exempts the latter. Outline title matching does not establish row coverage.
 - `lint`: core checks for history, settled questions, numbering, size, rule citations and duplicate data names. Warnings by default; `false` disables them. Configure individual severities and limits, or use a local suppression with a reason; see [core lint](docs/reference.md#core-design-lint). Lint warnings have the lowest display priority.
 - `maxDiagnostics`: how many groups text `check` and `gate` show at most (JSON limits individual diagnostics) (`50`, or `"all"`); errors come before warnings, missing or outdated reviews before the rest, and what is left out is counted by code. The exit code and the summary are of everything found.
 - `reviewDependencies` (`{ "depth": 3, "maxFiles": 40, "exclude": [] }` by default): how far a review's fingerprint follows local imports from the implementation and test files. Type-only imports, `node_modules`, files outside the project, declaration files and `exclude` patterns are not followed. Files beyond the bounds are not fingerprinted and do not produce diagnostics, regardless of review policy. An e2e spec that boots the whole application (a NestJS `AppModule`) reaches every file: exclude that entry point, e.g. `"exclude": ["src/app.module.ts"]`, and the fingerprint keeps to what the contract's code imports.
@@ -320,7 +338,19 @@ jobs:
 
 `cage check` exits 1 on any violation and 2 on a configuration or environment problem. Use `cage check`, not `cage gate`, in CI: the gate lets an agent stop after three attempts. Tests skipped at run time (a condition, an environment) are only visible to the runner: make it fail on them if that matters to you.
 
-## Upgrading to 0.8
+## Upgrading to 1.0
+
+The compatibility baseline is 0.11.0. Legacy JSDoc designs and existing review records keep their meaning and fingerprint algorithm. Core lint adds warnings only by default; `"lint": false` restores legacy check output. Gherkin is opt-in. Activating a migration changes review material and can stale reviews; no verdict is carried forward automatically.
+
+`cage migrate gherkin src/quota --dry-run` previews a draft. Without `--dry-run` it creates the draft with a title-only Feature after the H1, preserving all prose. Fold Purpose and numbered rules into the Feature, Rules and Examples, then run `cage draft check <draft>` before activation. Existing edited drafts are refused. [Migration details](docs/reference.md#migration-to-gherkin).
+
+Use `@assumption` only for external facts; changes to assumptions stale the document's reviews. `@live` and Gherkin `@final` are explicit errors. TypeScript declaration locks remain supported. Typed tables, constant drift checks, rule locks, advisory lint and automatic review carry-over are deferred.
+
+`cage init` preserves existing instruction files and skills. Review and copy the updated wording from the installed package's `plugin/` directory, or update the Claude plugin; fresh init installations receive the new wording.
+
+For 0.7.x users, upgrading also includes the stricter public signatures, one-contract bindings, one implementation per concrete contract and review-material changes already present by 0.11.0. Those structural and review costs predate 1.0; keep the migration steps below.
+
+### Earlier public API changes (0.8–0.11)
 
 Cage 0.8 checks the complete public API. A project that passed 0.7 can now report structural mismatches.
 

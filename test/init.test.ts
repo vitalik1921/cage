@@ -116,6 +116,12 @@ test("existing settings and instructions are extended, not replaced, and a gate 
   assert.ok(instructions.startsWith("# My project\r\n\r\nHow things are done here.\r\n\r\n<!-- cage:rules -->\r\n## Contract harness\r\n"));
   assert.ok(!instructions.includes("\r\n\n"));
   assert.equal(readFile(root, ".codex/config.toml"), CODEX_BLOCK);
+  for (const name of ["cage-design", "cage-review"]) {
+    const canonical = fs.readFileSync(path.join(import.meta.dirname, "..", "plugin", "skills", name, "SKILL.md"), "utf8");
+    assert.equal(readFile(root, `.claude/skills/${name}/SKILL.md`), canonical);
+    assert.equal(readFile(root, `.agents/skills/${name}/SKILL.md`), canonical);
+  }
+
 
   // A second run adds nothing to any of them.
   const before = [".claude/settings.json", "CLAUDE.md", ".codex/config.toml", "AGENTS.md"].map((file) => readFile(root, file));

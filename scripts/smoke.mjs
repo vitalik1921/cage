@@ -32,9 +32,15 @@ try {
   run("draft", "check", draft);
   // `init` copies the rules and skills out of the package: they have to be in the tarball where it looks for them.
   execFileSync("git", ["init", "--quiet"], { cwd: project });
-  run("init", "--agent", "claude");
+  run("init", "--agent", "claude", "--agent", "codex");
   for (const file of ["CLAUDE.md", ".claude/settings.json", ".claude/skills/cage-design/SKILL.md", ".claude/skills/cage-review/SKILL.md"]) {
     if (!fs.existsSync(path.join(project, file))) throw new Error(`init did not write ${file}`);
+  }
+  for (const name of ["cage-design", "cage-review"]) {
+    const canonical = fs.readFileSync(path.join(repository, "plugin", "skills", name, "SKILL.md"), "utf8");
+    for (const agent of [".claude", ".agents"]) {
+      if (fs.readFileSync(path.join(project, agent, "skills", name, "SKILL.md"), "utf8") !== canonical) throw new Error(`Installed ${agent} skill ${name} differs from the package source`);
+    }
   }
   const gherkinProject = path.join(project, "gherkin");
   fs.cpSync(path.join(repository, "test/fixtures/gherkin"), gherkinProject, { recursive: true });
@@ -45,7 +51,16 @@ try {
   const packet = JSON.parse(run("review", "EntryPicker", "RemoveCourses", "RemoveEducation", "--root", gherkinProject, "--format", "json"));
   if (!packet.complete || packet.gherkin?.length !== 1 || packet.contracts.some(contract => contract.invariants.some(rule => rule.gherkin.examples.some(example => example.tests.length === 0)))) throw new Error("Installed Gherkin review packet lost an Example link or shared context");
   execFileSync(process.execPath, ["--test", "src/removal.test.ts"], { cwd: gherkinProject, encoding: "utf8" });
-  console.log(`smoke: ${tarball} installs; cage ${version} checks the legacy fixture: ${report.counts.contracts} contracts, ${report.counts.linkedInvariants} of ${report.counts.invariants} invariants linked; Gherkin fixture: 4 implementations, 10 linked invariants, required Example links and shared review context pass, runnable tests pass; migration preview, repeatable checked drafts and used-by graph pass; init writes the hook, the rules and the skills.`);
+  const quotaProject = path.join(project, "quota-gherkin");
+  fs.cpSync(path.join(repository, "test/fixtures/quota-gherkin"), quotaProject, { recursive: true });
+  execFileSync(process.execPath, ["--test", "src/quota.test.ts"], { cwd: quotaProject, encoding: "utf8" });
+  const quotaPacket = JSON.parse(run("review", "Quota", "--root", quotaProject, "--format", "json"));
+  const findings = JSON.parse(fs.readFileSync(path.join(quotaProject, "review-findings.json"), "utf8"));
+  fs.writeFileSync(path.join(quotaProject, "verdict.json"), JSON.stringify({ version: 1, verdicts: [{ contract: "Quota", fingerprint: quotaPacket.contracts[0].fingerprint, findings }] }));
+  run("review", "--record", path.join(quotaProject, "verdict.json"), "--root", quotaProject);
+  const reviewed = JSON.parse(run("check", "--root", quotaProject, "--format", "json"));
+  if (!reviewed.ok || reviewed.diagnostics.length || reviewed.invariants.length !== 2 || reviewed.invariants.some(rule => rule.review !== "adequate")) throw new Error(`Reviewed Quota failed: ${JSON.stringify(reviewed)}`);
+  console.log(`smoke: ${tarball} installs; cage ${version} checks the legacy fixture: ${report.counts.contracts} contracts, ${report.counts.linkedInvariants} of ${report.counts.invariants} invariants linked; Gherkin fixture: 4 implementations, 10 linked invariants, required Example links and shared review context pass, runnable tests pass; README Quota: runnable tests and two adequate recorded findings pass with required review/examples, zero diagnostics; migration preview, repeatable checked drafts and used-by graph pass; init writes hooks, rules and identical Claude/Codex skills.`);
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });
 }
