@@ -590,7 +590,7 @@ export function resolveInheritance(ts: TypeScript, checker: ts.TypeChecker, desi
           });
           continue;
         }
-        const copy: Invariant = { contract: contract.name, id: invariant.id, text: invariant.text, member: invariant.member, inheritedFrom: { contract: ancestor.name, module: ancestor.module }, location: invariant.location };
+        const copy: Invariant = { ...invariant, contract: contract.name, inheritedFrom: { contract: ancestor.name, module: ancestor.module } };
         declared.set(invariant.id, copy);
         inherited.push(copy);
       }

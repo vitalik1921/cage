@@ -11,6 +11,8 @@ codes.ts
 
 # Reading the documents and the designs.
 mdx.ts
+gherkin.ts
+gherkin-index.ts
 doc-comments.ts
 design-index.ts
 contract-inheritance.ts

@@ -3,6 +3,8 @@ import path from "node:path";
 import type ts from "typescript";
 import { resolveInheritance } from "./contract-inheritance.ts";
 import { indexDesigns, type DesignSourceFile, type ImportTarget } from "./design-index.ts";
+import { bindGherkinRules } from "./gherkin-index.ts";
+import type { GherkinDesign } from "./gherkin.ts";
 import type { DesignIndex } from "./design-model.ts";
 import { compareDiagnostics, isError, type Diagnostic } from "./diagnostic.ts";
 import { DESIGN_SUFFIX, type DesignSource } from "./discovery.ts";
@@ -30,6 +32,7 @@ export interface DesignDocument {
   source: string;
   sourceLines: readonly number[];
   blocks: DesignBlock[];
+  gherkin?: GherkinDesign;
 }
 
 /** A module's design: its documents, and the virtual module assembled from all their blocks. */
@@ -180,6 +183,17 @@ export function checkDesignPhase(options: DesignPhaseOptions): DesignPhaseResult
   }
   // What a contract inherits is known from the resolved types only, and only types without errors can be relied on.
   if (failed()) return done();
+  const bound = bindGherkinRules(modules, indexed.index, (contract, member) => {
+    const design = designs.find(design => design.moduleId === contract.module)!;
+    const node = design.sourceFile.statements.find((node): node is ts.InterfaceDeclaration => ts.isInterfaceDeclaration(node) && node.name.text === contract.name);
+    return node !== undefined && overlay.program.getTypeChecker().getPropertyOfType(overlay.program.getTypeChecker().getTypeAtLocation(node), member) !== undefined;
+  });
+  // A Gherkin promise is an invariant even though no JSDoc tag supplied it.
+  for (let i = diagnostics.length - 1; i >= 0; i--) {
+    if (diagnostics[i].code === "W_NO_INVARIANTS" && bound.carriers.has(diagnostics[i].contract!)) diagnostics.splice(i, 1);
+  }
+  diagnostics.push(...bound.diagnostics);
+  if (failed()) return done();
   diagnostics.push(...resolveInheritance(ts, overlay.program.getTypeChecker(), designs, indexed.index, (file) => {
     const id = packages.idOf(file);
     const entry = indexed.index.packages.find((entry) => entry.files.some((selected) => selected.id === id));
@@ -247,7 +261,7 @@ function readDocuments(ts: TypeScript, root: string, designs: readonly DesignSou
       diagnostics.push(...parsed.diagnostics);
       hasProblems ||= parsed.diagnostics.length > 0;
       hasBusinessContext ||= parsed.hasBusinessContext;
-      documents.push({ file, source, sourceLines: lineStarts(source), blocks: parsed.blocks });
+      documents.push({ file, source, sourceLines: lineStarts(source), blocks: parsed.blocks, ...(parsed.gherkin ? { gherkin: parsed.gherkin } : {}) });
     }
     if (!readable) continue;
     const names = documents.map((document) => document.file);

@@ -3,6 +3,7 @@ import remarkMdx from "remark-mdx";
 import remarkParse from "remark-parse";
 import { unified } from "unified";
 import type { Diagnostic } from "./diagnostic.ts";
+import { parseGherkin, type GherkinDesign } from "./gherkin.ts";
 import { lineStarts, positionAt, splitLines, type Position } from "./location.ts";
 
 export interface BlockLine {
@@ -23,6 +24,7 @@ export interface DesignBlock {
 
 export interface ParsedDesign {
   blocks: DesignBlock[];
+  gherkin?: GherkinDesign;
   /** Whether the document has a paragraph, list or table with text outside code blocks; headings do not count. */
   hasBusinessContext: boolean;
   diagnostics: Diagnostic[];
@@ -52,11 +54,13 @@ export function parseDesignMdx(source: string, file: string): ParsedDesign {
 
   const blocks: DesignBlock[] = [];
   const diagnostics: Diagnostic[] = [];
+  let gherkin: GherkinDesign | undefined;
+  let gherkinSeen = false;
 
   const visitCode = (node: Code, topLevel: boolean) => {
     if (node.meta?.trim() !== "design") return;
     const start = node.position!.start.offset!;
-    if (node.lang !== "ts") {
+    if (node.lang !== "ts" && node.lang !== "gherkin") {
       diagnostics.push(
         error("E_DESIGN_BLOCK_MARKER", `design on a "${node.lang ?? ""}" block, not ts`, start),
       );
@@ -64,20 +68,29 @@ export function parseDesignMdx(source: string, file: string): ParsedDesign {
     }
     if (!topLevel || node.position!.start.column !== 1) {
       diagnostics.push(
-        error("E_DESIGN_BLOCK_LOCATION", "ts design block indented or nested", start),
+        error("E_DESIGN_BLOCK_LOCATION", `${node.lang} design block indented or nested`, start),
       );
       return;
     }
     if (node.value.trim() === "") {
-      diagnostics.push(error("E_DESIGN_BLOCK_EMPTY", "empty ts design block", start));
+      diagnostics.push(error("E_DESIGN_BLOCK_EMPTY", `empty ${node.lang} design block`, start));
       return;
     }
-    blocks.push({
+    const block = {
       order: blocks.length,
       sourceStart: start,
       sourceEnd: node.position!.end.offset!,
       lines: blockLines(source, starts, node),
-    });
+    };
+    if (node.lang === "gherkin") {
+      if (gherkinSeen) diagnostics.push(error("E_GHERKIN_SYNTAX", "more than one gherkin design block in the document", start));
+      else {
+        const parsed = parseGherkin(source, file, block);
+        gherkin = parsed.design;
+        diagnostics.push(...parsed.diagnostics);
+      }
+      gherkinSeen = true;
+    } else blocks.push(block);
   };
 
   const visit = (node: Nodes, topLevel: boolean) => {
@@ -87,7 +100,7 @@ export function parseDesignMdx(source: string, file: string): ParsedDesign {
   for (const child of tree.children) visit(child, true);
 
   // A document without a block may be the prose of a module whose blocks are in another document; the module decides.
-  return { blocks, hasBusinessContext: tree.children.some(hasProse), diagnostics };
+  return { blocks, ...(gherkin ? { gherkin } : {}), hasBusinessContext: tree.children.some(hasProse) || Boolean(gherkin?.feature.name.trim() || gherkin?.feature.description.trim()), diagnostics };
 }
 
 const hasText = (node: Nodes): boolean =>

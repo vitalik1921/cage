@@ -1,0 +1,125 @@
+# Entry removal
+
+```gherkin design
+Feature: Remove exactly the named entry
+  The caller removes a title or a unique marker while preserving other entries.
+  Not: editing entries or retrying a removal.
+
+  Background:
+    Given the supported sections
+      | section   |
+      | courses   |
+      | education |
+
+  @EntryPicker
+  Rule: exact-title-wins — One equal title selects that entry before lookalikes or markers, ignoring case, spacing and doubled paint.
+    Example: the exact title among lookalikes
+      Given the titles "QAV Analyst" and "QAV Analyst 2"
+      When the match is "QAV Analyst"
+      Then the first entry is selected by title
+
+  @EntryPicker
+  Rule: title-tie-refused — Two or more equal titles select no entry.
+    Example: two equal titles
+      Given two entries titled "QAV Analyst"
+      When the match is "QAV Analyst"
+      Then no entry is selected
+
+  @EntryPicker
+  Rule: lookalike-refused — With no equal title, a longer title holding the match as a whole phrase prevents marker selection.
+    Example: a lookalike blocks a unique marker
+      Given "QAV Analyst 2" and a different entry whose description holds "QAV Analyst"
+      When the match is "QAV Analyst"
+      Then no entry is selected
+
+  @EntryPicker
+  Rule: single-marker — With no equal or lookalike title, one entry holding the whole phrase is selected by marker.
+    Example: a marker in one description
+      Given "Real Course" alone holds "marker 9971" in its description
+      When the match is "marker 9971"
+      Then "Real Course" is selected by marker
+
+  @EntryPicker
+  Rule: marker-tie-refused — With no equal or lookalike title, two or more entries holding the whole phrase select no entry.
+    Example: two holders of a marker
+      Given two different entries hold "marker 9971" in their descriptions
+      When the match is "marker 9971"
+      Then no entry is selected
+
+  @EntryPicker
+  Rule: unreadable-list — An unreadable list selects no entry.
+    Example: the list cannot be read
+      Given the list is unreadable
+      When the match is "marker 9971"
+      Then no entry is selected
+
+  @EntryPicker @property
+  Rule: match-is-literal — Pattern characters and adjacent letters or digits never widen a whole-phrase match.
+    Example: brackets and pluses remain literal
+      Given the titles "QA C" and "QA (C++)"
+      When the match is "QA (C++)"
+      Then only the second entry is selected
+
+  @EditorCheck
+  Rule: editor-proves-identity — Only one shown editor permits deletion, proving title mode by an equal single-line input without a longer matching input, or marker mode by a whole-phrase match in its text or input values.
+    Scenario Outline: the editor proves the selected mode
+      Given an editor containing <value>
+      When its identity is checked in <mode> mode
+      Then deletion is <allowed>
+      Examples:
+        | mode   | value           | allowed |
+        | title  | QAV Analyst     | true    |
+        | title  | QAV Analyst 2   | false   |
+        | marker | note marker 9971 | true   |
+
+  @RemoveSection
+  Rule: match-required — A trimmed match shorter than three characters is refused before any page call.
+    Example: a two-letter match is refused
+      When removal runs with match " ab "
+      Then the run is refused
+      And the page receives no calls
+
+  @assumption
+  Rule: entry-title-is-first-line — The external site renders the title as the first text line of its row.
+```
+
+## Glossary
+- **Whole phrase** — text with no letter or digit attached at either end.
+- **Lookalike** — a longer title containing the match as a whole phrase.
+
+```ts design
+/** @data
+ * @description A readable entry. */
+export interface Entry { title: string; text: string; }
+/** @data
+ * @description The selected entry and the way it was identified. */
+export interface Picked { index: number; mode: "title" | "marker"; }
+/** @data
+ * @description Observable editor values. */
+export interface Editor { shown: boolean; inputs: readonly string[]; textareas: readonly string[]; text: string; }
+/** @data
+ * @description The page operations available to a removal. */
+export interface Page {
+  read(): readonly Entry[] | null;
+  edit(index: number): readonly Editor[];
+  delete(index: number): void;
+  escape(): void;
+}
+/** @contract
+ * @description Selects a single entry, or refuses. */
+export interface EntryPicker { (entries: readonly Entry[] | null, match: string): Picked | null; }
+/** @contract
+ * @description Checks the selected entry's identity in an editor. */
+export interface EditorCheck { (editors: readonly Editor[], target: Picked, match: string): boolean; }
+/** @family
+ * @description A removal capability sharing the input guard. */
+export interface RemoveSection {}
+/** @contract
+ * @description Removes a course.
+ * @uses EntryPicker EditorCheck */
+export interface RemoveCourses extends RemoveSection { run(page: Page, match: string): void; }
+/** @contract
+ * @description Removes an education entry.
+ * @uses EntryPicker EditorCheck */
+export interface RemoveEducation extends RemoveSection { run(page: Page, match: string): void; }
+```

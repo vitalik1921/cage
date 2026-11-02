@@ -26,7 +26,12 @@ try {
   for (const file of ["CLAUDE.md", ".claude/settings.json", ".claude/skills/cage-design/SKILL.md", ".claude/skills/cage-review/SKILL.md"]) {
     if (!fs.existsSync(path.join(project, file))) throw new Error(`init did not write ${file}`);
   }
-  console.log(`smoke: ${tarball} installs; cage ${version} checks the fixture: ${report.counts.contracts} contracts, ${report.counts.linkedInvariants} of ${report.counts.invariants} invariants linked; init writes the hook, the rules and the skills.`);
+  const gherkinProject = path.join(project, "gherkin");
+  fs.cpSync(path.join(repository, "test/fixtures/gherkin"), gherkinProject, { recursive: true });
+  const gherkin = JSON.parse(run("check", "--root", gherkinProject, "--format", "json"));
+  if (!gherkin.ok || gherkin.counts.implementations !== 4 || gherkin.counts.linkedInvariants !== 10) throw new Error(`Gherkin fixture failed: ${JSON.stringify(gherkin)}`);
+  execFileSync(process.execPath, ["--test", "src/removal.test.ts"], { cwd: gherkinProject, encoding: "utf8" });
+  console.log(`smoke: ${tarball} installs; cage ${version} checks the legacy fixture: ${report.counts.contracts} contracts, ${report.counts.linkedInvariants} of ${report.counts.invariants} invariants linked; Gherkin fixture: 4 implementations, 10 linked invariants, runnable tests pass; init writes the hook, the rules and the skills.`);
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });
 }

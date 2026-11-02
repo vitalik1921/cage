@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- Optional Gherkin design blocks: rules bind to contracts, families and named members; examples, outlines, backgrounds, assumptions and source positions are retained without running steps. Rules participate in the existing invariant inheritance and declaration locks. Unsupported enforcement tags are explicit errors.
+
+### Upgrade notes
+
+- The compatibility baseline for this change is 0.11.0. Projects upgrading from 0.7.x also encounter the stricter signatures, single-contract bindings, single implementations and review-material changes already present in 0.11.0; those migration and review costs are not introduced by Gherkin support.
+
 ## 0.11.0
 
 ### Added

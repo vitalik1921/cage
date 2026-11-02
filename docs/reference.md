@@ -54,7 +54,7 @@ The report goes to stdout, argument errors to stderr. Exit codes: `0` — succes
 
 The design phase first, in five layers:
 
-1. **Documents.** MDX is only parsed (`unified` + `remark-parse` + `remark-mdx`), never executed. Top-level, unindented `ts design` blocks are taken; plain `ts` blocks stay examples.
+1. **Documents.** MDX is only parsed (`unified` + `remark-parse` + `remark-mdx`), never executed. Top-level, unindented `ts design` blocks are taken; plain `ts` blocks stay examples. One optional `gherkin design` block describes rules and examples separately from the TypeScript declarations.
 2. **Blocks.** Every block has to be complete TypeScript on its own: an unclosed `{` or `/*` cannot swallow the next block.
 3. **Compiler.** An unusable tsconfig, invalid options or missing `types` are an environment error; nothing further is checked.
 4. **Declarations and tags.** The rules below.
@@ -67,6 +67,16 @@ A layer runs only when the earlier ones left no error that its results would be 
 6. **Implementations.** Every concrete contract has exactly one direct implementation (`E_IMPLEMENTATION_MISSING` / `E_IMPLEMENTATION_DUPLICATE`), and the implementation’s public surface exactly matches it. Compiler incompatibility is `E_TYPE_MISMATCH`; extra members, missing optional members and signature drift have `E_CONTRACT_*` diagnostics.
 7. **Tests.** Every invariant has at least one test declaration tagged `@covers` inside a suite tagged `@tests` with its contract (`E_TEST_MISSING`), and at least one is active or explicitly marked skip/todo (`E_TEST_INACTIVE` rejects only unintended empty or broken-import links; see “Rules for tests”). The tests are read, never run: whether they pass is the test runner's to say, and `counts.executedTests` is always `null`.
 8. **Reviews.** Every concrete contract has a recorded verdict of a substantive review for the material as it is now, or an acceptance of that material without a review (`cage review --accept`): `REVIEW_MISSING` / `REVIEW_STALE` / `REVIEW_WEAK`, warnings or errors depending on `"review"` in the configuration (see "`review`").
+
+### Gherkin design rules
+
+A document may contain one top-level, unindented `gherkin design` block alongside its `ts design` blocks. The Feature name or description supplies business context. The parser supports Gherkin's language header, descriptions, Feature and Rule backgrounds, Examples, Scenario Outlines, data tables and doc strings. Tables are retained as example text, without type checking; Cage never runs steps. An Example must belong to a Rule; an Outline needs at least one data row in every Examples table. Bare examples outside rules, enforcement tags on examples, and unsupported enforcement tags such as `@final`, `@extendable` and the former `@live` are errors.
+
+Write `Rule: kebab-id — An observable promise.` (a spaced ASCII dash is also accepted). Bind it with `@Contract`, `@Family` or `@Contract.member` above the Rule. Carrier names start with an ASCII uppercase letter; a member is a TypeScript identifier, including an inherited member. The carrier must be declared in the same module, though it can be in another document. A Feature carrier supplies the default; a Rule's own carrier replaces it. There must be exactly one carrier per promise. IDs are unique across all members and both JSDoc and Gherkin rules of a contract or family. Existing family inheritance, conflicts, child test links and declaration locks apply to Gherkin promises too.
+
+`@property` marks an invariant about all inputs. `@assumption` marks an external statement with no carrier or test obligation; it cannot also be `@property`. An assumption does not inherit a Feature carrier. Assumptions remain in the document, separate from the invariant index. Other lowercase tags (letters, digits, underscores and hyphens) are labels, with no enforcement. Cage binding tags such as `@tests` and `@invariant` are not Gherkin labels. Example titles must be nonempty and unique within their Rule after trimming, collapsing whitespace and lowercasing. Outline rows remain part of one Example; no row coverage is claimed.
+
+Gherkin never enters the virtual TypeScript file. All existing prose, including the complete Gherkin block, remains document material; the implementation preserves the legacy path when no Gherkin block is present. The parser assigns stable per-document AST ids and translates locations back to MDX, with UTF-16 columns. The candidate's Example-to-test title links and expanded review packets are a separate implementation step; current test links remain `@tests` / `@covers`.
 
 ### Rules for implementations
 
@@ -387,9 +397,14 @@ What every diagnostic means and what to do about it; `cage codes` prints the sam
 | `E_NO_DESIGNS` | no *.cage.mdx matches the designs patterns | write a design next to its module, or fix the patterns |
 | `E_MDX_SYNTAX` | the document does not parse as MDX | fix the document |
 | `E_DESIGN_BLOCK_MISSING` | a module's documents have no ts design block | add a ```ts design block with the contracts |
-| `E_DESIGN_BLOCK_EMPTY` | a ts design block has no code | declare the contracts in it, or remove it |
-| `E_DESIGN_BLOCK_LOCATION` | a ts design block is indented or nested; only top-level unindented blocks count | move it to the top level |
-| `E_DESIGN_BLOCK_MARKER` | the design marker is on a block whose language is not ts | make it ```ts design |
+| `E_DESIGN_BLOCK_EMPTY` | a ts or gherkin design block is empty | give it design content, or remove it |
+| `E_DESIGN_BLOCK_LOCATION` | a ts or gherkin design block is indented or nested; only top-level unindented blocks count | move it to the top level |
+| `E_DESIGN_BLOCK_MARKER` | the design marker is on a block whose language is neither ts nor gherkin | use ts design for declarations or gherkin design for rules |
+| `E_GHERKIN_SYNTAX` | a Gherkin design does not parse, has no Feature or occurs twice in one document | write one valid gherkin design block; the message names the problem |
+| `E_GHERKIN_UNSUPPORTED` | a Gherkin tag or structure has no supported Cage meaning | use supported tags and named examples under rules; enforcement tags cannot be free labels |
+| `E_RULE_FORMAT` | a Gherkin Rule needs a kebab-case id, a spaced dash and a sentence | write Rule: rule-id — the observable promise |
+| `E_RULE_UNBOUND` | a Gherkin rule has an invalid carrier or incompatible assumption flags | bind each promise to one contract, family or member of its module; leave assumptions unbound |
+| `E_EXAMPLE_DUPLICATE` | two examples of one rule have the same normalized title | give the examples distinct titles |
 | `E_DESIGN_IMPORT` | a design imports values, non-designated source or unavailable type dependencies | use import type from a design, installed package or designated project type export |
 | `E_DESIGN_OUT_OF_SCOPE` | a block imports a design document the designs patterns do not cover | widen the patterns, or do not import it |
 | `E_DESIGN_CYCLE` | modules depend on each other in a cycle through @uses or type imports | break the cycle |

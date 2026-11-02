@@ -1,3 +1,5 @@
+import type { GherkinRule } from "./gherkin.ts";
+
 /** A position in an authored file: project-relative POSIX path, 1-based line and UTF-16 column. */
 export interface SourceLocation {
   file: string;
@@ -77,6 +79,8 @@ export interface Invariant {
   /** Where it is declared: the base contract it is inherited from; absent when the contract declares it itself. */
   inheritedFrom?: { contract: string; module: string };
   location: SourceLocation;
+  /** Present only for opt-in Gherkin promises, also on inherited copies. */
+  gherkin?: GherkinRule;
 }
 
 export interface Implementation {
@@ -186,6 +190,8 @@ export interface DesignIndex {
   locked: LockedDeclaration[];
   /** One entry per design and package specifier. */
   packages: PackageImport[];
+  /** External statements, separate from promises and never used for test coverage. */
+  assumptions?: { module: string; rule: GherkinRule }[];
 }
 
 export const emptyIndex = (): DesignIndex => ({ contracts: [], data: [], invariants: [], edges: [], locked: [], packages: [] });

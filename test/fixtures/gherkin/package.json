@@ -1,0 +1,1 @@
+{ "name": "cage-gherkin-fixture", "private": true, "type": "module", "scripts": { "test": "node --test src/removal.test.ts" } }
