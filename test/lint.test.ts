@@ -230,7 +230,7 @@ describe("core design lint", () => {
   test("lint false preserves 0.11 text, JSON, diagnostics and review records byte for byte", t => {
     const root = copyFixture(t, "vertical");
     editFile(root, QUOTA, text => text.replace("# Квота", "# Квота\n\nUser decision: retain reservations.\n\n{/* cage-lint-disable W_HISTORY_REFERENCE */}"));
-    const stable = (...args: string[]) => spawnSync(process.execPath, [path.resolve("node_modules/cage-stable/dist/cli.js"), ...args, "--root", root], { encoding: "utf8" });
+    const stable = (...args: string[]) => spawnSync(process.execPath, [path.resolve("node_modules/cage-legacy/dist/cli.js"), ...args, "--root", root], { encoding: "utf8" });
     writeFile(root, ".cage/config.json", JSON.stringify({ version: 1 }));
     const names = ["Quota", "Sender", "Send"];
     const full = JSON.parse(stable("review", ...names, "--format", "json").stdout);

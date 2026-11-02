@@ -222,7 +222,7 @@ describe("Gherkin designs", () => {
   /** @covers gherkin-compatibility */
   test("unchanged legacy projects retain 0.11 diagnostics and recorded review fingerprints", (t) => {
     const root = copyFixture(t, "vertical");
-    const stable = path.resolve("node_modules/cage-stable/dist/cli.js");
+    const stable = path.resolve("node_modules/cage-legacy/dist/cli.js");
     const runStable = (...args: string[]) => spawnSync(process.execPath, [stable, ...args, "--root", root], { encoding: "utf8" });
     // Establish synthetic review records with the pinned CLI before comparing unchanged material.
     // The named packet command supplies full material and current fingerprints.

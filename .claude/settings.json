@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/'node_modules/.bin/cage' gate --root \"$CLAUDE_PROJECT_DIR\"/'.'",
+            "command": "node \"$CLAUDE_PROJECT_DIR\"/'node_modules/cage-stable/dist/cli.js' gate --root \"$CLAUDE_PROJECT_DIR\"/'.'",
             "timeout": 180
           }
         ]
