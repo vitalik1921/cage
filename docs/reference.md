@@ -9,6 +9,8 @@ cage init                   # first .cage/config.json and the Stop hook; in a te
 cage check                  # designs, implementations, test links, locks, coverage, reviews
 cage check --phase design   # designs only
 cage check --phase lint     # core lint and document syntax; no type checking
+cage migrate gherkin src/quota --dry-run  # preview migration drafts
+cage graph Quota --used-by  # declared consumers and module type importers
 cage lock                   # record the declarations marked @final / @extendable in .cage/lock.json
 cage check --base origin/main   # additionally: everything locked on origin/main is still locked (for CI)
 cage review                 # the index for a reviewer (a person or a model): the contracts without a fresh review, what changed, which invariants it touches; --all for every contract
@@ -359,6 +361,28 @@ The text report lists the diagnostics, then a heading with the outcome and the c
 
 Exit codes as for every command: `0` — created, valid or activated (warnings do not change it); `1` — refused or invalid (`E_DRAFT`, `E_DRAFT_CONFLICT`, design and lock errors); `2` — arguments, configuration or environment. `--format text|json`; the JSON report has `command: "draft"`, `action`, `ok`, `draft`, `target`, `base`, `status` (`created`, `valid`, `invalid`, `activated`, `refused`), `validation` (null when no candidate was checked, else what was and was not checked, and the TypeScript used) and `diagnostics`.
 
+### Migration to Gherkin
+
+`cage migrate gherkin <module-dir…> [--dry-run] [--format text|json]` proposes migrations as ordinary `*.cage.draft.mdx` files. Each argument names an exact module directory relative to `--root`, not a recursive subtree; `.` selects designs in the project root itself. Duplicate arguments are deduplicated. Missing modules, absolute paths and `..` are refused. Discovery respects the configured design/exclude patterns and never follows symbolic links.
+
+For each document, migration moves authored JSDoc `@invariant` tags from exported contracts and families into explicit carrier-tagged Rules. Contract and call-signature invariants use `@Contract`; named member invariants use `@Contract.member`. The id and logical sentence are preserved exactly as Cage already parses them: continuation lines lose their JSDoc gutter and join with a space. This preserves locks' normalized promises and existing `@covers` links. Other tags, declarations and prose stay in place; empty JSDoc shells left by the move are removed. Examples are left for the author to supply.
+
+A new English Feature uses the H1 title and the first Purpose paragraph, before the first TypeScript design block. Existing Gherkin is retained verbatim, with new explicitly tagged Rules appended in its existing language. Feature default carriers remain in force only for their existing rules. A malformed or duplicate rule, an id or carrier that the Gherkin format cannot express, or an invariant without a supported carrier is refused instead of being silently renamed or dropped (`E_MIGRATE`).
+
+The entire selection is prepared before writes begin. A differing existing draft—including an unedited copy draft or a generated draft with an obsolete base—is `E_DRAFT_CONFLICT` and prevents all planned writes. An exactly identical generated draft is reused unchanged. Documents without JSDoc invariants need no draft. A second migration with the same sources changes nothing. There is no `--force` or `--carry-reviews`.
+
+Draft creation uses the same path checks, base digest and exclusive whole-file write as `cage draft create`, and rechecks the source before each write. An I/O failure after an earlier draft was created reports that file as `created` and later files as `refused`; writes are atomic per file, not a batch transaction. Active designs, code, tests, locks and reviews are never written. No Git cleanliness requirement applies to proposing a draft.
+
+`--dry-run` prints deterministic unified content diffs (without draft headers), or puts them in each JSON file entry's `diff`, and writes nothing. Normal output lists each target/draft, moved-rule count and status (`created`, `unchanged`, `proposed` for a preview, or `refused`). A proposal is not a type/lock/review approval. Read it, run the printed `cage draft check <draft>` command, then use `cage draft activate <draft>` when ready. Activation retains the existing baseline and lock checks and does not carry reviews forward.
+
+### Dependency graph
+
+`cage graph [Name] [--used-by] [--depth n] [--format text|json|mermaid]` reads the design index without inspecting implementations, tests, locks or reviews. With no name it shows all declarations and module nodes. `Name` selects a contract or family; an unknown name is `E_REFERENCE_UNKNOWN`. A named query follows dependencies, or their reverse with `--used-by`, up to `n` edges (a non-negative safe integer). The default is all reachable edges; depth zero shows only the query roots. `--used-by` and `--depth` require a name.
+
+The graph has two explicit levels: `uses` and `extends` connect declarations, while `type-import` connects modules. A named query starts both at that declaration and at its module; each level is traversed independently. Thus module type importers are visible without implying that every declaration in an importing module uses the named contract. Inheritance includes family and data bases already present in the design index; no dependency is inferred from prose or implementation calls.
+
+JSON exposes deterministic `nodes` (stable string `id`, `kind`, `name`, `module`) and `edges` (`kind`, `from`, `to`, source `location`), plus the focus, direction, depth and diagnostics. Text and Mermaid show the same selected edges. TypeScript/design errors prevent a graph: JSON has `ok: false`, `nodes: null`, `edges: null`; text reports that it is unavailable and Mermaid includes the diagnostics as comments. The command writes nothing.
+
 ### Configuration
 
 `.cage/config.json` is optional. The defaults:
@@ -413,7 +437,7 @@ Seven core checks run by default: history, settled Open questions, numbering, mo
 
 History matching uses explicit notation: a status prefix such as `Settled:` or `Resolved —`, `user decision`, a date-prefixed log (`2026-01-01: …`), a history verb followed by a date (`changed on 2026-01-01`), or a bounded 7–40-character hex hash containing both a digit and a letter. It does not flag a bare business date or an ordinary sentence using “resolved”. Custom patterns use the same scope. The check reads MDX prose, JSDoc descriptions/invariants, and Feature/Rule names and descriptions; it skips fenced examples, tables, Gherkin steps, Example content and doc strings. It reports once per text unit (prose line or metadata field), not once per pattern match.
 
-`Business rules` and `Open questions` H2 headings are recognized case-insensitively. Their top-level numbered items must be `1..n` in source order; zero and letter suffixes are reported. A settled question starts with `settled`, `resolved`, `decided`, `superseded` or `done`. `(rule N)` in an invariant refers to that document's numbered Business rules; `(stem rule N)` selects a document with that filename stem, first within the module and then uniquely within the project. An ambiguous stem is reported like a missing one. A repeated `@data` name across modules produces one diagnostic with the other declaration locations; shape similarity is deferred.
+`Business rules` and `Open questions` H2 headings are recognized case-insensitively. Their top-level numbered items must be `1..n` in source order; zero and letter suffixes are reported. A settled question starts with `settled`, `resolved`, `decided`, `superseded` or `done`. That status belongs only to `W_OPEN_QUESTION_SETTLED`, even when it is suppressed or off; independent history elsewhere in the item can still be reported. `(rule N)` in an invariant refers to that document's numbered Business rules; `(stem rule N)` selects a document with that filename stem, first within the module and then uniquely within the project. Singular/plural lists also work: `(rules 3, 8)`, `(rules 1, 2 and 5)`, `(add-once rules 1, 2)`. Every listed number is checked. Trailing unrelated parenthetical text ends the list: `(rule 1, KI-11)` checks rule 1, not ticket 11. An ambiguous stem is reported like a missing one. A repeated `@data` name across modules produces one diagnostic with the other declaration locations; shape similarity is deferred.
 
 ### Reasoned suppressions
 
@@ -439,6 +463,7 @@ What every diagnostic means and what to do about it; `cage codes` prints the sam
 | `E_CONFIG` | .cage/config.json, .cage/review.json, .cage/lock.json, a .cageignore or a verdicts file is not what cage expects; the message names the field | fix the file |
 | `E_ENVIRONMENT` | the tsconfig, a file or a Git revision cannot be read or used | fix the environment; the message says what |
 | `E_NO_DESIGNS` | no *.cage.mdx matches the designs patterns | write a design next to its module, or fix the patterns |
+| `E_MIGRATE` | a selected module has no active designs or an invariant cannot be moved to Gherkin without changing its meaning or carrier | fix the named design or module path and retry; existing drafts are never overwritten |
 | `E_MDX_SYNTAX` | the document does not parse as MDX | fix the document |
 | `E_DESIGN_BLOCK_MISSING` | a module's documents have no ts design block | add a ```ts design block with the contracts |
 | `E_DESIGN_BLOCK_EMPTY` | a ts or gherkin design block is empty | give it design content, or remove it |
@@ -512,6 +537,9 @@ What every diagnostic means and what to do about it; `cage codes` prints the sam
 | `W_GATE_COMMAND` | a Stop hook mentions cage gate but is not the gate of this project, or no installed cage was found | check the hook command and the installation |
 
 ## Implementation notes
+
+- **Migration preserves parsed promises.** The converter uses TypeScript declarations and Cage’s JSDoc parser, then reparses Gherkin and compares ordered carrier/id/sentence tuples before proposing a draft. Only migration opts into the prepared-content branch of draft creation; normal `draft create` keeps its existing behavior. Preview diffs retain common outer context in one hunk without creating temporary files.
+- **Graph levels stay explicit.** Contract/family edges and module type imports use separate node identities and traversal roots. Existing `extends` edges are included so shared family dependencies remain visible.
 
 - **Core lint is syntax-only.** It uses the project’s TypeScript parser for declarations and JSDoc, without a compiler program. Full checks append lint after structural and review checks so warnings cannot stop those phases. Structural parser diagnostics shared by the two paths are emitted once. Lint-disabled legacy output is regression-tested against the pinned 0.11 CLI, including recorded reviews.
 

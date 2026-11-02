@@ -20,6 +20,16 @@ try {
   const report = JSON.parse(run("check", "--format", "json"));
   const errors = report.diagnostics.filter((diagnostic) => diagnostic.severity === "error");
   if (!report.ok || errors.length > 0) throw new Error(`check of the fixture failed:\n${errors.map((d) => `${d.code}: ${d.message}`).join("\n")}`);
+  const quota = "src/modules/quota/quota.cage.mdx", draft = "src/modules/quota/quota.cage.draft.mdx";
+  const active = fs.readFileSync(path.join(project, quota), "utf8");
+  const graph = JSON.parse(run("graph", "Quota", "--used-by", "--format", "json"));
+  if (!graph.ok || !graph.nodes.some(node => node.id === "contract:Quota")) throw new Error("Installed graph did not resolve Quota");
+  const preview = JSON.parse(run("migrate", "gherkin", "src/modules/quota", "--dry-run", "--format", "json"));
+  if (!preview.ok || !preview.files[0].diff.includes("Rule:") || fs.existsSync(path.join(project, draft))) throw new Error("Installed migration preview wrote a draft or lost its rules");
+  const migrated = JSON.parse(run("migrate", "gherkin", "src/modules/quota", "--format", "json"));
+  const repeated = JSON.parse(run("migrate", "gherkin", "src/modules/quota", "--format", "json"));
+  if (migrated.files[0].status !== "created" || repeated.files[0].status !== "unchanged" || fs.readFileSync(path.join(project, quota), "utf8") !== active) throw new Error("Installed migration changed the active design or failed idempotence");
+  run("draft", "check", draft);
   // `init` copies the rules and skills out of the package: they have to be in the tarball where it looks for them.
   execFileSync("git", ["init", "--quiet"], { cwd: project });
   run("init", "--agent", "claude");
@@ -35,7 +45,7 @@ try {
   const packet = JSON.parse(run("review", "EntryPicker", "RemoveCourses", "RemoveEducation", "--root", gherkinProject, "--format", "json"));
   if (!packet.complete || packet.gherkin?.length !== 1 || packet.contracts.some(contract => contract.invariants.some(rule => rule.gherkin.examples.some(example => example.tests.length === 0)))) throw new Error("Installed Gherkin review packet lost an Example link or shared context");
   execFileSync(process.execPath, ["--test", "src/removal.test.ts"], { cwd: gherkinProject, encoding: "utf8" });
-  console.log(`smoke: ${tarball} installs; cage ${version} checks the legacy fixture: ${report.counts.contracts} contracts, ${report.counts.linkedInvariants} of ${report.counts.invariants} invariants linked; Gherkin fixture: 4 implementations, 10 linked invariants, required Example links and shared review context pass, runnable tests pass; init writes the hook, the rules and the skills.`);
+  console.log(`smoke: ${tarball} installs; cage ${version} checks the legacy fixture: ${report.counts.contracts} contracts, ${report.counts.linkedInvariants} of ${report.counts.invariants} invariants linked; Gherkin fixture: 4 implementations, 10 linked invariants, required Example links and shared review context pass, runnable tests pass; migration preview, repeatable checked drafts and used-by graph pass; init writes the hook, the rules and the skills.`);
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });
 }

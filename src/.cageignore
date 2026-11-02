@@ -67,3 +67,8 @@ gherkin-review.ts
 lint.ts
 lint-model.ts
 lint-config.ts
+
+# Draft migration and dependency presentation behind Cli.
+gherkin-migrate.ts
+migrate.ts
+graph-command.ts

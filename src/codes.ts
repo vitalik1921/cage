@@ -8,6 +8,7 @@ export const CODES: Record<string, { means: string; then: string }> = {
   E_ENVIRONMENT: { means: "the tsconfig, a file or a Git revision cannot be read or used", then: "fix the environment; the message says what" },
   E_NO_DESIGNS: { means: "no *.cage.mdx matches the designs patterns", then: "write a design next to its module, or fix the patterns" },
   // Design documents.
+  E_MIGRATE: { means: "a selected module has no active designs or an invariant cannot be moved to Gherkin without changing its meaning or carrier", then: "fix the named design or module path and retry; existing drafts are never overwritten" },
   E_MDX_SYNTAX: { means: "the document does not parse as MDX", then: "fix the document" },
   E_DESIGN_BLOCK_MISSING: { means: "a module's documents have no ts design block", then: "add a ```ts design block with the contracts" },
   E_DESIGN_BLOCK_EMPTY: { means: "a ts or gherkin design block is empty", then: "give it design content, or remove it" },

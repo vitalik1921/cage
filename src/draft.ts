@@ -75,7 +75,7 @@ const refusal = (code: "E_DRAFT" | "E_DRAFT_CONFLICT" | "E_ENVIRONMENT", message
  * Writes the draft of a design document: a copy of the active document, or a new design when there is none, under a
  * header that names the target and the digest of what it was created from. It never overwrites anything.
  */
-export function createDraft(options: DraftOptions, target: string): DraftReport {
+export function createDraft(options: DraftOptions, target: string, candidate?: { source: string; content: string }): DraftReport {
   const root = path.resolve(options.root);
   const draft = draftPathOf(target);
   // Created is a fact of the disk: once the draft exists, a later problem (a temporary file left) does not undo it.
@@ -105,9 +105,11 @@ export function createDraft(options: DraftOptions, target: string): DraftReport 
   try {
     if (targetState === "file") {
       const text = fs.readFileSync(path.join(root, target), "utf8");
+      if (candidate && text !== candidate.source) return report(null, [refusal("E_DRAFT_CONFLICT", `${target} changed while migration was prepared`, target)]);
       base = digestOf(text);
-      content = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+      content = candidate?.content ?? (text.charCodeAt(0) === 0xfeff ? text.slice(1) : text);
     } else {
+      if (candidate) return report(null, [refusal("E_DRAFT_CONFLICT", `${target} was deleted while migration was prepared`, target)]);
       content = scaffold(target);
       fs.mkdirSync(path.dirname(path.join(root, draft)), { recursive: true });
     }

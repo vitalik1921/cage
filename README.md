@@ -235,6 +235,8 @@ Run `npx cage check`. It reports, with file and line, every contract with no imp
 | `cage check` | Everything: designs, implementations, test links, locks, coverage, reviews. Exit 1 on a violation. |
 | `cage check --phase design` | Specs only — while you write them. |
 | `cage check --phase lint` | Seven core design lint checks, without type checking. |
+| `cage migrate gherkin <module-dir…>` | Propose Gherkin Rules in ordinary drafts; `--dry-run` previews the diff. |
+| `cage graph [Name]` | Declared dependencies; `--used-by` shows consumers, `--depth n` bounds traversal, `--format mermaid` draws it. |
 | `cage review` | Suggested review groups and commands, shared and additional changes, and the rules they touch. Missing reviews get individual commands. `--all` also lists current contracts. |
 | `cage review <Name…>` | One packet for the named contracts: rules, tests, code, previous findings and changed source ranges, with shared parts included once. `--files all` for whole files, `--files none` for references only. The verdict template keeps a separate entry per contract. |
 | `cage review --record <file>` | Saves the reviewer's verdict in `.cage/review.json`. From then on `check` wants an up-to-date one for every contract. |

@@ -8,6 +8,8 @@ import { isError, type Diagnostic } from "./diagnostic.ts";
 import { DESIGN_SUFFIX, discoverDesigns, discoverSources } from "./discovery.ts";
 import { activateDraft, checkDraft, createDraft, formatDraftReport, type DraftAction } from "./draft.ts";
 import { DRAFT_SUFFIX, projectPathArgument } from "./draft-file.ts";
+import { formatGraph, runGraph } from "./graph-command.ts";
+import { formatMigration, migrateGherkin } from "./migrate.ts";
 import { parseHookInput, runGate } from "./gate.ts";
 import { formatInitReport, runInit, type Agent } from "./init.ts";
 import { runLock } from "./lock-command.ts";
@@ -38,6 +40,10 @@ Commands:
   check --phase lint    Check core design lint and document syntax, without type checking
   check --phase design  Check only the designs: documents, contracts, tags, references and types
   check --base <rev>    Also require every lock recorded at that Git revision (for CI: --base origin/main)
+  migrate gherkin <module-dir...>
+                        Propose JSDoc rules as Gherkin through drafts; --dry-run prints content diffs
+  graph [Name]          Declared contract/family and module type dependencies; --used-by reverses traversal;
+                        --depth <n> bounds a named query; --format text|json|mermaid
   lock                  Record the declarations marked @final or @extendable in .cage/lock.json
   review                Suggested review groups and commands, plus the contracts without a fresh recorded review, what changed since the
                         recorded one and which invariants it touches; --all lists every contract. markdown (default) or json
@@ -118,6 +124,9 @@ function run(argv: readonly string[], io: CliIo): number {
         record: { type: "string" },
         accept: { type: "boolean" },
         files: { type: "string" },
+        "dry-run": { type: "boolean" },
+        "used-by": { type: "boolean" },
+        depth: { type: "string" },
         "max-diagnostics": { type: "string" },
         agent: { type: "string", multiple: true },
         "test-adapter": { type: "string" },
@@ -141,7 +150,7 @@ function run(argv: readonly string[], io: CliIo): number {
 
   const [command, ...extra] = positionals;
   if (command === undefined) throw new UsageError("Missing command.");
-  const COMMANDS = ["init", "check", "lock", "review", "gate", "codes", "draft"];
+  const COMMANDS = ["init", "check", "lock", "review", "gate", "codes", "draft", "migrate", "graph"];
   if (!COMMANDS.includes(command)) throw new UsageError(`Unknown command "${command}".`);
   if (command !== "init" && (values.agent !== undefined || values["test-adapter"] !== undefined)) throw new UsageError("--agent and --test-adapter are options of the init command.");
   const agents = new Set<Agent>();
@@ -152,7 +161,14 @@ function run(argv: readonly string[], io: CliIo): number {
   if (values.agent?.includes("none") && agents.size > 0) throw new UsageError("--agent none means no Stop gate; do not combine it with an agent.");
   const testAdapter = values["test-adapter"];
   if (testAdapter !== undefined && testAdapter !== "node:test" && testAdapter !== "vitest") throw new UsageError(`Unknown test adapter "${testAdapter}"; expected node:test or vitest.`);
-  if (command !== "review" && command !== "draft" && extra.length > 0) throw new UsageError(`Unexpected argument "${extra[0]}".`);
+  if (!["review", "draft", "migrate", "graph"].includes(command) && extra.length > 0) throw new UsageError(`Unexpected argument "${extra[0]}".`);
+  if (command !== "migrate" && values["dry-run"] !== undefined) throw new UsageError("--dry-run is an option of migrate gherkin.");
+  if (command !== "graph" && (values["used-by"] !== undefined || values.depth !== undefined)) throw new UsageError("--used-by and --depth are options of graph.");
+  if (command === "graph" && (extra.length > 1 || extra.some(name => !name.trim()))) throw new UsageError("graph takes at most one contract or family name.");
+  if (command === "graph" && extra.length === 0 && (values["used-by"] || values.depth !== undefined)) throw new UsageError("--used-by and --depth need a contract or family name.");
+  const depth = values.depth === undefined ? undefined : Number(values.depth);
+  if (values.depth !== undefined && (!/^\d+$/.test(values.depth) || !Number.isSafeInteger(depth))) throw new UsageError("--depth needs a non-negative safe integer.");
+  const modules = command === "migrate" ? parseMigrationArguments(extra) : undefined;
   const draft = command === "draft" ? parseDraftArguments(extra) : undefined;
   if (command !== "review" && values.all) throw new UsageError("--all is an option of the review command.");
   if (command === "review" && values.all && extra.length > 0) throw new UsageError("--all reviews every contract; do not name contracts with it.");
@@ -185,7 +201,7 @@ function run(argv: readonly string[], io: CliIo): number {
     io.stdout(formatCodes());
     return 0;
   }
-  const formats = command === "review" && values.record === undefined && !values.accept ? ["markdown", "json"] : ["text", "json"];
+  const formats = command === "graph" ? ["text", "json", "mermaid"] : command === "review" && values.record === undefined && !values.accept ? ["markdown", "json"] : ["text", "json"];
   const format = values.format ?? formats[0];
   if (!formats.includes(format)) {
     const what = command === "review" ? (values.accept ? "review --accept" : values.record === undefined ? "the review packet" : "review --record") : command;
@@ -217,6 +233,11 @@ function run(argv: readonly string[], io: CliIo): number {
     io.stdout(format === "json" ? `${JSON.stringify(report, null, 2)}\n` : text);
     return exitCode(report.diagnostics);
   };
+  if (modules) {
+    const report = migrateGherkin({ root, config, problems: diagnostics }, modules, values["dry-run"] ?? false);
+    const project = [...(values.root === undefined ? [] : ["--root", values.root]), ...(values.config === undefined ? [] : ["--config", values.config])];
+    return print(report, formatMigration(report, project));
+  }
   if (draft) {
     // Before the scope below: create needs no discovery, and check and activate discover with the candidate in place.
     const options = { root, config, problems: diagnostics };
@@ -246,6 +267,10 @@ function run(argv: readonly string[], io: CliIo): number {
     const max = maxDiagnostics ?? config.maxDiagnostics;
     io.stdout(format === "json" ? `${JSON.stringify(limitCheckReport(report, max), null, 2)}\n` : formatCheckReport(report, max));
     return exitCode(report.diagnostics);
+  }
+  if (command === "graph") {
+    const report = runGraph(scope, { name: extra[0], usedBy: values["used-by"], depth });
+    return print(report, formatGraph(report, format === "mermaid" ? "mermaid" : "text"));
   }
   if (command === "lock") {
     const report = runLock(scope);
@@ -277,6 +302,14 @@ function run(argv: readonly string[], io: CliIo): number {
 }
 
 /** `draft <action> <path>`: the action and the path as a project-relative POSIX path; the path's form is checked before anything is read. */
+function parseMigrationArguments(extra: readonly string[]): string[] {
+  if (extra[0] !== "gherkin" || extra.length < 2) throw new UsageError("migrate gherkin needs one or more module directories relative to the project root.");
+  return [...new Set(extra.slice(1).map(argument => {
+    if (!argument.trim() || path.isAbsolute(argument) || /^[A-Za-z]:/.test(argument) || /[\0-\x1f]/.test(argument) || argument.split(/[\\/]/).includes("..")) throw new UsageError(`Invalid module directory "${argument}"; use a project-relative path without "..".`);
+    return argument.split(/[\\/]/).filter(part => part && part !== ".").join("/") || ".";
+  }))];
+}
+
 function parseDraftArguments(extra: readonly string[]): { action: DraftAction; file: string } {
   const [action, argument, ...rest] = extra;
   if (action === undefined) throw new UsageError("draft needs an action: create, check or activate.");
