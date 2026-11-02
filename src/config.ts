@@ -1,3 +1,4 @@
+import { defaultLint, resolveLint, validateLint, type LintConfig } from "./lint-config.ts";
 import fs from "node:fs";
 import path from "node:path";
 import type { Diagnostic } from "./diagnostic.ts";
@@ -20,6 +21,7 @@ export interface Config {
   coverage: "off" | "warn" | "require";
   /** Title links for Gherkin Examples, never a claim about assertions or execution. */
   examples: "off" | "warn" | "require";
+  lint: false | LintConfig;
   /** How far a review's fingerprint follows the local files that implementations and tests import. */
   reviewDependencies: ReviewDependencies;
   /**
@@ -56,6 +58,7 @@ export const defaultConfig: Config = {
   review: "warn",
   coverage: "warn",
   examples: "warn",
+  lint: defaultLint,
   reviewDependencies: { depth: 3, maxFiles: 40, exclude: [] },
   maxDiagnostics: 50,
 };
@@ -100,7 +103,7 @@ export function loadConfig(root: string, configPath?: string): LoadedConfig {
   if (problems.length > 0) return { config: defaultConfig, diagnostics: problems.map(error) };
   const given = value as Partial<Config>;
   // The bounds are merged field by field: a configuration may raise one and keep the others.
-  return { config: { ...defaultConfig, ...given, reviewDependencies: { ...defaultConfig.reviewDependencies, ...given.reviewDependencies } }, diagnostics: [] };
+  return { config: { ...defaultConfig, ...given, lint: resolveLint(given.lint), reviewDependencies: { ...defaultConfig.reviewDependencies, ...given.reviewDependencies } }, diagnostics: [] };
 }
 
 const isText = (value: unknown) => typeof value === "string" && value.trim() !== "";
@@ -122,6 +125,7 @@ const fields: Record<keyof Config, { expected: string; valid: (value: unknown) =
   review: { expected: '"off", "warn" or "require"', valid: (value) => value === "off" || value === "warn" || value === "require" },
   coverage: { expected: '"off", "warn" or "require"', valid: (value) => value === "off" || value === "warn" || value === "require" },
   examples: { expected: '"off", "warn" or "require"', valid: (value) => value === "off" || value === "warn" || value === "require" },
+  lint: { expected: "false or a core lint object", valid: value => validateLint(value).length === 0 },
   reviewDependencies: {
     expected: 'an object with "depth" (0–10), "maxFiles" (0–1000) and "exclude" (an array of non-empty strings), each optional',
     valid: (value) => {
@@ -139,6 +143,7 @@ function validate(value: unknown): string[] {
   const problems: string[] = [];
   if (!("version" in value)) problems.push('"version" must be 1');
   for (const [name, fieldValue] of Object.entries(value)) {
+    if (name === "lint") { problems.push(...validateLint(fieldValue)); continue; }
     const field = Object.hasOwn(fields, name) ? fields[name as keyof Config] : undefined;
     if (!field) problems.push(`unknown field "${name}"`);
     else if (!field.valid(fieldValue)) problems.push(`"${name}" must be ${field.expected}`);

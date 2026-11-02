@@ -34,7 +34,7 @@ export interface ParsedDesign {
 const processor = unified().use(remarkParse).use(remarkMdx);
 
 /** `source` is the document text without a byte order mark. */
-export function parseDesignMdx(source: string, file: string): ParsedDesign {
+export function parseDesignMdx(source: string, file: string, onTree?: (tree: Root) => void): ParsedDesign {
   const starts = lineStarts(source);
   const error = (code: string, message: string, at?: number | Position): Diagnostic => ({
     code,
@@ -52,6 +52,7 @@ export function parseDesignMdx(source: string, file: string): ParsedDesign {
     return { blocks: [], hasBusinessContext: false, diagnostics: [error("E_MDX_SYNTAX", cause.reason, parseErrorPosition(cause))] };
   }
 
+  onTree?.(tree);
   const blocks: DesignBlock[] = [];
   const diagnostics: Diagnostic[] = [];
   let gherkin: GherkinDesign | undefined;

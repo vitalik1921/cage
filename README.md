@@ -234,6 +234,7 @@ Run `npx cage check`. It reports, with file and line, every contract with no imp
 | `cage init` | First configuration, the Stop hook, and two skills for the agent (`cage-design`, `cage-review`). Run once. |
 | `cage check` | Everything: designs, implementations, test links, locks, coverage, reviews. Exit 1 on a violation. |
 | `cage check --phase design` | Specs only — while you write them. |
+| `cage check --phase lint` | Seven core design lint checks, without type checking. |
 | `cage review` | Suggested review groups and commands, shared and additional changes, and the rules they touch. Missing reviews get individual commands. `--all` also lists current contracts. |
 | `cage review <Name…>` | One packet for the named contracts: rules, tests, code, previous findings and changed source ranges, with shared parts included once. `--files all` for whole files, `--files none` for references only. The verdict template keeps a separate entry per contract. |
 | `cage review --record <file>` | Saves the reviewer's verdict in `.cage/review.json`. From then on `check` wants an up-to-date one for every contract. |
@@ -278,6 +279,7 @@ Existing `code-v1` fingerprints keep their declaration-level scope; unversioned 
   "review": "warn",
   "coverage": "warn",
   "examples": "warn",
+  "lint": {},
   "maxDiagnostics": 50
 }
 ```
@@ -285,6 +287,7 @@ Existing `code-v1` fingerprints keep their declaration-level scope; unversioned 
 - `testAdapter`: `node:test` or `vitest`.
 - `review`: a contract without an up-to-date review is a warning (`warn`), an error (`require`) or nothing (`off`). The Stop hook blocks on missing, outdated or weak reviews only under `require`; under `warn` they remain visible in `cage check`.
 - `coverage`: exported code of a module with a spec but without `@implements` is a warning, an error, or not looked at. Standalone scalar constants such as `const LIMIT = 300` need no contract. A `.cageignore` next to the spec lists files that need none.
+- `lint`: core checks for history, settled questions, numbering, size, rule citations and duplicate data names. Warnings by default; `false` disables them. Configure individual severities and limits, or use a local suppression with a reason; see [core lint](docs/reference.md#core-design-lint). Lint warnings have the lowest display priority.
 - `maxDiagnostics`: how many groups text `check` and `gate` show at most (JSON limits individual diagnostics) (`50`, or `"all"`); errors come before warnings, missing or outdated reviews before the rest, and what is left out is counted by code. The exit code and the summary are of everything found.
 - `reviewDependencies` (`{ "depth": 3, "maxFiles": 40, "exclude": [] }` by default): how far a review's fingerprint follows local imports from the implementation and test files. Type-only imports, `node_modules`, files outside the project, declaration files and `exclude` patterns are not followed. Files beyond the bounds are not fingerprinted and do not produce diagnostics, regardless of review policy. An e2e spec that boots the whole application (a NestJS `AppModule`) reaches every file: exclude that entry point, e.g. `"exclude": ["src/app.module.ts"]`, and the fingerprint keeps to what the contract's code imports.
 

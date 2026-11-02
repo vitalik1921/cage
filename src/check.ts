@@ -1,3 +1,4 @@
+import { checkLint } from "./lint.ts";
 import path from "node:path";
 import { checkDesignPhase } from "./design-phase.ts";
 import type { Edge, LockLevel, SourceLocation } from "./design-model.ts";
@@ -8,7 +9,7 @@ import { compareLocks, compareWithBase, readBaseLocks, readLockFile } from "./lo
 import { checkReviews, type ReviewStatus } from "./review-record.ts";
 import { readStrictOptions, type StrictOptions, type TypeScriptInfo } from "./typescript.ts";
 
-export type Phase = "design" | "implementation";
+export type Phase = "design" | "implementation" | "lint";
 
 /**
  * The report of `cage check`. What was not looked at is `null` or
@@ -99,13 +100,13 @@ export interface CheckOptions {
 
 export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lockBase, review = "off" }: CheckOptions = {}): CheckReport {
   const root = path.resolve(options.root);
-  const design = phase === "design" ? checkDesignPhase(options) : undefined;
+  const design = phase === "lint" ? checkLint(options, options.lint) : phase === "design" ? checkDesignPhase(options) : undefined;
   const result: ImplementationPhaseResult = design ? { ...design, root, reviewScope: options.reviewScope ?? DEFAULT_REVIEW_SCOPE, designSound: !hasErrors(design.diagnostics), linking: null } : checkImplementationPhase(options);
   const { index, linking, typescript, compiler, diagnostics } = result;
   // Locks are compared with designs that are sound: a rejected declaration would look like a lock that was lifted.
   const designsAreSound = index !== null && result.designSound;
   const configured = (options.problems?.length ?? 0) === 0;
-  if (configured && (designsAreSound || lockBase !== undefined)) {
+  if (phase !== "lint" && configured && (designsAreSound || lockBase !== undefined)) {
     const lockFile = readLockFile(root);
     diagnostics.push(...lockFile.diagnostics);
     if (lockFile.diagnostics.length === 0 && designsAreSound) {
@@ -125,6 +126,10 @@ export function runCheck(options: ImplementationPhaseOptions, phase: Phase, { lo
     diagnostics.push(...reviews.diagnostics);
     diagnostics.sort(compareDiagnostics);
     reviewStatus = reviews.status;
+  }
+  if (configured && phase === "implementation" && options.lint !== false) {
+    const existing = new Set(diagnostics.map(diagnostic => JSON.stringify([diagnostic.code, diagnostic.file, diagnostic.line, diagnostic.column])));
+    diagnostics.push(...checkLint(options, options.lint).diagnostics.filter(diagnostic => !existing.has(JSON.stringify([diagnostic.code, diagnostic.file, diagnostic.line, diagnostic.column]))));
   }
   const linkedTestCount = (contract: string, id: string) => (linking ? testsLinkedTo(linking.tests, contract, id).length : null);
   const reviewOf = (contract: string, id: string): string | null => {

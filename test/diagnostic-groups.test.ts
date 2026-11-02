@@ -172,7 +172,7 @@ test("check prints repeated surface errors with one proven cause once, lists eve
     for (const index of [5, 6, 7, 8, 9, 10, 14]) assert.match(text, new RegExp(`^${expected[index].code}: ${escape(expected[index].head)} \\(${placeOf(expected[index])}\\)\\n  `, "m"), `${compiler} ${index}`);
     assert.match(text, /^E_CONTRACT_SIGNATURE: TabImpl\.open: signature differs from Tab \(src\/other\/tab\.ts:4:3\)\n  expected: open: \(page: unknown\) => void\n  actual: open: \(page: Page\) => void$/m);
     assert.equal((text.match(/ diagnostics:$/gm) ?? []).length, 3);
-    assert.match(text, /; 15 errors, 18 warnings\. TypeScript/);
+    assert.match(text, /; 15 errors, 19 warnings\. TypeScript/);
   }
   // Ids are deterministic: the same on both compilers, and on a second run.
   assert.deepEqual(ids[0], ids[1]);
@@ -203,7 +203,8 @@ test("maxDiagnostics bounds the groups check prints and counts every diagnostic 
   for (const compiler of COMPILERS) {
     const root = project(t, compiler);
     const all = json(root, "--max-diagnostics", "all").diagnostics;
-    assert.equal(all.length, 33);
+    assert.equal(all.length, 34);
+    assert.equal(all.at(-1)?.code, "W_TYPE_DUPLICATE");
     for (const limit of [0, 1, 3, 9, 50]) {
       const { shown, left, byCode } = expectedText(all, limit);
       const result = cli(root, "check", "--max-diagnostics", String(limit));
@@ -218,16 +219,16 @@ test("maxDiagnostics bounds the groups check prints and counts every diagnostic 
       }
       const counts = [...byCode].sort(([a, x], [b, y]) => y - x || (a < b ? -1 : 1)).map(([code, count]) => `${count} ${code}`).join(", ");
       assert.equal(lines.includes(`${left.length} more not shown (${counts}); --max-diagnostics all shows every one`), left.length > 0, `${compiler} ${limit}`);
-      assert.match(lines.at(-1)!, /; 15 errors, 18 warnings\. TypeScript/);
+      assert.match(lines.at(-1)!, /; 15 errors, 19 warnings\. TypeScript/);
 
       // JSON keeps the limit on single diagnostics.
       const limited = json(root, "--max-diagnostics", String(limit));
-      assert.equal(limited.diagnostics.length, Math.min(limit, 33), `${compiler} ${limit}`);
-      assert.equal(limited.omitted.count, 33 - Math.min(limit, 33), `${compiler} ${limit}`);
+      assert.equal(limited.diagnostics.length, Math.min(limit, 34), `${compiler} ${limit}`);
+      assert.equal(limited.omitted.count, 34 - Math.min(limit, 34), `${compiler} ${limit}`);
       assert.equal(limited.ok, false);
     }
     // Three groups hold six errors here: bands, the page methods and `mixed`.
-    assert.match(cli(root, "check", "--max-diagnostics", "3").stdout, /^27 more not shown \(9 W_NO_INVARIANTS, 9 W_REVIEW_MISSING, 5 E_CONTRACT_SIGNATURE, 4 E_CONTRACT_EXTRA_MEMBER\); --max-diagnostics all shows every one$/m);
+    assert.match(cli(root, "check", "--max-diagnostics", "3").stdout, /^28 more not shown \(9 W_NO_INVARIANTS, 9 W_REVIEW_MISSING, 5 E_CONTRACT_SIGNATURE, 4 E_CONTRACT_EXTRA_MEMBER, 1 W_TYPE_DUPLICATE\); --max-diagnostics all shows every one$/m);
 
     // The limit is explicit: a serialized copy of the whole report formats as the report does, and a report already
     // limited by single diagnostics keeps its own omitted counts.
@@ -236,8 +237,8 @@ test("maxDiagnostics bounds the groups check prints and counts every diagnostic 
     assert.equal(formatCheckReport(copy, 3), cli(root, "check", "--max-diagnostics", "3").stdout);
     const raw = limitCheckReport(whole, 3);
     const text = formatCheckReport(raw);
-    assert.match(text, /^30 more not shown \(/m);
-    assert.match(text, /; 15 errors, 18 warnings\. TypeScript/);
+    assert.match(text, /^31 more not shown \(/m);
+    assert.match(text, /; 15 errors, 19 warnings\. TypeScript/);
     assert.equal(formatCheckReport(JSON.parse(JSON.stringify(raw))), text);
   }
 });

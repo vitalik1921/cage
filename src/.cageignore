@@ -62,3 +62,8 @@ draft-file.ts
 # Gherkin Example links and review presentation behind Cli.
 example-links.ts
 gherkin-review.ts
+
+# Syntax-only core lint, configuration and suppression scopes behind Cli/ConfigLoader.
+lint.ts
+lint-model.ts
+lint-config.ts

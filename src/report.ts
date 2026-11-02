@@ -1,3 +1,4 @@
+import { LINT_CODES } from "./lint-config.ts";
 import type { CheckReport } from "./check.ts";
 import { compareText, isError, type Diagnostic, type RelatedLocation } from "./diagnostic.ts";
 import type { LockReport } from "./lock-command.ts";
@@ -10,7 +11,7 @@ function formatPlace({ file, line, column }: Pick<RelatedLocation, "file" | "lin
 /**
  * One diagnostic as text: `CODE: what (file:line:column)` — the code says what kind of thing it is, the message names
  * the thing, the place closes the line; a message's further lines (a list, a compiler's explanation) follow indented.
- * Related places follow as `what (file:line:column)`. The severity is the code's prefix; what a code means and what
+ * Related places follow as `what (file:line:column)`. Lint severity can be raised in configuration; what a code means and what
  * to do about it is `cage codes`, not the line.
  */
 export function formatDiagnostic(diagnostic: Diagnostic): string {
@@ -39,6 +40,7 @@ function rank(diagnostic: Diagnostic): number {
   if (diagnostic.code === "E_CONFIG" || diagnostic.code === "E_ENVIRONMENT") return 0;
   if (isError(diagnostic)) return 1;
   if (/REVIEW_(MISSING|STALE)$/.test(diagnostic.code)) return 2;
+  if (LINT_CODES.has(diagnostic.code)) return 5;
   if (diagnostic.code === "W_EXAMPLE_UNLINKED" || diagnostic.code === "W_RULE_WITHOUT_EXAMPLE") return 4;
   return 3;
 }
@@ -180,7 +182,7 @@ export function formatCheckReport(report: CheckReport, max: number | "all" = "al
       }
     }
   }
-  const command = report.phase === "design" ? "check --phase design" : "check";
+  const command = report.phase === "implementation" ? "check" : `check --phase ${report.phase}`;
   const locks = scope.lockBase === null ? "" : ` Locks compared with ${scope.lockBase}.`;
   lines.push(`${command}: ${facts.join(", ")}; ${plural(errors, "error")}, ${plural(warnings, "warning")}. ${compiler}.${locks}`);
   return `${lines.join("\n")}\n`;

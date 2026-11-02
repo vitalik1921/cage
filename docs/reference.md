@@ -8,6 +8,7 @@ The rules and the behaviour in full. The short introduction is the [README](../R
 cage init                   # first .cage/config.json and the Stop hook; in a terminal it asks for the agent (--agent claude, codex or none skips the question)
 cage check                  # designs, implementations, test links, locks, coverage, reviews
 cage check --phase design   # designs only
+cage check --phase lint     # core lint and document syntax; no type checking
 cage lock                   # record the declarations marked @final / @extendable in .cage/lock.json
 cage check --base origin/main   # additionally: everything locked on origin/main is still locked (for CI)
 cage review                 # the index for a reviewer (a person or a model): the contracts without a fresh review, what changed, which invariants it touches; --all for every contract
@@ -35,7 +36,7 @@ The loop: change `*.cage.mdx` → `cage check --phase design` → change impleme
 | `--accept` | `review`: record the material of the selected contracts as accepted without a review (see "`review`") |
 | `--help`, `--version` | Help and version |
 
-**The text of a diagnostic** is `CODE: what (file:line:column)`: the code says what kind of thing it is, the message names the thing — a contract, `Contract.invariant`, a tag, a file — and the place closes the line; a message's further lines (the parts that changed, the tests that cannot run, the files past the bounds, a compiler's explanation, the reason of a weak finding) follow indented, one a line. A `REVIEW_STALE` message names ten parts at most and counts the rest (`cage review <Name>` lists them all). The severity is the code's prefix: `E_` fails the check, `W_` does not. No line says what a code means or what to do about it: that is `cage codes`, one line per code (and the table under "Codes" below), so that a report of fifty findings is fifty facts, not fifty paragraphs.
+**The text of a diagnostic** is `CODE: what (file:line:column)`: the code says what kind of thing it is, the message names the thing — a contract, `Contract.invariant`, a tag, a file — and the place closes the line; a message's further lines (the parts that changed, the tests that cannot run, the files past the bounds, a compiler's explanation, the reason of a weak finding) follow indented, one a line. A `REVIEW_STALE` message names ten parts at most and counts the rest (`cage review <Name>` lists them all). By default `E_` fails the check and `W_` does not. Core lint codes retain their `W_` name when a project raises their severity to `error`; the configured severity controls the exit status. No line says what a code means or what to do about it: that is `cage codes`, one line per code (and the table under "Codes" below), so that a report of fifty findings is fifty facts, not fifty paragraphs.
 
 ```text
 W_REVIEW_STALE: Quota (src/quota/quota.cage.mdx:16:18)
@@ -48,7 +49,7 @@ E_TYPE_MISMATCH: MemoryQuota does not fit Quota (src/quota/memory-quota.ts:2:14,
 
 The report goes to stdout, argument errors to stderr. Exit codes: `0` — success (warnings do not change it); `1` — a rule is violated: errors in the designs, an implementation that does not fit its contract, a missing implementation or test link; `2` — invalid arguments, configuration or environment (tsconfig, file system).
 
-**How much is shown.** Text `check` prints at most `maxDiagnostics` diagnostic groups (a standalone diagnostic is one group); JSON limits individual diagnostics (50 by default; `--max-diagnostics <n|all>` on the command line), the ones that matter most: configuration and environment errors, then other errors, then missing or outdated reviews, then the remaining warnings; within a rank the order of the report. What is left out is one line — `7 more not shown (4 W_REVIEW_MISSING, 3 W_NO_INVARIANTS): the report shows 14 at most. …` — and in JSON `omitted` (`limit`, `count`, `errors`, `warnings`, `byCode`). The exit code, `ok`, the counts and the summary line are of everything found: a limit changes what is shown, not what was checked. `0` shows the counts by code and the summary only. `gate` applies the text group limit after selecting only blocking diagnostics; its omitted counts and diagnostic totals include only blockers. Structural violations with a proven shared cause are shown under one explanation, followed by every affected contract/member and its location. The proof uses declaration identity and mismatch evidence, never just identical printed names or diagnostic codes. Unsupported or unrelated causes remain separate. All underlying violations are counted, and JSON retains the individual diagnostics with optional structured `cause` metadata (`id`, `summary`, `subject`, `contracts`). Cause IDs are opaque and comparable only within one check. If clipping would hide the type difference, the diagnostics remain separate.
+**How much is shown.** Text `check` prints at most `maxDiagnostics` diagnostic groups (a standalone diagnostic is one group); JSON limits individual diagnostics (50 by default; `--max-diagnostics <n|all>` on the command line), the ones that matter most: configuration and environment errors, then other errors, then missing or outdated reviews, then the remaining warnings, with core lint warnings last; within a rank the order of the report. What is left out is one line — `7 more not shown (4 W_REVIEW_MISSING, 3 W_NO_INVARIANTS): the report shows 14 at most. …` — and in JSON `omitted` (`limit`, `count`, `errors`, `warnings`, `byCode`). The exit code, `ok`, the counts and the summary line are of everything found: a limit changes what is shown, not what was checked. `0` shows the counts by code and the summary only. `gate` applies the text group limit after selecting only blocking diagnostics; its omitted counts and diagnostic totals include only blockers. Structural violations with a proven shared cause are shown under one explanation, followed by every affected contract/member and its location. The proof uses declaration identity and mismatch evidence, never just identical printed names or diagnostic codes. Unsupported or unrelated causes remain separate. All underlying violations are counted, and JSON retains the individual diagnostics with optional structured `cause` metadata (`id`, `summary`, `subject`, `contracts`). Cause IDs are opaque and comparable only within one check. If clipping would hide the type difference, the diagnostics remain separate.
 
 ### What `check` checks
 
@@ -62,7 +63,7 @@ The design phase first, in five layers:
 
 A layer runs only when the earlier ones left no error that its results would be a consequence of. Design diagnostics point at the line and column of the original MDX.
 
-`cage check` without `--phase design` continues when the designs have no errors:
+`cage check` without an explicit phase continues when the designs have no errors:
 
 6. **Implementations.** Every concrete contract has exactly one direct implementation (`E_IMPLEMENTATION_MISSING` / `E_IMPLEMENTATION_DUPLICATE`), and the implementation’s public surface exactly matches it. Compiler incompatibility is `E_TYPE_MISMATCH`; extra members, missing optional members and signature drift have `E_CONTRACT_*` diagnostics.
 7. **Tests.** Every invariant has at least one test declaration tagged `@covers` inside a suite tagged `@tests` with its contract (`E_TEST_MISSING`), and at least one is active or explicitly marked skip/todo (`E_TEST_INACTIVE` rejects only unintended empty or broken-import links; see “Rules for tests”). The tests are read, never run: whether they pass is the test runner's to say, and `counts.executedTests` is always `null`.
@@ -374,6 +375,11 @@ Exit codes as for every command: `0` — created, valid or activated (warnings d
   "review": "warn",
   "coverage": "warn",
   "examples": "warn",
+  "lint": {
+    "severity": {},
+    "limits": { "contractsPerModule": 5, "membersPerContract": 7, "rulesPerContract": 7 },
+    "historyPatterns": []
+  },
   "reviewDependencies": { "depth": 3, "maxFiles": 40, "exclude": [] },
   "maxDiagnostics": 50
 }
@@ -392,6 +398,37 @@ Exit codes as for every command: `0` — created, valid or activated (warnings d
 - `coverage`: how `cage check` treats exported code of a module without `@implements`: `"warn"` (the default), `"require"` or `"off"`.
 - `reviewDependencies`: the bounds of the dependency part of review fingerprints (see “`review`”). `depth` 0–10 and `maxFiles` 0–1000 are whole numbers, `exclude` glob patterns; each is optional and the others keep their defaults.
 - `maxDiagnostics`: how many groups text `check` and `gate` show at most (JSON counts individual diagnostics): a whole number from 0 to 10000, or `"all"`. `--max-diagnostics` overrides it for one run.
+
+## Core design lint
+
+`cage check --phase lint` reads design documents and parses their MDX, TypeScript declarations and Gherkin. It does not read the tsconfig, check types or carrier symbols, discover implementations/tests, or check locks/reviews. The report's index, compiler options and unchecked counts are `null`. `--base` does not apply. Full `cage check` and `cage gate` include lint after their existing checks, including when a structural check fails. `--phase design` stays structural only.
+
+Seven core checks run by default: history, settled Open questions, numbering, module size, contract size, numbered rule references, and repeated data names across modules. They are warnings and do not block the gate. They have lower priority than existing warnings under `maxDiagnostics`; errors always retain error priority. Advisory checks are deferred.
+
+`"lint": false` skips lint and its suppression audit. On legacy projects this preserves 0.11 check output and review fingerprints. Otherwise `lint` accepts these optional keys, with nested defaults merged:
+
+- `severity`: a map from any implemented lint code (including `W_LINT_SUPPRESSION_UNUSED`) to `"off"`, `"warn"` or `"error"`. The code remains `W_…`; the JSON `severity`, exit status and gate use the configured level.
+- `limits`: non-negative safe integers `contractsPerModule` (5), `membersPerContract` (7) and `rulesPerContract` (7). Module size counts concrete contracts; a family is checked for its own member/rule size. Inherited members and rules are not counted again on children. Gherkin and JSDoc rules authored for the same carrier are counted together across its module.
+- `historyPatterns`: additional regular-expression strings, compiled with Unicode and case-insensitive flags. Empty/invalid patterns, unknown keys and unsupported codes are `E_CONFIG`.
+
+History matching uses explicit notation: a status prefix such as `Settled:` or `Resolved —`, `user decision`, a date-prefixed log (`2026-01-01: …`), a history verb followed by a date (`changed on 2026-01-01`), or a bounded 7–40-character hex hash containing both a digit and a letter. It does not flag a bare business date or an ordinary sentence using “resolved”. Custom patterns use the same scope. The check reads MDX prose, JSDoc descriptions/invariants, and Feature/Rule names and descriptions; it skips fenced examples, tables, Gherkin steps, Example content and doc strings. It reports once per text unit (prose line or metadata field), not once per pattern match.
+
+`Business rules` and `Open questions` H2 headings are recognized case-insensitively. Their top-level numbered items must be `1..n` in source order; zero and letter suffixes are reported. A settled question starts with `settled`, `resolved`, `decided`, `superseded` or `done`. `(rule N)` in an invariant refers to that document's numbered Business rules; `(stem rule N)` selects a document with that filename stem, first within the module and then uniquely within the project. An ambiguous stem is reported like a missing one. A repeated `@data` name across modules produces one diagnostic with the other declaration locations; shape similarity is deferred.
+
+### Reasoned suppressions
+
+Place an MDX comment immediately before the block that needs an exception:
+
+```mdx
+{/* cage-lint-disable W_HISTORY_REFERENCE: the incident identifier is part of the external protocol */}
+The protocol identifies the event as INC-123.
+```
+
+Inside `gherkin design`, use `# cage-lint-disable W_HISTORY_REFERENCE: reason` before the next Rule or Example. The parser distinguishes actual comments from comment-like text inside doc strings and tables. A Rule suppression covers its body, but never the next Rule. An Example suppression covers only that Example (history already skips case content).
+
+Each directive names **one core code** and a non-empty reason after `:`. A missing reason or an unsupported/structural code is `E_TAG_FORMAT`. Only diagnostics located in the target block are silenced. For a grouped duplicate, a declaration listed as a related location also counts. MDX “next block” means the next AST sibling, so a comment before an H2 targets the heading, not its whole section; before a list or fenced block it targets that whole block. Consecutive directives share the next block, and the first applicable directive consumes the finding.
+
+A directive that silences nothing emits `W_LINT_SUPPRESSION_UNUSED`, including when its code is off, the target is absent, or an earlier directive already silenced it. No unused-suppression audit runs on a document rejected by the MDX/Gherkin parser. `lint: false` disables the audit too. Changing lint policy does not change review material; editing a design to add an exception is still a design edit.
 
 ## Codes
 
@@ -432,6 +469,14 @@ What every diagnostic means and what to do about it; `cage codes` prints the sam
 | `E_REFERENCE_AMBIGUOUS` | a test is tagged for two contracts that both have the invariant @covers names | give the test its own @tests naming one contract |
 | `E_NO_CONTRACTS` | the designs declare data types only | mark the interfaces the code implements @contract |
 | `W_NO_INVARIANTS` | a contract promises no rule; only its types are checked | write @invariant rules, each with a linked test |
+| `W_HISTORY_REFERENCE` | design prose or a rule contains explicit historical notation | keep the current promise in the design and move history to git or the review record |
+| `W_OPEN_QUESTION_SETTLED` | an Open questions item starts with a settled status | fold the decision into the design and remove the settled question |
+| `W_NUMBERING` | Business rules or Open questions numbering is not one through n in source order | renumber the items without gaps or letter suffixes |
+| `W_MODULE_SIZE` | a module declares more concrete contracts than the configured limit | review its responsibilities and split the module when they differ |
+| `W_CONTRACT_SIZE` | a contract or family authors more members or rules than the configured limits | review whether the promises belong to one contract |
+| `W_RULE_REFERENCE_UNKNOWN` | a numbered rule citation has no unique target document and item | fix the citation or fold the prose rule into the invariant |
+| `W_TYPE_DUPLICATE` | one data type name is declared in several modules | share a declaration when it is one concept or use distinct names |
+| `W_LINT_SUPPRESSION_UNUSED` | a reasoned lint suppression silences no diagnostic | remove the suppression or place it before the intended block |
 | `E_TYPESCRIPT` | the compiler rejects a ts design block or a file with @implements | fix the type error |
 | `W_WEAK_TYPECHECK` | strictNullChecks, strictFunctionTypes or noImplicitAny is off; implementations are compared more loosely | turn them on in tsconfig |
 | `E_FAMILY_BINDING` | a family is bound directly to an implementation | extend it with a concrete @contract; bind implementations and tests to that contract |
@@ -467,6 +512,8 @@ What every diagnostic means and what to do about it; `cage codes` prints the sam
 | `W_GATE_COMMAND` | a Stop hook mentions cage gate but is not the gate of this project, or no installed cage was found | check the hook command and the installation |
 
 ## Implementation notes
+
+- **Core lint is syntax-only.** It uses the project’s TypeScript parser for declarations and JSDoc, without a compiler program. Full checks append lint after structural and review checks so warnings cannot stop those phases. Structural parser diagnostics shared by the two paths are emitted once. Lint-disabled legacy output is regression-tested against the pinned 0.11 CLI, including recorded reviews.
 
 - **Global type provenance.** Package selection distinguishes a project global contribution (`declare global`, or a global script interface/namespace) from a module import. It follows the contribution’s type and inferred-value helpers and retains them in review and lock material. Traversal tracks both paths independently: a direct package module route or reference into the same project file still rejects the import. Entering another installed package resets project provenance; the exception never grants that package access to project modules. Project contributions must remain inside the real project root.
 

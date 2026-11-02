@@ -1,3 +1,4 @@
+import type { LintConfig } from "./lint-config.ts";
 import { checkExampleLinks } from "./example-links.ts";
 import { checkContractSurfaces, type ShapeBinding } from "./contract-conformance.ts";
 import fs from "node:fs";
@@ -23,6 +24,8 @@ export interface ImplementationPhaseOptions extends DesignPhaseOptions {
   /** Exported code of a designed module without `@implements`: not looked at, a warning, or an error. Default: a warning. */
   coverage?: "off" | "warn" | "require";
   examples?: "off" | "warn" | "require";
+  /** Full-check lint policy; structural phase functions do not apply lint. */
+  lint?: false | LintConfig;
   /** The bounds of the dependency part of review fingerprints; `exclude` already holds the configuration's `exclude` too. */
   reviewScope?: ReviewScope;
 }

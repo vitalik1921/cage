@@ -30,6 +30,7 @@ export interface GherkinDesign {
   source: string;
   location: SourceLocation;
   feature: GherkinFeature;
+  comments: { text: string; location: SourceLocation }[];
   rules: GherkinRule[];
 }
 
@@ -155,5 +156,5 @@ export function parseGherkin(source: string, file: string, block: DesignBlock): 
     }
     if (found) rules.push({ id: found[1], text: found[2], carrier: flags.assumption ? null : carriers[0] ?? null, property: flags.property, assumption: flags.assumption, location: location(node), node, examples });
   }
-  return { design: { source: source.slice(block.sourceStart, block.sourceEnd), location: blockLocation, feature, rules }, diagnostics };
+  return { design: { source: source.slice(block.sourceStart, block.sourceEnd), location: blockLocation, feature, comments: ast.comments.map(comment => ({ text: comment.text, location: locate(comment.location) })), rules }, diagnostics };
 }

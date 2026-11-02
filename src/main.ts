@@ -35,6 +35,7 @@ Commands:
   init                  Write .cage/config.json and set the Stop gate up: --agent claude, codex, or none;
                         without --agent it asks in a terminal and fails elsewhere
   check                 Check the designs, the implementations, the test links, the locks and the reviews
+  check --phase lint    Check core design lint and document syntax, without type checking
   check --phase design  Check only the designs: documents, contracts, tags, references and types
   check --base <rev>    Also require every lock recorded at that Git revision (for CI: --base origin/main)
   lock                  Record the declarations marked @final or @extendable in .cage/lock.json
@@ -171,10 +172,12 @@ function run(argv: readonly string[], io: CliIo): number {
   if (values.root !== undefined && values.root.trim() === "") throw new UsageError("--root needs the path of the project directory.");
   if (values.config !== undefined && values.config.trim() === "") throw new UsageError("--config needs the path of a configuration file.");
   if (command === "check") {
-    if (values.phase !== undefined && values.phase !== "design" && values.phase !== "implementation") {
-      throw new UsageError(`Unknown phase "${values.phase}"; expected design or implementation.`);
+    if (values.phase !== undefined && values.phase !== "design" && values.phase !== "implementation" && values.phase !== "lint") {
+      throw new UsageError(`Unknown phase "${values.phase}"; expected design, implementation or lint.`);
     }
   }
+
+  if (values.phase === "lint" && values.base !== undefined) throw new UsageError("--base does not apply to the lint phase; locks are not checked.");
 
   if (command === "codes") {
     // The legend is the same for every project: the global options are accepted, the commands' own are not.
@@ -235,10 +238,10 @@ function run(argv: readonly string[], io: CliIo): number {
   const reviewScope = { ...config.reviewDependencies, exclude: [...config.exclude, ...config.reviewDependencies.exclude] };
 
   if (command === "check") {
-    const phase = values.phase === "design" ? "design" : "implementation";
-    // The design phase does not look at source files, so it does not search for them either.
-    const sources = phase === "design" || diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
-    const report = runCheck({ ...scope, sources, testAdapter: config.testAdapter, coverage: config.coverage, examples: config.examples, reviewScope }, phase, { lockBase: values.base, review: config.review });
+    const phase = values.phase === "lint" ? "lint" : values.phase === "design" ? "design" : "implementation";
+    // Design and lint do not look at implementation/test files, so they do not search for them either.
+    const sources = phase !== "implementation" || diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
+    const report = runCheck({ ...scope, sources, testAdapter: config.testAdapter, coverage: config.coverage, examples: config.examples, lint: config.lint, reviewScope }, phase, { lockBase: values.base, review: config.review });
     // What is shown is limited; the exit code is of everything that was found. JSON limits single diagnostics, text groups.
     const max = maxDiagnostics ?? config.maxDiagnostics;
     io.stdout(format === "json" ? `${JSON.stringify(limitCheckReport(report, max), null, 2)}\n` : formatCheckReport(report, max));
@@ -250,7 +253,7 @@ function run(argv: readonly string[], io: CliIo): number {
   }
   if (command === "gate") {
     const sources = diagnostics.length > 0 ? { implementations: [], tests: [] } : discoverSources(root, config);
-    const { exitCode, feedback } = runGate({ ...scope, sources, testAdapter: config.testAdapter, coverage: config.coverage, examples: config.examples, reviewScope }, { lockBase: values.base, review: config.review }, parseHookInput(io.stdin), maxDiagnostics ?? config.maxDiagnostics);
+    const { exitCode, feedback } = runGate({ ...scope, sources, testAdapter: config.testAdapter, coverage: config.coverage, examples: config.examples, lint: config.lint, reviewScope }, { lockBase: values.base, review: config.review }, parseHookInput(io.stdin), maxDiagnostics ?? config.maxDiagnostics);
     if (feedback !== "") io.stderr(feedback);
     return exitCode;
   }

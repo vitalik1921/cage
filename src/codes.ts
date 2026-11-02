@@ -40,6 +40,15 @@ export const CODES: Record<string, { means: string; then: string }> = {
   E_REFERENCE_AMBIGUOUS: { means: "a test is tagged for two contracts that both have the invariant @covers names", then: "give the test its own @tests naming one contract" },
   E_NO_CONTRACTS: { means: "the designs declare data types only", then: "mark the interfaces the code implements @contract" },
   W_NO_INVARIANTS: { means: "a contract promises no rule; only its types are checked", then: "write @invariant rules, each with a linked test" },
+  // Core design lint; severity overrides retain these stable codes.
+  W_HISTORY_REFERENCE: { means: "design prose or a rule contains explicit historical notation", then: "keep the current promise in the design and move history to git or the review record" },
+  W_OPEN_QUESTION_SETTLED: { means: "an Open questions item starts with a settled status", then: "fold the decision into the design and remove the settled question" },
+  W_NUMBERING: { means: "Business rules or Open questions numbering is not one through n in source order", then: "renumber the items without gaps or letter suffixes" },
+  W_MODULE_SIZE: { means: "a module declares more concrete contracts than the configured limit", then: "review its responsibilities and split the module when they differ" },
+  W_CONTRACT_SIZE: { means: "a contract or family authors more members or rules than the configured limits", then: "review whether the promises belong to one contract" },
+  W_RULE_REFERENCE_UNKNOWN: { means: "a numbered rule citation has no unique target document and item", then: "fix the citation or fold the prose rule into the invariant" },
+  W_TYPE_DUPLICATE: { means: "one data type name is declared in several modules", then: "share a declaration when it is one concept or use distinct names" },
+  W_LINT_SUPPRESSION_UNUSED: { means: "a reasoned lint suppression silences no diagnostic", then: "remove the suppression or place it before the intended block" },
   // Types.
   E_TYPESCRIPT: { means: "the compiler rejects a ts design block or a file with @implements", then: "fix the type error" },
   W_WEAK_TYPECHECK: { means: "strictNullChecks, strictFunctionTypes or noImplicitAny is off; implementations are compared more loosely", then: "turn them on in tsconfig" },
