@@ -1,3 +1,4 @@
+import { rulePacket } from "./gherkin-review.ts";
 import path from "node:path";
 import type { Contract, LockLevel, SourceLocation, TestStatus } from "./design-model.ts";
 import type { DesignModule } from "./design-phase.ts";
@@ -55,7 +56,7 @@ export interface ContractPacket {
    * `touched`: whether the invariant's material changed since the recorded review — null when there is no outdated review to
    * compare with. `prior`: what that review found about it, if anything.
    */
-  invariants: { id: string; text: string; member: string | null; inheritedFrom?: { contract: string; module: string }; location: SourceLocation; tests: { file: string; line: number; column: number; title: string }[]; touched: boolean | null; prior: PriorFinding[] }[];
+  invariants: { id: string; text: string; member: string | null; inheritedFrom?: { contract: string; module: string }; location: SourceLocation; tests: { file: string; line: number; column: number; title: string }[]; touched: boolean | null; prior: PriorFinding[]; gherkin?: ReturnType<typeof rulePacket> }[];
   dependencies: {
     uses: { contract: string; module: string }[];
     usedBy: { contract: string; module: string }[];
@@ -133,6 +134,8 @@ export interface ReviewReport {
   contracts: ContractPacket[];
   groups: ReviewGroup[];
   files: PacketFile[];
+  /** Authored contexts once per document, shared by every selected carrier. */
+  gherkin?: { file: string; line: number; source: string }[];
   excerpts: Excerpt[];
   /** Fingerprint scope boundaries still absent from an experimental context packet. */
   contextGaps?: { contract: string; file: string; reason: "depth" | "maxFiles" | "outside" | "helper-import" }[];
@@ -180,6 +183,9 @@ export const INSTRUCTION = [
   "every invariant below has at least one test declaration tagged with it unless a diagnostic says otherwise. What it cannot check is the substance,",
   "and that is your task. For each invariant, read the tests that cover it, the implementation and the design, and judge:",
   "",
+  "- For Gherkin Examples, title links are not proof: check the Given, When, every Then and every outline row; missing assertions are weak.",
+  "- An Example contradicting or extending its rule is a contract-level finding. A @property rule needs several inputs, not one case.",
+  "- Backgrounds and external assumptions are context; assumptions get no invariant finding. Our own promises must not be hidden as assumptions.",
   "- Does the test exercise the behaviour the invariant is about, or the right external scenario?",
   "- Would it fail if exactly this promise were broken, and only then?",
   "- Do the assertions observe the right result, order or effect — not just that nothing was thrown?",
@@ -279,6 +285,11 @@ export function runReview(options: ImplementationPhaseOptions, names: readonly s
     contracts,
     groups: groupReviews(contracts.map((packet) => ({ ...packet, status: packet.recordedReview.status }))),
     files: packetFiles,
+    ...(() => {
+      const needed = new Set(contracts.flatMap(packet => Object.keys(materialOf(packet.contract).gherkin ?? {}).map(key => key.slice("design ".length))));
+      const documents = result.modules.flatMap(module => module.documents).filter(document => document.gherkin && needed.has(document.file));
+      return documents.length > 0 && included !== "none" ? { gherkin: documents.map(document => ({ file: document.file, line: document.gherkin!.location.line, source: document.gherkin!.source.replace(/\r\n?/g, "\n") })) } : {};
+    })(),
     excerpts,
     ...(included === "context" ? { contextGaps: contracts.flatMap((packet) => {
       const loaded = new Set([...packetFiles.map((file) => file.path), ...excerpts.map((excerpt) => excerpt.file)]);
@@ -490,12 +501,26 @@ function goneOf(key: string, material: Material): Omit<ChangedPart, "change"> {
  * (the parts in another order, or the record edited: nothing can be told apart).
  */
 function touchedBy(material: Material, changes: readonly ChangedPart[], invariants: readonly string[], prior: ReviewEntry): string[] {
-  if (changes.length === 0 || changes.some((change) => change.kind !== "test" || change.change === "gone")) return [...invariants];
-  const changedParts = changes.map((change) => material.parts.find((part) => part.key === change.part)).filter((part): part is MaterialPart => part !== undefined);
+  if (changes.length === 0) return [...invariants];
+  const ruleChanges = new Set<string>();
+  for (const change of changes) {
+    if (change.kind === "test" && change.change !== "gone") continue;
+    const before = prior.gherkin?.[change.part];
+    const after = material.gherkin?.[change.part];
+    if (change.kind !== "design" || change.change !== "changed" || !before || !after || before.context !== after.context) return [...invariants];
+    const changedRules = [...new Set([...Object.keys(before.rules), ...Object.keys(after.rules)])].filter(key => before.rules[key] !== after.rules[key]);
+    // No matching hint means an unclassified edit: keep the conservative legacy behavior.
+    if (changedRules.length === 0) return [...invariants];
+    for (const key of changedRules) {
+      const id = material.gherkinRules?.[`${change.part}\n${key}`];
+      if (id) ruleChanges.add(id);
+    }
+  }
+  const changedParts = changes.filter(change => change.kind === "test").map((change) => material.parts.find((part) => part.key === change.part)).filter((part): part is MaterialPart => part !== undefined);
   const covered = new Set(changedParts.flatMap((part) => part.covers ?? []));
   const restsOnChanged = (finding: Finding) => evidenceRefs(finding.evidence).some((ref) => changedParts.some((part) => part.file === ref.file && (part.pieces ?? []).some((piece) => ref.from <= piece.endLine && ref.to >= piece.startLine)));
   const linkedNow = (id: string) => material.declarations.some((declaration) => declaration.covers.includes(id));
-  return invariants.filter((id) => covered.has(id) || prior.findings.some((finding) => finding.invariant === id && (restsOnChanged(finding) || !linkedNow(id))));
+  return invariants.filter((id) => ruleChanges.has(id) || covered.has(id) || prior.findings.some((finding) => finding.invariant === id && (restsOnChanged(finding) || !linkedNow(id))));
 }
 
 /** The `file:line` and `file:line-line` references an evidence text names, as the reviewer wrote them (project-relative paths). */
@@ -560,7 +585,11 @@ function packetOf(
     description: contract.description,
     lock: contract.lock,
     members: contract.members.map(({ name: member, description, location }) => ({ name: member, description, location })),
-    invariants: result.index!.invariants.filter((invariant) => invariant.contract === name).map(({ id, text, member, location, inheritedFrom }) => ({ id, text, member, location, ...(inheritedFrom ? { inheritedFrom } : {}), tests: testsOf(id), touched: touched === null ? null : touched.includes(id), prior: priorOf(id) })),
+    invariants: result.index!.invariants.filter((invariant) => invariant.contract === name).map(invariant => {
+      const { id, text, member, location, inheritedFrom } = invariant;
+      const design = invariant.gherkin ? result.modules.flatMap(module => module.documents).find(document => document.file === location.file)?.gherkin : undefined;
+      return { id, text, member, location, ...(inheritedFrom ? { inheritedFrom } : {}), tests: testsOf(id), touched: touched === null ? null : touched.includes(id), prior: priorOf(id), ...(design ? { gherkin: rulePacket(invariant, declarations, design) } : {}) };
+    }),
     dependencies: { uses, usedBy, designs: dependencyDesigns },
     implementations: implementations.map(({ name: implementation, kind, compatible, location }) => ({ name: implementation, kind, compatible, location })),
     tests: testFiles.map((file) => ({
@@ -723,7 +752,7 @@ export function formatReviewMarkdown(report: ReviewReport): string {
     ...packet.designs, ...packet.dependencies.designs, ...packet.implementations.map((implementation) => implementation.location.file),
   ]));
   const file = refs.file;
-  const texts = [...report.files.map((file) => file.text), ...report.excerpts.flatMap((excerpt) => excerpt.pieces.map((piece) => piece.text))];
+  const texts = [...report.files.map((file) => file.text), ...(report.gherkin ?? []).map(document => document.source), ...report.contracts.flatMap(packet => packet.invariants.flatMap(invariant => invariant.gherkin?.examples.map(example => example.source) ?? [])), ...report.excerpts.flatMap((excerpt) => excerpt.pieces.map((piece) => piece.text))];
   const longest = Math.max(2, ...texts.flatMap((text) => [...text.matchAll(/`+/g)].map((run) => run[0].length)));
   const fence = "`".repeat(longest + 1);
   const at = (location: Partial<SourceLocation>) => [location.file === undefined ? undefined : file(location.file), location.line].filter((part) => part !== undefined).join(":");
@@ -740,10 +769,23 @@ export function formatReviewMarkdown(report: ReviewReport): string {
   };
   const fileLines = (file: PacketFile): string[] => {
     const language = file.path.endsWith(".mdx") ? "mdx" : "ts";
+    const context = report.gherkin?.find(document => document.file === file.path);
+    // The complete source remains in JSON; the reading view shows its Gherkin once above.
     const numbered = file.text.replace(/\n$/, "").split("\n");
     const width = String(numbered.length).length;
-    return [`### ${refs.file(file.path)} (${file.role})`, `${fence}${language}`, ...numbered.map((line, index) => `${String(index + 1).padStart(width)} | ${line}`), fence, ""];
+    const end = context ? context.line + context.source.split("\n").length - 1 : 0;
+    const rendered = numbered.flatMap((line, index) => {
+      const at = index + 1;
+      if (context && at > context.line && at <= end) return [];
+      const text = context && at === context.line ? `[Gherkin context shown above, lines ${context.line}–${end}]` : line;
+      return [`${String(at).padStart(width)} | ${text}`];
+    });
+    return [`### ${refs.file(file.path)} (${file.role})`, `${fence}${language}`, ...rendered, fence, ""];
   };
+  if (report.gherkin?.length) {
+    lines.push("## Gherkin context", "", "Authored rules, backgrounds and external assumptions; shared once per document. Title links are not proof of assertions or outline-row coverage.", "");
+    for (const document of report.gherkin) lines.push(`### ${file(document.file)}:${document.line}`, fence + "mdx", document.source, fence, "");
+  }
   const sharedGroups = report.groups.filter((group) => group.sharedChanges.length > 0);
   const sharedChanges = sharedGroups.flatMap((group) => group.sharedChanges).map((shared, index) => ({ ...shared, id: `S${index + 1}` }));
   const sharedFiles = new Set(sharedGroups.flatMap((group) => group.sharedChanges.map(({ change }) => change.file)));
@@ -786,6 +828,14 @@ export function formatReviewMarkdown(report: ReviewReport): string {
     for (const invariant of packet.invariants) {
       lines.push(`- ${invariant.id}${invariant.member ? ` on ${invariant.member}` : ""}${invariant.inheritedFrom ? ` inherited from ${invariant.inheritedFrom.contract}` : ""} (${at(invariant.location)}): ${invariant.text}`);
       lines.push(`  tests: ${invariant.tests.length === 0 ? "none" : invariant.tests.map(refs.test).join(", ")}`);
+      if (invariant.gherkin) {
+        lines.push(`  flags: ${invariant.gherkin.flags.join(" ") || "none"}`);
+        for (const example of invariant.gherkin.examples) {
+          lines.push("", `${fence}gherkin`, example.source, fence, `  linked tests: ${example.tests.length ? example.tests.map(refs.test).join(", ") : "none"}`);
+        }
+        lines.push(`  unlinked Examples: ${invariant.gherkin.unlinkedExamples.length ? invariant.gherkin.unlinkedExamples.map(title => JSON.stringify(title)).join(", ") : "none"}`);
+        lines.push(`  rule-linked tests without an Example: ${invariant.gherkin.unmatchedTests.length ? invariant.gherkin.unmatchedTests.map(test => `${refs.test(test)} (${test.status})`).join(", ") : "none"}`);
+      }
       for (const finding of invariant.prior) {
         const stands = invariant.touched === null ? "" : invariant.touched ? ", changed" : ", unchanged";
         lines.push(`  recorded: ${finding.assessment}, "${report.included === "context" ? finding.reason : firstSentence(finding.reason)}"${finding.evidence ? ` (${refs.evidence(finding.evidence)})` : ""}${stands}`);

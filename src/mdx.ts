@@ -62,7 +62,7 @@ export function parseDesignMdx(source: string, file: string): ParsedDesign {
     const start = node.position!.start.offset!;
     if (node.lang !== "ts" && node.lang !== "gherkin") {
       diagnostics.push(
-        error("E_DESIGN_BLOCK_MARKER", `design on a "${node.lang ?? ""}" block, not ts`, start),
+        error("E_DESIGN_BLOCK_MARKER", `design on a "${node.lang ?? ""}" block, neither ts nor gherkin`, start),
       );
       return;
     }

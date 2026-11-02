@@ -28,10 +28,14 @@ try {
   }
   const gherkinProject = path.join(project, "gherkin");
   fs.cpSync(path.join(repository, "test/fixtures/gherkin"), gherkinProject, { recursive: true });
+  fs.mkdirSync(path.join(gherkinProject, ".cage"));
+  fs.writeFileSync(path.join(gherkinProject, ".cage/config.json"), JSON.stringify({ version: 1, examples: "require", review: "off" }));
   const gherkin = JSON.parse(run("check", "--root", gherkinProject, "--format", "json"));
   if (!gherkin.ok || gherkin.counts.implementations !== 4 || gherkin.counts.linkedInvariants !== 10) throw new Error(`Gherkin fixture failed: ${JSON.stringify(gherkin)}`);
+  const packet = JSON.parse(run("review", "EntryPicker", "RemoveCourses", "RemoveEducation", "--root", gherkinProject, "--format", "json"));
+  if (!packet.complete || packet.gherkin?.length !== 1 || packet.contracts.some(contract => contract.invariants.some(rule => rule.gherkin.examples.some(example => example.tests.length === 0)))) throw new Error("Installed Gherkin review packet lost an Example link or shared context");
   execFileSync(process.execPath, ["--test", "src/removal.test.ts"], { cwd: gherkinProject, encoding: "utf8" });
-  console.log(`smoke: ${tarball} installs; cage ${version} checks the legacy fixture: ${report.counts.contracts} contracts, ${report.counts.linkedInvariants} of ${report.counts.invariants} invariants linked; Gherkin fixture: 4 implementations, 10 linked invariants, runnable tests pass; init writes the hook, the rules and the skills.`);
+  console.log(`smoke: ${tarball} installs; cage ${version} checks the legacy fixture: ${report.counts.contracts} contracts, ${report.counts.linkedInvariants} of ${report.counts.invariants} invariants linked; Gherkin fixture: 4 implementations, 10 linked invariants, required Example links and shared review context pass, runnable tests pass; init writes the hook, the rules and the skills.`);
 } finally {
   fs.rmSync(scratch, { recursive: true, force: true });
 }

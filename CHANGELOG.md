@@ -4,6 +4,8 @@
 
 ### Added
 
+- Link Gherkin Examples to active tests by rule and normalized title (`examples`: off/warn/require); title links do not establish assertion or outline-row coverage.
+- Show Gherkin contexts and Example/test pairs in review packets; retain complete document fingerprints and track rule-specific edits for touched marks.
 - Optional Gherkin design blocks: rules bind to contracts, families and named members; examples, outlines, backgrounds, assumptions and source positions are retained without running steps. Rules participate in the existing invariant inheritance and declaration locks. Unsupported enforcement tags are explicit errors.
 
 ### Upgrade notes

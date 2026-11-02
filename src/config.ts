@@ -18,6 +18,8 @@ export interface Config {
   review: "off" | "warn" | "require";
   /** How `check` treats exported code of a designed module that nothing marks `@implements`: not at all, as a warning, or as an error. */
   coverage: "off" | "warn" | "require";
+  /** Title links for Gherkin Examples, never a claim about assertions or execution. */
+  examples: "off" | "warn" | "require";
   /** How far a review's fingerprint follows the local files that implementations and tests import. */
   reviewDependencies: ReviewDependencies;
   /**
@@ -53,6 +55,7 @@ export const defaultConfig: Config = {
   testAdapter: "node:test",
   review: "warn",
   coverage: "warn",
+  examples: "warn",
   reviewDependencies: { depth: 3, maxFiles: 40, exclude: [] },
   maxDiagnostics: 50,
 };
@@ -118,6 +121,7 @@ const fields: Record<keyof Config, { expected: string; valid: (value: unknown) =
   testAdapter: { expected: '"node:test" or "vitest"', valid: (value) => value === "node:test" || value === "vitest" },
   review: { expected: '"off", "warn" or "require"', valid: (value) => value === "off" || value === "warn" || value === "require" },
   coverage: { expected: '"off", "warn" or "require"', valid: (value) => value === "off" || value === "warn" || value === "require" },
+  examples: { expected: '"off", "warn" or "require"', valid: (value) => value === "off" || value === "warn" || value === "require" },
   reviewDependencies: {
     expected: 'an object with "depth" (0–10), "maxFiles" (0–1000) and "exclude" (an array of non-empty strings), each optional',
     valid: (value) => {

@@ -76,7 +76,13 @@ Write `Rule: kebab-id — An observable promise.` (a spaced ASCII dash is also a
 
 `@property` marks an invariant about all inputs. `@assumption` marks an external statement with no carrier or test obligation; it cannot also be `@property`. An assumption does not inherit a Feature carrier. Assumptions remain in the document, separate from the invariant index. Other lowercase tags (letters, digits, underscores and hyphens) are labels, with no enforcement. Cage binding tags such as `@tests` and `@invariant` are not Gherkin labels. Example titles must be nonempty and unique within their Rule after trimming, collapsing whitespace and lowercasing. Outline rows remain part of one Example; no row coverage is claimed.
 
-Gherkin never enters the virtual TypeScript file. All existing prose, including the complete Gherkin block, remains document material; the implementation preserves the legacy path when no Gherkin block is present. The parser assigns stable per-document AST ids and translates locations back to MDX, with UTF-16 columns. The candidate's Example-to-test title links and expanded review packets are a separate implementation step; current test links remain `@tests` / `@covers`.
+Gherkin never enters the virtual TypeScript file. All existing prose, including the complete Gherkin block, remains document material; the implementation preserves the legacy path when no Gherkin block is present. The parser assigns stable per-document AST ids and translates locations back to MDX, with UTF-16 columns. Test links remain `@tests` / `@covers`. Parsing runs before binding across the project: fix syntax and parse-level errors first; silence about a carrier while those errors remain does not validate it. Labels are lowercase; PascalCase tags always name carriers (`@Security` is a carrier, not a label).
+
+An Example links when an **active** test of its concrete carrier and rule has the same title after trimming, collapsing whitespace and Unicode lowercasing. For Scenario Outlines, `<name>` slots are removed; for `it.each` templates, `$name` (including dotted paths), `%s`, `%d`, `%i`, `%f`, `%j`, `%o`, `%#` and `%%` are removed before normalization. Ordinary literal titles keep those characters. Titles can match more than one test; every match is shown. Each outline and each table-test declaration counts once, regardless of its rows. The `examples` policy (`"off"`, `"warn"`, `"require"`; default `"warn"`) controls `EXAMPLE_UNLINKED` and `RULE_WITHOUT_EXAMPLE`. `@property` exempts only the missing-Example diagnostic. Example warnings have lower priority than existing warnings under `maxDiagnostics`. Assumptions and abstract families have no test obligation; concrete children need their own links. Rejected test tags defer their resulting missing-link diagnostics.
+
+Review packets show each Example verbatim with its active title links, unlinked Examples, and rule-linked tests without an Example (including inactive declarations). One shared Gherkin context per document carries the authored block, including backgrounds and assumptions. The JSON `gherkin` context and per-invariant `gherkin` links supplement the existing full source files; Markdown prints the shared block once and refers to it from those files. `--files none` keeps references and per-rule links without the shared source block. A link says nothing about assertions or outline-row coverage: the reviewer checks every Given/When/Then and every row.
+
+The complete prose of **every document in the module** remains fingerprinted, including Gherkin, comments and Open questions; no existing material or dependency is removed. The documents supplying inherited Gherkin rules also enter the child's material. Fingerprint versions stay unchanged. New records optionally store `gherkin` rule/context digests solely to mark touched rules: a rule or Example edit touches that rule; Feature context, backgrounds, assumptions, glossary or other prose changes touch all rules. Both Feature and Rule backgrounds count as shared context. Changes to another contract's rule still stale the review because the whole document is material, even when no local rule is marked touched. Records without these extra digests remain valid and use conservative touched marks after an edit. No record is carried over or rewritten automatically.
 
 ### Rules for implementations
 
@@ -367,6 +373,7 @@ Exit codes as for every command: `0` — created, valid or activated (warnings d
   "testAdapter": "node:test",
   "review": "warn",
   "coverage": "warn",
+  "examples": "warn",
   "reviewDependencies": { "depth": 3, "maxFiles": 40, "exclude": [] },
   "maxDiagnostics": 50
 }
@@ -405,6 +412,10 @@ What every diagnostic means and what to do about it; `cage codes` prints the sam
 | `E_RULE_FORMAT` | a Gherkin Rule needs a kebab-case id, a spaced dash and a sentence | write Rule: rule-id — the observable promise |
 | `E_RULE_UNBOUND` | a Gherkin rule has an invalid carrier or incompatible assumption flags | bind each promise to one contract, family or member of its module; leave assumptions unbound |
 | `E_EXAMPLE_DUPLICATE` | two examples of one rule have the same normalized title | give the examples distinct titles |
+| `W_EXAMPLE_UNLINKED` | a Gherkin Example has no active test linked to its rule with a matching title | link an active test with that title; review its assertions separately |
+| `E_EXAMPLE_UNLINKED` | a required Gherkin Example link is missing | link an active test with that title; review its assertions separately |
+| `W_RULE_WITHOUT_EXAMPLE` | a Gherkin rule has no Example and is not a property rule | write a concrete Example, or mark an every-input promise @property |
+| `E_RULE_WITHOUT_EXAMPLE` | a required Example is missing from a non-property Gherkin rule | write a concrete Example, or mark an every-input promise @property |
 | `E_DESIGN_IMPORT` | a design imports values, non-designated source or unavailable type dependencies | use import type from a design, installed package or designated project type export |
 | `E_DESIGN_OUT_OF_SCOPE` | a block imports a design document the designs patterns do not cover | widen the patterns, or do not import it |
 | `E_DESIGN_CYCLE` | modules depend on each other in a cycle through @uses or type imports | break the cycle |

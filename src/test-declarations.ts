@@ -27,6 +27,7 @@ export interface RejectedLink {
 /** A test declaration inside a `@tests` suite, before its contract and invariants are looked up. */
 export interface FoundTest {
   title: string;
+  each?: true;
   suitePath: string[];
   context: TestContext;
   covers: { id: string; location: SourceLocation }[];
@@ -324,7 +325,7 @@ export function readTestDeclarations(
     return "invalid";
   };
 
-  const readTest = (statement: ts.ExpressionStatement, call: ts.CallExpression, callee: ts.Expression, inherited: Scope, path: string[], disabled: Disabled | undefined, setup: SourceLocation[]) => {
+  const readTest = (statement: ts.ExpressionStatement, call: ts.CallExpression, callee: ts.Expression, inherited: Scope, path: string[], disabled: Disabled | undefined, setup: SourceLocation[], each: boolean) => {
     const comment = docCommentBefore(ts, sourceFile, statement);
     const managed = comment?.tags.some((tag) => isBindingTag(tag.name)) ?? false;
     let coverTags: DocTag[] = [];
@@ -354,7 +355,7 @@ export function readTestDeclarations(
           : empty
             ? { status: "empty", inactiveBecause: empty }
             : { status: "active" };
-      tests.push({ title, suitePath: path, context: scope, covers, ...state, setup, location: locate(statement.getStart(sourceFile)) });
+      tests.push({ title, ...(each ? { each: true } : {}), suitePath: path, context: scope, covers, ...state, setup, location: locate(statement.getStart(sourceFile)) });
     }
   };
 
@@ -367,7 +368,7 @@ export function readTestDeclarations(
       const table = ts.isCallExpression(callee) && ts.isPropertyAccessExpression(callee.expression) && callee.expression.name.text === "each" ? callee.expression.expression : undefined;
       const kind = kindOf(table ?? callee);
       if (kind === "suite") return readSuite(node, node.expression, table ?? callee, context, path, disabled, setup);
-      if (kind === "test") return readTest(node, node.expression, table ?? callee, context, path, disabled, setup);
+      if (kind === "test") return readTest(node, node.expression, table ?? callee, context, path, disabled, setup, table !== undefined);
     }
     ts.forEachChild(node, (child) => visit(child, context, path, disabled, setup));
   };

@@ -39,6 +39,7 @@ function rank(diagnostic: Diagnostic): number {
   if (diagnostic.code === "E_CONFIG" || diagnostic.code === "E_ENVIRONMENT") return 0;
   if (isError(diagnostic)) return 1;
   if (/REVIEW_(MISSING|STALE)$/.test(diagnostic.code)) return 2;
+  if (diagnostic.code === "W_EXAMPLE_UNLINKED" || diagnostic.code === "W_RULE_WITHOUT_EXAMPLE") return 4;
   return 3;
 }
 

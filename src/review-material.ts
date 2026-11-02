@@ -1,3 +1,4 @@
+import { ruleKey, gherkinSegments, type GherkinDigests } from "./gherkin-review.ts";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -78,6 +79,9 @@ export interface Material {
   files: PacketFile[];
   /** What the fingerprint is made of; see `MaterialPart`. */
   parts: MaterialPart[];
+  /** Optional comparison hints; the whole design remains fingerprinted. */
+  gherkin?: GherkinDigests;
+  gherkinRules?: Record<string, string>;
   /** The local files fingerprinted as dependencies, project-relative, in the order they were reached. */
   dependencies: string[];
   /** Local files that the bounds of the review scope left out of the fingerprint: a change in them does not make the review outdated. */
@@ -175,7 +179,20 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
   // A review is about the contract, the rules its module states in prose, its implementations, the tests declared for it,
   // and the local code they rely on. A change elsewhere in those files is not a change of the material.
   const parts: MaterialPart[] = [{ key: "contract", text: contract.source, file: contract.location.file, line: contract.location.line, name: contract.name }];
-  for (const document of own.documents) parts.push({ key: `design ${document.file}`, text: proseOf(document.source, document.blocks), file: document.file });
+  const inheritedFiles = new Set(index!.invariants.filter(invariant => invariant.contract === name && invariant.gherkin).map(invariant => invariant.location.file));
+  const documents = [...own.documents, ...modules.flatMap(module => module.documents).filter(document => inheritedFiles.has(document.file) && !own.documents.includes(document))];
+  const gherkin: GherkinDigests = {};
+  for (const document of documents) {
+    include(read(document.file, "design", document.source));
+    const key = `design ${document.file}`;
+    const text = proseOf(document.source, document.blocks);
+    parts.push({ key, text, file: document.file });
+    if (document.gherkin) {
+      const segments = gherkinSegments(document.gherkin);
+      const source = document.gherkin.source.replace(/\r\n?/g, "\n");
+      gherkin[key] = { context: digestOf(text.replace(source, () => segments.context)), rules: Object.fromEntries(Object.entries(segments.rules).map(([id, rule]) => [id, digestOf(rule)])) };
+    }
+  }
   const packageImports = new Map<string, PackageImport[]>();
   for (const entry of index!.packages) if (typeModules.has(entry.module)) packageImports.set(entry.name, [...(packageImports.get(entry.name) ?? []), entry]);
   const declarationFiles = new Map<string, PackageImport["files"][number]>();
@@ -260,6 +277,7 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
     testFiles,
     files,
     parts,
+    ...(Object.keys(gherkin).length > 0 ? { gherkin, gherkinRules: Object.fromEntries(index!.invariants.filter(invariant => invariant.contract === name && invariant.gherkin).map(invariant => [`design ${invariant.location.file}\n${ruleKey(invariant.gherkin!)}`, invariant.id])) } : {}),
     dependencies: closure.files.map((dependency) => dependency.file),
     beyond: closure.beyond,
     unreadable: closure.unreadable,

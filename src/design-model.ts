@@ -110,6 +110,8 @@ export type TestStatus = "active" | "skipped" | "todo" | "empty" | "broken-impor
 /** A test declaration inside a `@tests` suite. It says that a test was declared, not that it ran or passed. */
 export interface TestDeclaration {
   title: string;
+  /** A literal template title on an it.each table declaration. */
+  each?: true;
   /** Titles of the enclosing suites, outermost first. */
   suitePath: string[];
   adapter: "node:test" | "vitest";

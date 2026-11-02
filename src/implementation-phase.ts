@@ -1,3 +1,4 @@
+import { checkExampleLinks } from "./example-links.ts";
 import { checkContractSurfaces, type ShapeBinding } from "./contract-conformance.ts";
 import fs from "node:fs";
 import path from "node:path";
@@ -21,6 +22,7 @@ export interface ImplementationPhaseOptions extends DesignPhaseOptions {
   testAdapter: TestAdapter;
   /** Exported code of a designed module without `@implements`: not looked at, a warning, or an error. Default: a warning. */
   coverage?: "off" | "warn" | "require";
+  examples?: "off" | "warn" | "require";
   /** The bounds of the dependency part of review fingerprints; `exclude` already holds the configuration's `exclude` too. */
   reviewScope?: ReviewScope;
 }
@@ -279,6 +281,8 @@ export function checkImplementationPhase(options: ImplementationPhaseOptions): I
       invariant: invariant.id,
     });
   }
+
+  diagnostics.push(...checkExampleLinks(index, tests, rejected, options.examples ?? "warn"));
 
   for (const { test, invariants } of warned.values()) {
     diagnostics.push({
@@ -615,7 +619,7 @@ function readTests(
       for (const [name, ids] of covers) {
         if (ids.length === 0 && named.length > 1) continue;
         const state = broken ? { status: "broken-import" as const, inactiveBecause: `its file has a broken import: ${broken}` } : { status: test.status, ...(test.inactiveBecause ? { inactiveBecause: test.inactiveBecause } : {}) };
-        tests.push({ title: test.title, suitePath: test.suitePath, adapter, contract: name, covers: ids, ...state, setup: test.setup, location: test.location });
+        tests.push({ title: test.title, ...(test.each ? { each: true } : {}), suitePath: test.suitePath, adapter, contract: name, covers: ids, ...state, setup: test.setup, location: test.location });
       }
     }
   }

@@ -58,3 +58,7 @@ init.ts
 # Drafts: the header and path rules, and create/check/activate behind `cage draft`.
 draft.ts
 draft-file.ts
+
+# Gherkin Example links and review presentation behind Cli.
+example-links.ts
+gherkin-review.ts

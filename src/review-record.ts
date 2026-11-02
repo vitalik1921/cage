@@ -1,3 +1,4 @@
+import { isGherkinDigests, type GherkinDigests } from "./gherkin-review.ts";
 import fs from "node:fs";
 import path from "node:path";
 import { compareDiagnostics, compareText, hasErrors, type Diagnostic } from "./diagnostic.ts";
@@ -76,6 +77,8 @@ export interface ReviewEntry {
   fingerprint: string;
   /** Digest of each part of the material, by key: `contract`, `implementation <file>#<name>`, `test <file>:<title>`. */
   material: Record<string, string>;
+  /** Optional rule/context digests used only to mark touched rules. */
+  gherkin?: GherkinDigests;
   findings: Finding[];
   /** Present and true only for an acceptance: nobody judged the material, and nothing attests the tests. */
   accepted?: true;
@@ -104,7 +107,10 @@ export const readReviewFile = (root: string) => readRecordFile(root, REVIEW_FILE
 function parseReviewEntries(value: unknown): ReviewEntry[] | string {
   const { version, reviews } = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
   if (version !== 1 || !Array.isArray(reviews) || !reviews.every(isEntry)) return 'expected { "version": 1, "reviews": [...] } as written by `cage review --record`.';
-  return reviews;
+  return reviews.map(entry => {
+    if (entry.gherkin !== undefined && !isGherkinDigests(entry.gherkin)) { const { gherkin: _ignored, ...record } = entry; return record; }
+    return entry;
+  });
 }
 
 export const formatReviewFile = (entries: readonly ReviewEntry[]) => `${JSON.stringify({ version: 1, reviews: entries }, null, 2)}\n`;
@@ -355,7 +361,7 @@ export function recordVerdicts(options: ImplementationPhaseOptions, verdictsFile
     }
     if (unknown.length > 0 || unassessed.length > 0 || (invariants.length === 0 && verdict.findings.length === 0) || unreasoned.length > 0 || unevidenced.length > 0) continue;
 
-    const entry: ReviewEntry = { module: contract.module, contract: contract.name, fingerprint, material: digests, findings: verdict.findings };
+    const entry: ReviewEntry = { module: contract.module, contract: contract.name, fingerprint, material: digests, ...(material.gherkin ? { gherkin: material.gherkin } : {}), findings: verdict.findings };
     entries.set(keyOf(entry), entry);
     // A contract-level finding is not an assessment of an invariant: it is counted apart, and `check` reports one that is not adequate.
     const { assessments, contractAssessments } = countAssessments(verdict.findings);
@@ -466,7 +472,7 @@ export function acceptContracts(options: ImplementationPhaseOptions, names: read
       kept.push({ module: contract.module, contract: contract.name, record: kind });
       continue;
     }
-    entries.set(key, { module: contract.module, contract: contract.name, fingerprint, material: digests, findings: [], accepted: true });
+    entries.set(key, { module: contract.module, contract: contract.name, fingerprint, material: digests, ...(material.gherkin ? { gherkin: material.gherkin } : {}), findings: [], accepted: true });
     const invariants = index.invariants.filter((invariant) => invariant.contract === contract.name).length;
     accepted.push({ module: contract.module, contract: contract.name, fingerprint, invariants, replaced: prior ? { kind, current } : null });
   }

@@ -36,6 +36,7 @@ Cage runs locally and makes no model calls: your agent does the judging, your te
 | --- | --- |
 | Every contract has an implementation with matching public members and signatures; extra public instance/static members are errors | That the implementation behaves as the rules say |
 | Every rule (`@invariant`) has a linked test (`@covers`), and at least one has a body or is explicitly `skip`/`todo` (its own or its suite's), with no broken import of a project file; skip/todo stays inactive in counts | That the test asserts the rule, or that it passes — Cage reads tests, it never runs them; a test can also be skipped at run time |
+| With `examples: "require"`, every Gherkin Example has an active test linked by its rule and title | That the test checks its Given/When/Then or every outline row |
 | With `review: "require"`, every contract has a recorded verdict for its material as it is now | That the verdict is right: it is a reviewer's attestation, often the coding agent's own |
 
 ## What it catches
@@ -276,6 +277,7 @@ Existing `code-v1` fingerprints keep their declaration-level scope; unversioned 
   "testAdapter": "node:test",
   "review": "warn",
   "coverage": "warn",
+  "examples": "warn",
   "maxDiagnostics": 50
 }
 ```
