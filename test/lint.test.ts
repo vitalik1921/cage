@@ -45,7 +45,7 @@ describe("core design lint", () => {
     const source = mdx(spec) + "\n## Business rules\n1. Work finishes.\n3. Work remains available.\n\n## Open questions\n0. Resolved: use the queue.\n1a. Still undecided?\nb. Another question?\n";
     const root = designProject(t, { own: source });
     const found = lint(root).diagnostics;
-    assert.deepEqual(found.map(item => item.code), ["W_NUMBERING", "W_NUMBERING", "W_OPEN_QUESTION_SETTLED", "W_HISTORY_REFERENCE"], JSON.stringify(found));
+    assert.deepEqual(found.map(item => item.code), ["W_NUMBERING", "W_NUMBERING", "W_OPEN_QUESTION_SETTLED"], JSON.stringify(found));
     assert.equal(found.find(item => item.code === "W_OPEN_QUESTION_SETTLED")?.line, find(source, "0. Resolved").line);
     writeFile(root, designFile("own"), mdx(spec) + "\n## Business rules\n1. Work finishes.\n2. Resolved requests remain readable.\n\n## Open questions\n1. Should we retain resolved requests?\n2. Which retention window?\n");
     assert.deepEqual(codes(root), []);
@@ -57,14 +57,13 @@ describe("core design lint", () => {
     const root = designProject(t, { own: source });
     const found = lint(root).diagnostics;
     assert.ok(!found.some(item => item.code === "W_NUMBERING"), JSON.stringify(found));
-    assert.equal(found.filter(item => item.code === "W_HISTORY_REFERENCE").length, 2);
+    assert.equal(found.filter(item => item.code === "W_HISTORY_REFERENCE").length, 1);
     assert.equal(found.filter(item => item.code === "W_OPEN_QUESTION_SETTLED").length, 1);
     const lines = cli(root, "check", "--phase", "lint").stdout.split("\n").filter(line => /^[EW]_/.test(line));
     const itemLine = find(source, "1. **Resolved").line;
     const headingLine = find(source, "## Settled").line;
     assert.deepEqual(lines, [
       `W_OPEN_QUESTION_SETTLED: settled Open question 1 (src/own/own.cage.mdx:${itemLine}:1)`,
-      `W_HISTORY_REFERENCE: historical notation belongs in git or the review record (src/own/own.cage.mdx:${itemLine}:4)`,
       `W_HISTORY_REFERENCE: historical notation belongs in git or the review record (src/own/own.cage.mdx:${headingLine}:1)`,
     ]);
   });
@@ -102,6 +101,34 @@ describe("core design lint", () => {
     fs.rmSync(path.join(root, "src/own/remote.cage.mdx"));
     writeFile(root, "src/third/remote.cage.mdx", rules);
     assert.equal(codes(root).filter(code => code === "W_RULE_REFERENCE_UNKNOWN").length, 3);
+  });
+
+  /** @covers lint-questions lint-history lint-suppressions */
+  test("settled question statuses have one diagnostic even when suppressed or disabled", t => {
+    const root = designProject(t, { own: mdx(spec) + "\n## Open questions\n1. Settled: retain requests.\n" });
+    configure(root, { historyPatterns: ["Settled"] });
+    assert.deepEqual(codes(root), ["W_OPEN_QUESTION_SETTLED"]);
+    editFile(root, designFile("own"), text => text.replace("1. Settled", "{/* cage-lint-disable W_OPEN_QUESTION_SETTLED: decision pending cleanup */}\n1. Settled"));
+    assert.deepEqual(codes(root), []);
+    configure(root, { severity: { W_OPEN_QUESTION_SETTLED: "off" } });
+    assert.deepEqual(codes(root), ["W_LINT_SUPPRESSION_UNUSED"]);
+    editFile(root, designFile("own"), text => text.replace("retain requests.", "user decision: retain requests."));
+    assert.ok(codes(root).includes("W_HISTORY_REFERENCE"), "independent history in the same item remains visible");
+  });
+
+  /** @covers lint-references */
+  test("plural lists check each number and stop before unrelated parenthetical text", t => {
+    const rules = "\n## Business rules\n1. One.\n2. Two.\n3. Three.\n";
+    const root = designProject(t, { own: mdx(contract("Worker", "run(): void;", "@invariant works Works (rules 3, 8), (rules 1, 2 and 5), (rule 1, KI-11), (add-once rules 1, 2).")) + rules });
+    writeFile(root, "src/own/add-once.cage.mdx", rules);
+    const found = lint(root).diagnostics;
+    assert.deepEqual(found.map(item => item.code), ["W_RULE_REFERENCE_UNKNOWN", "W_RULE_REFERENCE_UNKNOWN"]);
+    assert.ok(found.some(item => item.message.startsWith("(rule 8)")));
+    assert.ok(found.some(item => item.message.startsWith("(rule 5)")));
+    editFile(root, designFile("own"), text => text.replace("3, 8", "3, 2").replace("2 and 5", "2 and 3"));
+    assert.deepEqual(codes(root), []);
+    editFile(root, "src/own/add-once.cage.mdx", text => text.replace("2. Two.", ""));
+    assert.ok(lint(root).diagnostics.some(item => item.message.startsWith("(add-once rule 2)")));
   });
 
   /** @covers lint-types */

@@ -18,6 +18,7 @@ const history = [
   /\b(?=[a-f\d]{7,40}\b)(?=[a-f\d]*\d)(?=[a-f\d]*[a-f])[a-f\d]+\b/iu,
 ];
 const at = (doc: LintDocument, offset: number) => ({ file: doc.file, ...positionAt(doc.starts, offset) });
+const settled = (text: string) => /^[*_]*(?:settled|resolved|decided|superseded|done)\b[*_]*/iu.exec(text);
 const stem = (file: string) => path.posix.basename(file).replace(/\.cage\.mdx$/, "");
 
 /** Run core lint with syntax alone; the returned null index makes unchecked work explicit. */
@@ -56,10 +57,16 @@ export function lintDocuments(documents: readonly LintDocument[], config: LintCo
   };
   const patterns = [...history, ...config.historyPatterns.map(pattern => new RegExp(pattern, "iu"))];
   for (const doc of documents) {
-    for (const unit of doc.history) if (patterns.some(pattern => pattern.test(unit.text))) warn("W_HISTORY_REFERENCE", "historical notation belongs in git or the review record", doc, unit.start);
+    const settledLines = new Set(doc.sections.filter(section => /^Open questions/i.test(section.name)).flatMap(section => section.items.filter(item => settled(item.text)).map(item => positionAt(doc.starts, item.start).line)));
+    for (const unit of doc.history) {
+      const status = settledLines.has(positionAt(doc.starts, unit.start).line) ? settled(unit.text) : null;
+      // Status ownership is decided before suppression/severity: suppressing the question cannot resurrect history.
+      const historical = patterns.some(pattern => [...unit.text.matchAll(new RegExp(pattern.source, "giu"))].some(match => !status || match.index >= status[0].length));
+      if (historical) warn("W_HISTORY_REFERENCE", "historical notation belongs in git or the review record", doc, unit.start);
+    }
     for (const section of doc.sections) {
       if (/^Open questions/i.test(section.name)) for (const item of section.items) {
-        if (/^[*_]*(?:settled|resolved|decided|superseded|done)\b/iu.test(item.text)) warn("W_OPEN_QUESTION_SETTLED", `settled Open question ${item.number}`, doc, item.start);
+        if (settled(item.text)) warn("W_OPEN_QUESTION_SETTLED", `settled Open question ${item.number}`, doc, item.start);
       }
       const bad = section.items.findIndex((item, index) => item.number !== String(index + 1));
       if (bad !== -1) warn("W_NUMBERING", `${section.name}: expected ${bad + 1}, found ${section.items[bad].number}`, doc, section.items[bad].start);
@@ -84,16 +91,31 @@ export function lintDocuments(documents: readonly LintDocument[], config: LintCo
 }
 
 function checkReferences(doc: LintDocument, invariant: LintText, documents: readonly LintDocument[], warn: (code: CoreLintCode, message: string, doc: LintDocument, start: number) => void): void {
-  for (const match of invariant.text.matchAll(/\((?:(\S+)\s+)?rule\s+(\d+[a-z]?)\)/giu)) {
+  for (const parenthetical of invariant.text.matchAll(/\(([^()]*)\)/gu)) {
+    const citation = /^(?:(\S+)\s+)?rules?\s+(.+)$/iu.exec(parenthetical[1]);
+    if (!citation) continue;
+    const numbers: string[] = [];
+    let rest = citation[2];
+    while (true) {
+      const number = /^(\d+[a-z]?)(?=\s|,|[.;]|$)/iu.exec(rest);
+      if (!number) break;
+      numbers.push(number[1]);
+      rest = rest.slice(number[0].length);
+      const separator = /^\s*(?:,\s*(?:and\s+)?|and\s+)/iu.exec(rest);
+      if (!separator) break;
+      rest = rest.slice(separator[0].length);
+    }
     let target: LintDocument | undefined = doc;
-    if (match[1]) {
-      const named = documents.filter(candidate => stem(candidate.file) === match[1]);
+    if (citation[1]) {
+      const named = documents.filter(candidate => stem(candidate.file) === citation[1]);
       const local = named.filter(candidate => candidate.module === doc.module);
       const candidates = local.length ? local : named;
       target = candidates.length === 1 ? candidates[0] : undefined;
     }
-    const exists = target?.sections.filter(section => /^Business rules/i.test(section.name)).some(section => section.items.some(item => item.number === match[2]));
-    if (!exists) warn("W_RULE_REFERENCE_UNKNOWN", `${match[0]} has no unique numbered business rule`, doc, invariant.start);
+    for (const number of new Set(numbers)) {
+      const exists = target?.sections.filter(section => /^Business rules/i.test(section.name)).some(section => section.items.some(item => item.number === number));
+      if (!exists) warn("W_RULE_REFERENCE_UNKNOWN", `(${citation[1] ? citation[1] + " " : ""}rule ${number}) has no unique numbered business rule`, doc, invariant.start);
+    }
   }
 }
 
