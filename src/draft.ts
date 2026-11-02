@@ -7,6 +7,7 @@ import { DESIGN_SUFFIX, discoverDesigns, isDesignInScope, withDesignDocument } f
 import { digestOf, draftPathOf, formatDraft, inspectPath, parseDraft, targetPathOf, type ParsedDraft } from "./draft-file.ts";
 import { compareLocks, LOCK_FILE, readLockFile } from "./locks.ts";
 import { toProjectPath } from "./location.ts";
+import { checkLint } from "./lint.ts";
 import { createFileExclusively, FileWriteError, writeRecordFile, type Leftover } from "./record-file.ts";
 import { formatDiagnostic, plural } from "./report.ts";
 import type { TypeScriptInfo } from "./typescript.ts";
@@ -20,12 +21,14 @@ export interface DraftOptions {
   problems: readonly Diagnostic[];
 }
 
-/** What a candidate check looked at: the designs with the draft in place of its target, and the locks; never code, tests or reviews. */
+/** What a candidate check looked at with the draft in place of its target; never code, tests or reviews. */
 export interface CandidateValidation {
   mode: "candidate";
   designs: "checked";
   /** Not checked when the designs have errors: a rejected declaration would look like a lifted lock. */
   locks: "checked" | "not-checked";
+  /** Not checked when the project's lint policy is disabled. */
+  lint: "checked" | "not-checked";
   implementations: "not-checked";
   tests: "not-checked";
   reviews: "not-checked";
@@ -248,14 +251,15 @@ function compareBaseline(root: string, target: string, parsed: ParsedDraft, draf
 
 /**
  * The design phase with the draft's content in place of the target, in the target's module and under its path, so
- * that imports of the target resolve to the candidate even when the target does not exist yet; then the locks.
+ * that imports of the target resolve to the candidate even when the target does not exist yet; then locks and lint.
  * Every other active design is read as it is. A marked declaration not recorded yet does not block: activation
  * records no lock, and `check` then reports it as `E_LOCK_MISSING` until `cage lock`.
  */
 function checkCandidate(root: string, config: Config, target: string, parsed: ParsedDraft): { diagnostics: Diagnostic[]; validation: CandidateValidation } {
   const document = path.join(root, target);
   const designs = withDesignDocument(root, discoverDesigns(root, config), document);
-  const result = checkDesignPhase({ root, tsconfig: config.tsconfig, designImportableTypes: config.designImportableTypes, designs, designPatterns: config.designs, documents: new Map([[document, parsed.content]]) });
+  const options = { root, tsconfig: config.tsconfig, designImportableTypes: config.designImportableTypes, designs, designPatterns: config.designs, documents: new Map([[document, parsed.content]]) };
+  const result = checkDesignPhase(options);
   const diagnostics = [...result.diagnostics];
   let locks: CandidateValidation["locks"] = "not-checked";
   if (result.index && !hasErrors(diagnostics)) {
@@ -269,7 +273,12 @@ function checkCandidate(root: string, config: Config, target: string, parsed: Pa
       locks = "checked";
     }
   }
-  return { diagnostics, validation: { mode: "candidate", designs: "checked", locks, implementations: "not-checked", tests: "not-checked", reviews: "not-checked", typescript: result.typescript } };
+  if (config.lint !== false) {
+    const key = (item: Diagnostic) => JSON.stringify([item.code, item.file, item.line, item.column]);
+    const existing = new Set(diagnostics.map(key));
+    diagnostics.push(...checkLint(options, config.lint).diagnostics.filter(item => !existing.has(key(item))));
+  }
+  return { diagnostics, validation: { mode: "candidate", designs: "checked", locks, lint: config.lint === false ? "not-checked" : "checked", implementations: "not-checked", tests: "not-checked", reviews: "not-checked", typescript: result.typescript } };
 }
 
 const outOfScope = (target: string, config: Pick<Config, "designs">, file = target) =>
@@ -336,9 +345,10 @@ export function formatDraftReport(report: DraftReport, project: readonly string[
       fact("checked", "nothing; the draft was not read as a candidate");
       return;
     }
-    const locks = validation.locks === "checked";
-    fact("checked", `designs${locks ? " and locks" : ""}, with the draft in place of the target`);
-    fact("not checked", `${locks ? "" : "locks, "}implementations, tests, reviews`);
+    const phases = ["designs", "locks", "lint", "implementations", "tests", "reviews"] as const;
+    const checkedPhases = phases.filter(phase => validation[phase] === "checked");
+    fact("checked", `${checkedPhases.join(", ")}, with the draft in place of the target`);
+    fact("not checked", phases.filter(phase => validation[phase] === "not-checked").join(", "));
   };
   const removed = report.diagnostics.some(({ file, code }) => code === "E_ENVIRONMENT" && file === report.draft) ? "not removed" : "removed";
   switch (report.status) {

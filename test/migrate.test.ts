@@ -77,8 +77,8 @@ export interface Other {
     assert.deepEqual(snapshot(root), written);
   });
 
-  /** @covers migrate-preview migrate-preserves migrate-mixed */
-  test("dry-run previews deterministic changes, retaining CRLF/BOM sources and the first Purpose paragraph", t => {
+  /** @covers migrate-preview migrate-preserves migrate-mixed migrate-layout */
+  test("dry-run previews deterministic changes, retaining CRLF/BOM prose once with a title-only Feature after the H1", t => {
     const source = '\ufeff# Queue\r\n\r\n## Purpose\r\n\r\nRun **queued** work.\r\nKeep it available.\r\n\r\nA second paragraph.\r\n\r\n' + mdx(contract("Worker", "run(): void;", "@invariant once A job runs once.")).replaceAll("\n", "\r\n");
     const root = designProject(t, { own: source });
     const before = snapshot(root);
@@ -91,10 +91,27 @@ export interface Other {
     assert.deepEqual(snapshot(root), before);
     assert.equal(migrate(root, "src/own").ok, true);
     const draft = candidate(root, designFile("own"));
-    assert.ok(draft.content.includes("Feature: Queue\r\n  Run queued work. Keep it available.\r\n"));
+    assert.ok(draft.content.startsWith("# Queue\r\n\r\n```gherkin design\r\nFeature: Queue\r\n\r\n"));
+    assert.equal(draft.content.split("Run **queued** work.").length, 2);
+    assert.ok(draft.content.indexOf("```gherkin design") < draft.content.indexOf("## Purpose"));
+    assert.equal(parseDesignMdx(draft.content, designFile("own")).gherkin?.feature.description, "");
     assert.ok(draft.content.includes("A second paragraph.\r\n"));
     assert.doesNotMatch(draft.content, /(?<!\r)\n/);
     assert.equal(readFile(root, designFile("own")), source);
+  });
+
+  /** @covers migrate-layout migrate-preserves */
+  test("new Features precede sections with setext or absent document headings", t => {
+    for (const title of ["Queue\n=====\n\n", ""]) {
+      const source = title + "## Contracts\n\n```ts design\n" + contract("Worker", "run(): void;", "@invariant once Runs once.") + "\n```\n";
+      const root = designProject(t, { own: source });
+      assert.equal(migrate(root, "src/own").ok, true);
+      const { content } = candidate(root, designFile("own"));
+      assert.ok(content.indexOf("```gherkin design") < content.indexOf("## Contracts"));
+      assert.ok(content.startsWith(title || "```gherkin design"));
+      assert.equal(parseDesignMdx(content, designFile("own")).gherkin?.feature.name, title ? "Queue" : "own");
+      assert.equal(cli(root, "draft", "check", draftPathOf(designFile("own"))).code, 0);
+    }
   });
 
   /** @covers migrate-conflict migrate-drafts */

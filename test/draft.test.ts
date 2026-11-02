@@ -45,6 +45,65 @@ const without = (files: Record<string, string>, ...except: string[]) => Object.f
 
 /** @tests Cli */
 describe("cage draft: create, check and activate", () => {
+  /** @covers draft-lint draft-candidate draft-activate diagnostic-line */
+  it("lints the candidate in place of its target and honors promoted severities without writes", t => {
+    const source = mdx(contract("Worker", "run(): void;", "@invariant once Work runs once.")) + "\n## Open questions\n1. Which queue?\n2. Which region?\n";
+    const root = designProject(t, { own: source });
+    const target = designFile("own"), file = target.replace(".cage.mdx", ".cage.draft.mdx");
+    assert.equal(draft(root, "create", target).code, 0);
+    editFile(root, file, text => text.replace("1. Which queue?", "1. Settled: use a queue.").replace("2. Which region?", "3. Which region?"));
+    const before = snapshot(root);
+    const result = draft(root, "check", file);
+    assert.equal(result.code, 0);
+    assert.equal(result.report.status, "valid");
+    assert.equal(result.report.validation?.lint, "checked");
+    assert.deepEqual(result.report.diagnostics.map(item => item.code).sort(), ["W_NUMBERING", "W_OPEN_QUESTION_SETTLED"]);
+    assert.ok(result.report.diagnostics.every(item => item.severity === "warning" && item.file === file));
+    assert.equal(result.report.diagnostics.find(item => item.code === "W_OPEN_QUESTION_SETTLED")?.line, find(readFile(root, file), "1. Settled:").line);
+    assert.equal(textFacts(cli(root, "draft", "check", file).stdout).facts.checked, "designs, locks, lint, with the draft in place of the target");
+    assert.deepEqual(snapshot(root), before);
+    assert.equal(JSON.parse(cli(root, "check", "--phase", "lint", "--format", "json").stdout).diagnostics.length, 0);
+
+    writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, lint: { severity: { W_NUMBERING: "error" } } }));
+    const promoted = snapshot(root);
+    for (const action of ["check", "activate"]) {
+      const blocked = draft(root, action, file);
+      assert.equal(blocked.code, 1);
+      assert.deepEqual(codes(blocked.report), ["W_NUMBERING"]);
+      assert.equal(blocked.report.validation?.locks, "checked");
+      assert.deepEqual(snapshot(root), promoted);
+    }
+    writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, lint: false }));
+    const disabled = draft(root, "check", file);
+    assert.equal(disabled.code, 0);
+    assert.deepEqual(disabled.report.diagnostics, []);
+    assert.equal(disabled.report.validation?.lint, "not-checked");
+    assert.equal(textFacts(cli(root, "draft", "check", file).stdout).facts["not checked"], "lint, implementations, tests, reviews");
+    writeFile(root, ".cage/config.json", JSON.stringify({ version: 1 }));
+    assert.equal(draft(root, "activate", file).code, 0, "default lint warnings do not block activation");
+    assert.ok(readFile(root, target).includes("1. Settled:"));
+  });
+
+  /** @covers draft-lint draft-candidate */
+  it("replaces active lint findings and remaps related candidate locations across modules", t => {
+    const root = designProject(t, { a: mdx(data("Shared"), contract("Worker", "run(): void;", "@invariant once Runs once.")), b: mdx(data("Unique")) + "\n## Open questions\n1. Settled: old choice.\n" });
+    const target = designFile("b"), file = target.replace(".cage.mdx", ".cage.draft.mdx");
+    assert.equal(draft(root, "create", target).code, 0);
+    editFile(root, file, text => text.replaceAll("Unique", "Shared").replace("Settled: old choice.", "Which choice?"));
+    const result = draft(root, "check", file);
+    assert.equal(result.code, 0, JSON.stringify(result.report.diagnostics));
+    assert.deepEqual(result.report.diagnostics.map(item => item.code), ["W_TYPE_DUPLICATE"]);
+    const duplicate = result.report.diagnostics[0];
+    assert.equal(duplicate.file, designFile("a"));
+    assert.equal(duplicate.related?.[0].file, file);
+    assert.equal(duplicate.related?.[0].line, find(readFile(root, file), "export type Shared").line);
+    editFile(root, file, text => text + "\n```gherkin design\nNot a feature\n```\n");
+    const broken = draft(root, "check", file);
+    assert.equal(broken.code, 1);
+    const positions = broken.report.diagnostics.map(item => [item.code, item.file, item.line, item.column].join(":"));
+    assert.equal(positions.length, new Set(positions).size, "shared parser diagnostics appear once");
+  });
+
   /** @covers draft-create draft-activate */
   it("copies the design under a header, and activation writes the edited content without it and consumes the draft", (t) => {
     const root = copyFixture(t, "vertical");
@@ -175,7 +234,7 @@ describe("cage draft: create, check and activate", () => {
       return found && { file: found.file, line: found.line };
     };
     assert.deepEqual(at("E_INVARIANT_DUPLICATE"), { file: QUOTA_DRAFT, line: find(text, "@invariant race").line + 1 });
-    assert.deepEqual(report.validation && { ...report.validation, typescript: undefined }, { mode: "candidate", designs: "checked", locks: "not-checked", implementations: "not-checked", tests: "not-checked", reviews: "not-checked", typescript: undefined });
+    assert.deepEqual(report.validation && { ...report.validation, typescript: undefined }, { mode: "candidate", designs: "checked", locks: "not-checked", lint: "checked", implementations: "not-checked", tests: "not-checked", reviews: "not-checked", typescript: undefined });
 
     editFile(root, QUOTA_DRAFT, (value) => value.replace("@invariant race Once more.\n   * ", ""));
     const typeError = draft(root, "check", QUOTA_DRAFT);
@@ -189,7 +248,7 @@ describe("cage draft: create, check and activate", () => {
     assert.match(heading, /^draft check: not valid \(1 error, 1 warning\)$/);
     assert.equal(facts.draft, QUOTA_DRAFT);
     assert.equal(facts.target, `${QUOTA} (unchanged)`);
-    assert.equal(facts.checked, "designs, with the draft in place of the target");
+    assert.equal(facts.checked, "designs, lint, with the draft in place of the target");
     assert.equal(facts["not checked"], "locks, implementations, tests, reviews");
     assert.equal(facts.written, "nothing");
     assert.equal(facts.next, undefined);

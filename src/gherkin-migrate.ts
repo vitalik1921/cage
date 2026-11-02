@@ -93,14 +93,9 @@ export function migrateContent(ts: TypeScript, original: string, file: string): 
   } else {
     const heading = tree.children.find(node => node.type === "heading" && node.depth === 1);
     const title = (heading ? prose(heading) : path.posix.basename(file, ".cage.mdx")).replace(/\s+/g, " ").trim();
-    let purpose = "";
-    const purposeIndex = tree.children.findIndex(node => node.type === "heading" && node.depth === 2 && /^Purpose$/i.test(prose(node).trim()));
-    if (purposeIndex >= 0) for (const node of tree.children.slice(purposeIndex + 1)) {
-      if (node.type === "heading") break;
-      if (node.type === "paragraph") { purpose = prose(node).replace(/\s+/g, " ").trim(); break; }
-    }
-    const at = parsed.blocks[0].sourceStart;
-    const feature = [`\`\`\`gherkin design`, `Feature: ${title || "Design"}`, ...(purpose ? [`  ${purpose}`] : []), "", rendered, "```", "", ""].join(newline);
+    const at = heading?.position!.end.offset ?? 0;
+    const trailing = source.slice(at).startsWith(newline + newline) ? "" : source.slice(at).startsWith(newline) ? newline : newline + newline;
+    const feature = (heading ? newline + newline : "") + [`\`\`\`gherkin design`, `Feature: ${title || "Design"}`, "", rendered, "```"].join(newline) + trailing;
     edits.push({ start: at, end: at, text: feature });
   }
   const content = apply(source, edits);
