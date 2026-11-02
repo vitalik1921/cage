@@ -21,8 +21,8 @@ const at = (doc: LintDocument, offset: number) => ({ file: doc.file, ...position
 const settled = (text: string) => /^[*_]*(?:settled|resolved|decided|superseded|done)\b[*_]*/iu.exec(text);
 const stem = (file: string) => path.posix.basename(file).replace(/\.cage\.mdx$/, "");
 
-/** Run core lint with syntax alone; the returned null index makes unchecked work explicit. */
-export function checkLint(options: DesignPhaseOptions, config: false | LintConfig = defaultLint): DesignPhaseResult {
+/** Run core lint with syntax alone; lintFile limits findings, never the project context or syntax checks. */
+export function checkLint(options: DesignPhaseOptions, config: false | LintConfig = defaultLint, lintFile?: string): DesignPhaseResult {
   const { ts, info } = loadTypeScript(options.root);
   const diagnostics: Diagnostic[] = [...options.problems ?? []];
   const result: DesignPhaseResult = { modules: [], index: null, typescript: info, diagnostics };
@@ -44,16 +44,22 @@ export function checkLint(options: DesignPhaseOptions, config: false | LintConfi
     if (tree && !parsed.diagnostics.some(diagnostic => diagnostic.severity === "error")) documents.push(lintModel(ts, relative, module.moduleId, source, tree, parsed));
   }
   documents.sort((a, b) => a.file < b.file ? -1 : a.file > b.file ? 1 : 0);
-  diagnostics.push(...lintDocuments(documents, config));
+  diagnostics.push(...lintDocuments(documents, config, lintFile));
   diagnostics.sort(compareDiagnostics);
   return result;
 }
 
-export function lintDocuments(documents: readonly LintDocument[], config: LintConfig): Diagnostic[] {
+export function lintDocuments(documents: readonly LintDocument[], config: LintConfig, lintFile?: string): Diagnostic[] {
   const diagnostics: Diagnostic[] = [];
-  const warn = (code: CoreLintCode, message: string, doc: LintDocument, start: number, related?: RelatedLocation[]) => {
+  const participating = new Set<Diagnostic>();
+  const located = (item: Diagnostic) => item.file === lintFile || item.related?.some(place => place.file === lintFile);
+  const warn = (code: CoreLintCode, message: string, doc: LintDocument, start: number, related?: RelatedLocation[], files: readonly string[] = []) => {
     const level = config.severity[code] ?? "warn";
-    if (level !== "off") diagnostics.push({ code, severity: level === "error" ? "error" : "warning", message, ...at(doc, start), ...(related ? { related } : {}) });
+    if (level !== "off") {
+      const item: Diagnostic = { code, severity: level === "error" ? "error" : "warning", message, ...at(doc, start), ...(related ? { related } : {}) };
+      diagnostics.push(item);
+      if (lintFile !== undefined && files.includes(lintFile)) participating.add(item);
+    }
   };
   const patterns = [...history, ...config.historyPatterns.map(pattern => new RegExp(pattern, "iu"))];
   for (const doc of documents) {
@@ -73,24 +79,26 @@ export function lintDocuments(documents: readonly LintDocument[], config: LintCo
     }
     for (const invariant of doc.invariants) checkReferences(doc, invariant, documents, warn);
     for (const declaration of doc.declarations.filter(declaration => declaration.kind !== "data")) {
-      const rules = declaration.rules + documents.filter(other => other.module === doc.module).flatMap(other => other.gherkinCarriers).filter(name => name === declaration.name).length;
+      const ruleDocuments = documents.filter(other => other.module === doc.module && other.gherkinCarriers.includes(declaration.name));
+      const rules = declaration.rules + ruleDocuments.flatMap(other => other.gherkinCarriers).filter(name => name === declaration.name).length;
       const exceeded = [declaration.members > config.limits.membersPerContract ? `${declaration.members} members (limit ${config.limits.membersPerContract})` : "", rules > config.limits.rulesPerContract ? `${rules} rules (limit ${config.limits.rulesPerContract})` : ""].filter(Boolean);
-      if (exceeded.length) warn("W_CONTRACT_SIZE", `${declaration.name}: ${exceeded.join(", ")}`, doc, declaration.start);
+      if (exceeded.length) warn("W_CONTRACT_SIZE", `${declaration.name}: ${exceeded.join(", ")}`, doc, declaration.start, undefined, rules > config.limits.rulesPerContract ? ruleDocuments.map(other => other.file) : []);
     }
   }
   for (const module of new Set(documents.map(doc => doc.module))) {
     const contracts = documents.filter(doc => doc.module === module).flatMap(doc => doc.declarations.filter(declaration => declaration.kind === "contract").map(declaration => ({ doc, declaration })));
-    if (contracts.length > config.limits.contractsPerModule) warn("W_MODULE_SIZE", `${module}: ${contracts.length} contracts (limit ${config.limits.contractsPerModule})`, contracts[0].doc, contracts[0].declaration.start);
+    if (contracts.length > config.limits.contractsPerModule) warn("W_MODULE_SIZE", `${module}: ${contracts.length} contracts (limit ${config.limits.contractsPerModule})`, contracts[0].doc, contracts[0].declaration.start, undefined, contracts.map(item => item.doc.file));
   }
   const types = new Map<string, { doc: LintDocument; start: number }[]>();
   for (const doc of documents) for (const declaration of doc.declarations) if (declaration.kind === "data") types.set(declaration.name, [...types.get(declaration.name) ?? [], { doc, start: declaration.start }]);
   for (const [name, places] of types) if (new Set(places.map(place => place.doc.module)).size > 1) {
     warn("W_TYPE_DUPLICATE", `${name} is declared in several modules`, places[0].doc, places[0].start, places.slice(1).map(place => ({ message: "other declaration", ...at(place.doc, place.start) })));
   }
-  return suppress(documents, config, diagnostics);
+  // Audit against the full result first: hiding a finding must not make its suppression look unused.
+  return suppress(documents, config, diagnostics).filter(item => lintFile === undefined || located(item) || participating.has(item));
 }
 
-function checkReferences(doc: LintDocument, invariant: LintText, documents: readonly LintDocument[], warn: (code: CoreLintCode, message: string, doc: LintDocument, start: number) => void): void {
+function checkReferences(doc: LintDocument, invariant: LintText, documents: readonly LintDocument[], warn: (code: CoreLintCode, message: string, doc: LintDocument, start: number, related?: RelatedLocation[], files?: readonly string[]) => void): void {
   for (const parenthetical of invariant.text.matchAll(/\(([^()]*)\)/gu)) {
     const citation = /^(?:(\S+)\s+)?rules?\s+(.+)$/iu.exec(parenthetical[1]);
     if (!citation) continue;
@@ -106,15 +114,16 @@ function checkReferences(doc: LintDocument, invariant: LintText, documents: read
       rest = rest.slice(separator[0].length);
     }
     let target: LintDocument | undefined = doc;
+    let candidates = [doc];
     if (citation[1]) {
       const named = documents.filter(candidate => stem(candidate.file) === citation[1]);
       const local = named.filter(candidate => candidate.module === doc.module);
-      const candidates = local.length ? local : named;
+      candidates = local.length ? local : named;
       target = candidates.length === 1 ? candidates[0] : undefined;
     }
     for (const number of new Set(numbers)) {
       const exists = target?.sections.filter(section => /^Business rules/i.test(section.name)).some(section => section.items.some(item => item.number === number));
-      if (!exists) warn("W_RULE_REFERENCE_UNKNOWN", `(${citation[1] ? citation[1] + " " : ""}rule ${number}) has no unique numbered business rule`, doc, invariant.start);
+      if (!exists) warn("W_RULE_REFERENCE_UNKNOWN", `(${citation[1] ? citation[1] + " " : ""}rule ${number}) has no unique numbered business rule`, doc, invariant.start, undefined, candidates.map(candidate => candidate.file));
     }
   }
 }

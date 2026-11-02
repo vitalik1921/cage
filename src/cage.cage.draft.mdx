@@ -1,6 +1,6 @@
 {/* cage draft v1
 target: src/cage.cage.mdx
-base: sha256:8b38f2f4664092817fcbda399086a86950d0a194a205329f1b432520e4158c96
+base: sha256:697b1905a10fdf962f85c27b6124fd85d897bcdabf2f1592c08aa23b5a988f62
 */}
 # cage
 
@@ -198,6 +198,9 @@ Feature: cage
 
   @Cli
   Rule: draft-lint — Candidate validation applies the project's lint policy to the designs with the draft replacing its target.
+
+  @Cli
+  Rule: draft-lint-scope — Candidate lint reports only findings whose source or participating documents include the draft.
 
   @Cli
   Rule: draft-activate — `draft activate` writes the draft's content without its header to the target and removes the draft only when the configuration is usable, the candidate valid, the locks hold and the target is still the text the draft was created from (or still absent); otherwise both files stay byte for byte. It records no lock and no review: a newly marked declaration then needs `cage lock`.

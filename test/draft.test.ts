@@ -104,6 +104,77 @@ describe("cage draft: create, check and activate", () => {
     assert.equal(positions.length, new Set(positions).size, "shared parser diagnostics appear once");
   });
 
+  /** @covers draft-lint-scope draft-lint draft-activate */
+  it("keeps unrelated lint and suppression errors out of draft checks and activation", t => {
+    const root = designProject(t, {
+      own: mdx(contract("Worker", "run(): void;", "@invariant once Runs once.")),
+      other: mdx(contract("Other", "run(): void;", "@invariant once Runs once.")) + '\nUser decision: keep old work.\n\n{/* cage-lint-disable W_HISTORY_REFERENCE */}\nOrdinary prose.\n\n{/* cage-lint-disable W_HISTORY_REFERENCE: no history here */}\nOrdinary prose.\n',
+    });
+    writeFile(root, "src/own/notes.cage.mdx", "# Notes\n\n## Open questions\n1. Settled: keep the queue.\n");
+    writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, lint: { severity: { W_HISTORY_REFERENCE: "error" } } }));
+    const target = designFile("own"), file = target.replace(".cage.mdx", ".cage.draft.mdx");
+    assert.equal(draft(root, "create", target).code, 0);
+    const before = snapshot(root);
+    const candidate = draft(root, "check", file);
+    assert.equal(candidate.code, 0, JSON.stringify(candidate.report.diagnostics));
+    assert.deepEqual(candidate.report.diagnostics, []);
+    assert.equal(candidate.report.validation?.lint, "checked");
+    const global = cli(root, "check", "--phase", "lint", "--format", "json");
+    assert.equal(global.code, 1);
+    assert.deepEqual(JSON.parse(global.stdout).diagnostics.map((item: { code: string }) => item.code).sort(), ["E_TAG_FORMAT", "W_HISTORY_REFERENCE", "W_LINT_SUPPRESSION_UNUSED", "W_OPEN_QUESTION_SETTLED"]);
+    assert.deepEqual(snapshot(root), before);
+    // The filter applies only to lint: an invalid consumer's design still blocks the candidate.
+    editFile(root, designFile("other"), text => text.replace("run(): void", "run(): Missing"));
+    assert.ok(codes(draft(root, "check", file).report).includes("E_TYPESCRIPT"));
+    editFile(root, designFile("other"), text => text.replace("run(): Missing", "run(): void"));
+    assert.equal(draft(root, "activate", file).code, 0, "unrelated promoted lint does not block activation");
+    assert.deepEqual(without(snapshot(root), file), without(before, file));
+  });
+
+  /** @covers draft-lint-scope draft-lint draft-activate */
+  it("retains promoted duplicate findings when the draft is the primary or a related location", t => {
+    for (const selected of ["a", "b"]) {
+      const root = designProject(t, {
+        a: mdx(data("Shared"), contract("Worker", "run(): void;", "@invariant once Runs once.")),
+        b: mdx(data("Shared")),
+        c: mdx(data("Unrelated")),
+        d: mdx(data("Unrelated")),
+      });
+      writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, lint: { severity: { W_TYPE_DUPLICATE: "error" } } }));
+      const target = designFile(selected), file = target.replace(".cage.mdx", ".cage.draft.mdx");
+      assert.equal(draft(root, "create", target).code, 0);
+      const before = snapshot(root);
+      for (const action of ["check", "activate"]) {
+        const result = draft(root, action, file);
+        assert.equal(result.code, 1);
+        assert.deepEqual(result.report.diagnostics.map(item => item.code), ["W_TYPE_DUPLICATE"]);
+        const duplicate = result.report.diagnostics[0];
+        assert.ok(duplicate.message.startsWith("Shared "));
+        const place = [duplicate, ...duplicate.related ?? []].find(item => item.file === file);
+        assert.equal(place?.line, find(readFile(root, file), "export type Shared").line);
+        assert.deepEqual(snapshot(root), before);
+      }
+    }
+  });
+
+  /** @covers draft-lint-scope lint-size lint-references */
+  it("retains aggregate size and citation findings involving a draft even when anchored in another document", t => {
+    const root = designProject(t, {
+      own: mdx(contract("Extra", "run(): void;", "@invariant once Extra work finishes.")) + '\n```gherkin design\nFeature: Work\n  @Worker\n  Rule: next — The next job remains available.\n```\n\n## Business rules\n1. Work finishes.\n2. Work is retained.\n',
+      other: mdx(contract("Consumer", "run(): void;", "@invariant once Work is retained (own rule 2).")),
+    });
+    writeFile(root, "src/own/a.cage.mdx", mdx(contract("Worker", "run(): void;", "@invariant once Work finishes.")));
+    writeFile(root, ".cage/config.json", JSON.stringify({ version: 1, lint: { limits: { contractsPerModule: 1, rulesPerContract: 1 } } }));
+    const target = designFile("own"), file = target.replace(".cage.mdx", ".cage.draft.mdx");
+    assert.equal(draft(root, "create", target).code, 0);
+    editFile(root, file, text => text.replace("2. Work is retained.\n", ""));
+    const result = draft(root, "check", file);
+    assert.equal(result.code, 0, JSON.stringify(result.report.diagnostics));
+    assert.deepEqual(result.report.diagnostics.map(item => item.code).sort(), ["W_CONTRACT_SIZE", "W_MODULE_SIZE", "W_RULE_REFERENCE_UNKNOWN"]);
+    assert.ok(result.report.diagnostics.every(item => item.file !== file));
+    assert.equal(result.report.diagnostics.find(item => item.code === "W_RULE_REFERENCE_UNKNOWN")?.file, designFile("other"));
+  });
+
   /** @covers draft-create draft-activate */
   it("copies the design under a header, and activation writes the edited content without it and consumes the draft", (t) => {
     const root = copyFixture(t, "vertical");

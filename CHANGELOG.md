@@ -15,7 +15,7 @@
 
 ### Fixed
 
-- Draft checks and activation apply core lint to the candidate in place of its target, reporting draft locations and checked phases. Warnings remain nonblocking; promoted errors prevent activation.
+- Draft checks and activation apply core lint to the candidate in place of its target, reporting draft locations and checked phases. Lint output is limited to the draft and cross-document findings involving it; unrelated project lint remains in `check --phase lint`. Warnings remain nonblocking; promoted errors prevent activation.
 - Settled Open question statuses produce one finding; singular/plural rule citations check each number, including lists followed by other parenthetical text.
 
 ### Upgrade notes
@@ -25,6 +25,10 @@
 - Gherkin `@live` and enforcement tags such as `@final` are rejected explicitly. TypeScript declaration locks remain supported. Typed tables, constant drift checks, Gherkin rule locks, advisory lint and review carry-over are deferred.
 
 - The compatibility baseline for this change is 0.11.0. Projects upgrading from 0.7.x also encounter the stricter signatures, single-contract bindings, single implementations and review-material changes already present in 0.11.0; those migration and review costs are not introduced by Gherkin support.
+
+### Known limitations
+
+- Migration previews use a prefix/suffix diff: a Feature inserted near the top and JSDoc removals lower down can show the intervening text as removed and re-added. A smaller line diff is deferred until after 1.0; the generated draft still preserves that text.
 
 ## 0.11.0
 

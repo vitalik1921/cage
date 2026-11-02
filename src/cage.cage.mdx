@@ -232,6 +232,7 @@ export interface LoadedConfig {
  * @invariant draft-create `draft create` writes the draft named after its target with a strict header holding the target's path and the SHA-256 of its text (null for a new document), copying the target or scaffolding a new design; it never overwrites a file, and paths outside the project root, through links or without the design suffix are refused.
  * @invariant draft-candidate `draft check` checks one draft in memory in place of its target, in the target's module and under its import path even when the target does not exist yet, together with every other active design, the target's consumers and the locks; diagnostics point at the draft's own lines, the report says implementations, tests and reviews were not checked, and nothing is written.
  * @invariant draft-lint Candidate validation applies the project's lint policy to the designs with the draft replacing its target.
+ * @invariant draft-lint-scope Candidate lint reports only findings whose source or participating documents include the draft.
  * @invariant draft-activate `draft activate` writes the draft's content without its header to the target and removes the draft only when the configuration is usable, the candidate valid, the locks hold and the target is still the text the draft was created from (or still absent); otherwise both files stay byte for byte. It records no lock and no review: a newly marked declaration then needs `cage lock`.
  */
 export interface Cli {

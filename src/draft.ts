@@ -276,7 +276,7 @@ function checkCandidate(root: string, config: Config, target: string, parsed: Pa
   if (config.lint !== false) {
     const key = (item: Diagnostic) => JSON.stringify([item.code, item.file, item.line, item.column]);
     const existing = new Set(diagnostics.map(key));
-    diagnostics.push(...checkLint(options, config.lint).diagnostics.filter(item => !existing.has(key(item))));
+    diagnostics.push(...checkLint(options, config.lint, target).diagnostics.filter(item => !existing.has(key(item))));
   }
   return { diagnostics, validation: { mode: "candidate", designs: "checked", locks, lint: config.lint === false ? "not-checked" : "checked", implementations: "not-checked", tests: "not-checked", reviews: "not-checked", typescript: result.typescript } };
 }
