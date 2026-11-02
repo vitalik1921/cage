@@ -831,7 +831,7 @@ export function formatReviewMarkdown(report: ReviewReport): string {
       if (invariant.gherkin) {
         lines.push(`  flags: ${invariant.gherkin.flags.join(" ") || "none"}`);
         for (const example of invariant.gherkin.examples) {
-          lines.push("", `${fence}gherkin`, example.source, fence, `  linked tests: ${example.tests.length ? example.tests.map(refs.test).join(", ") : "none"}`);
+          lines.push("", `${fence}gherkin`, example.source.replace(/\n+$/, ""), fence, `  linked tests: ${example.tests.length ? example.tests.map(refs.test).join(", ") : "none"}`);
         }
         lines.push(`  unlinked Examples: ${invariant.gherkin.unlinkedExamples.length ? invariant.gherkin.unlinkedExamples.map(title => JSON.stringify(title)).join(", ") : "none"}`);
         lines.push(`  rule-linked tests without an Example: ${invariant.gherkin.unmatchedTests.length ? invariant.gherkin.unmatchedTests.map(test => `${refs.test(test)} (${test.status})`).join(", ") : "none"}`);

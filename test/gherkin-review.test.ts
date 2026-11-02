@@ -194,6 +194,9 @@ describe("Gherkin Example links and reviews", () => {
     assert.ok(markdown.includes(parsed.source));
     assert.ok(markdown.includes('unlinked Examples: "two equal titles"'));
     assert.ok(markdown.includes("rule-linked tests without an Example: T"));
+    const exampleBlocks = [...markdown.matchAll(/(`{3,})gherkin\n([\s\S]*?)\n\1(?=\n  linked tests:)/g)];
+    assert.ok(exampleBlocks.length > 0);
+    assert.ok(exampleBlocks.every(block => block[2].split("\n").at(-1)!.trim() !== ""), "Example fences close immediately after the last authored content line");
     assert.equal(cli(root, "review", ...names, "--format", "json").stdout, cli(root, "review", ...names, "--format", "json").stdout);
     for (const mode of ["all", "context"]) assert.equal(review(root, names, mode).gherkin!.length, 1);
     assert.equal(review(root, names, "none").gherkin, undefined);
