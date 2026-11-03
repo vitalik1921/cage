@@ -211,7 +211,7 @@ export interface Other {
 
   /** @covers migrate-preserves migrate-drafts */
   test("Cage's own multi-contract spec keeps every id and logical sentence in a scratch migration", t => {
-    const source = fs.readFileSync(path.resolve("src/cage.cage.mdx"), "utf8");
+    const source = fs.readFileSync(new URL("./fixtures/migration/cage-legacy.cage.mdx", import.meta.url), "utf8");
     const root = designProject(t, { own: source });
     const before = checkDesigns(root).index.invariants.map(rule => ({ carrier: rule.contract + (rule.member ? "." + rule.member : ""), id: rule.id, text: rule.text }));
     assert.ok(before.length > 50);
