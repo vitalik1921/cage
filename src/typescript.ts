@@ -136,6 +136,8 @@ export interface Overlay {
 export function createOverlay(ts: TypeScript, options: ts.CompilerOptions, initial: ReadonlyMap<string, string>): Overlay {
   const base = ts.createCompilerHost(options, true);
   const key = (fileName: string) => base.getCanonicalFileName(path.resolve(fileName));
+  const moduleResolutions = ts.createModuleResolutionCache(base.getCurrentDirectory(), base.getCanonicalFileName, options);
+  const typeResolutions = ts.createTypeReferenceDirectiveResolutionCache(base.getCurrentDirectory(), base.getCanonicalFileName, options);
   const files = new Map<string, string>();
   // The directories of in-memory files, and their parents: module resolution asks before it looks for a file.
   const directories = new Set<string>();
@@ -143,6 +145,10 @@ export function createOverlay(ts: TypeScript, options: ts.CompilerOptions, initi
   const parsed = new Map<string, ts.SourceFile>();
   const overlayText = (fileName: string) => files.get(key(fileName));
   const add = (added: ReadonlyMap<string, string>) => {
+    // New virtual files can satisfy a previously missing import, or change its
+    // preferred target. A cache belongs only to this overlay generation.
+    moduleResolutions.clear();
+    typeResolutions.clear();
     for (const [fileName, text] of added) {
       files.set(key(fileName), text);
       parsed.delete(key(fileName));
@@ -172,7 +178,7 @@ export function createOverlay(ts: TypeScript, options: ts.CompilerOptions, initi
     },
   };
   const resolveModuleFull = (specifier: string, fromFile: string, mode: ts.ResolutionMode) =>
-    ts.resolveModuleName(specifier, fromFile, options, host, undefined, undefined, mode).resolvedModule;
+    ts.resolveModuleName(specifier, fromFile, options, host, moduleResolutions, undefined, mode).resolvedModule;
   const resolve = (specifier: string, fromFile: string, mode: ts.ResolutionMode) => resolveModuleFull(specifier, fromFile, mode)?.resolvedFileName;
   return {
     add,
@@ -180,7 +186,7 @@ export function createOverlay(ts: TypeScript, options: ts.CompilerOptions, initi
     resolveModule: (specifier, from) => resolve(specifier.text, from.fileName, ts.getModeForUsageLocation(from, specifier, options)),
     resolveFrom: (specifier, fromFile) => resolve(specifier, fromFile, ts.getImpliedNodeFormatForFile(fromFile, undefined, host, options)),
     resolveModuleFull,
-    resolveTypeReference: (name, fromFile, mode) => ts.resolveTypeReferenceDirective(name, fromFile, options, host, undefined, undefined, mode).resolvedTypeReferenceDirective,
+    resolveTypeReference: (name, fromFile, mode) => ts.resolveTypeReferenceDirective(name, fromFile, options, host, undefined, typeResolutions, mode).resolvedTypeReferenceDirective,
     sameFile: (a, b) => key(a) === key(b),
   };
 }

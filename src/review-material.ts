@@ -94,6 +94,24 @@ export interface Material {
 
 export type FileReader = (file: string, role: PacketFile["role"], text?: string) => PacketFile | undefined;
 
+// A reader owns one command's immutable texts. Share syntax across its contracts,
+// but never carry a snapshot into another command or another compiler instance.
+const reviewSources = new WeakMap<FileReader, WeakMap<TypeScript, Map<string, ts.SourceFile>>>();
+function sourceReader(read: FileReader, ts: TypeScript): (file: string, text: string) => ts.SourceFile {
+  let compilers = reviewSources.get(read);
+  if (!compilers) reviewSources.set(read, compilers = new WeakMap());
+  let sources = compilers.get(ts);
+  if (!sources) compilers.set(ts, sources = new Map());
+  return (file, text) => {
+    let source = sources.get(file);
+    if (!source || source.text !== text) {
+      source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+      sources.set(file, source);
+    }
+    return source;
+  };
+}
+
 /** Why a local file is left out of a fingerprint: past the depth, past the file limit, or a link out of the project. */
 export type Beyond = "depth" | "maxFiles" | "outside";
 
@@ -213,10 +231,11 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
   }
   const textOf = (file: string) => files.find((candidate) => candidate.path === file)?.text;
   const parsed = new Map<string, ts.SourceFile>();
+  const snapshot = compiler ? sourceReader(read, compiler.ts) : undefined;
   const roots: { file: string; nodes: ts.Node[]; part: MaterialPart }[] = [];
   const parse = (file: string, text: string) => {
-    if (!compiler) return undefined;
-    if (!parsed.has(file)) parsed.set(file, compiler.ts.createSourceFile(file, text, compiler.ts.ScriptTarget.Latest, true));
+    if (!snapshot) return undefined;
+    if (!parsed.has(file)) parsed.set(file, snapshot(file, text));
     return parsed.get(file)!;
   };
   for (const implementation of implementations.slice().sort((a, b) => compareText(a.location.file, b.location.file) || compareText(a.name, b.name))) {
@@ -242,7 +261,7 @@ export function collectMaterial(result: ImplementationPhaseResult, name: string,
   const ownFiles = new Set([...implementations.map((implementation) => implementation.location.file), ...testFiles]);
   const otherImplementations = new Set((linking?.implementations ?? []).map((implementation) => implementation.location.file).filter((file) => !ownFiles.has(file)));
   const closure = compiler
-    ? dependencyClosure(result.root, compiler.ts, compiler.overlay, [...ownFiles].sort(compareText).map((file) => ({ file, text: textOf(file) ?? "" })), ownFiles, otherImplementations, result.reviewScope, (file) => read(file, "dependency")?.text)
+    ? dependencyClosure(result.root, compiler.ts, compiler.overlay, [...ownFiles].sort(compareText).map((file) => ({ file, text: textOf(file) ?? "" })), ownFiles, otherImplementations, result.reviewScope, (file) => read(file, "dependency")?.text, snapshot)
     : { files: [], beyond: [], unreadable: [] };
   for (const dependency of closure.files) {
     parse(dependency.file, dependency.text);
@@ -314,12 +333,18 @@ function declaredNames(ts: TypeScript, statement: ts.Statement): string[] {
 }
 
 /** Every identifier written in a node. Over-inclusive on purpose: a property name that matches a declaration only adds that declaration. */
-function identifiersIn(ts: TypeScript, node: ts.Node, into: Set<string>): Set<string> {
+const referencedNames = new WeakMap<ts.Node, ReadonlySet<string>>();
+const fileDeclarations = new WeakMap<ts.SourceFile, Map<string, ts.Statement[]>>();
+function identifiersIn(ts: TypeScript, node: ts.Node): ReadonlySet<string> {
+  const known = referencedNames.get(node);
+  if (known) return known;
+  const into = new Set<string>();
   const walk = (child: ts.Node): void => {
     if (ts.isIdentifier(child)) into.add(child.text);
     ts.forEachChild(child, walk);
   };
   walk(node);
+  referencedNames.set(node, into);
   return into;
 }
 
@@ -371,14 +396,18 @@ function materialAt(ts: TypeScript, sourceFile: ts.SourceFile, location: SourceL
     }
   }
 
-  const declarations = new Map<string, ts.Statement[]>();
-  for (const statement of sourceFile.statements) for (const name of declaredNames(ts, statement)) declarations.set(name, [...(declarations.get(name) ?? []), statement]);
+  let declarations = fileDeclarations.get(sourceFile);
+  if (!declarations) {
+    declarations = new Map<string, ts.Statement[]>();
+    for (const statement of sourceFile.statements) for (const name of declaredNames(ts, statement)) declarations.set(name, [...(declarations.get(name) ?? []), statement]);
+    fileDeclarations.set(sourceFile, declarations);
+  }
   const own = sourceFile.statements.find((statement) => statement.getStart() <= start!.getStart() && start!.end <= statement.end);
   const included = new Set<ts.Statement>(own ? [own] : []);
   const referenced: ts.Statement[] = [];
   const queue: ts.Node[] = [start, ...setup];
-  for (let node = queue.shift(); node; node = queue.shift()) {
-    for (const name of identifiersIn(ts, node, new Set())) {
+  for (let next = 0; next < queue.length; next++) {
+    for (const name of identifiersIn(ts, queue[next])) {
       for (const statement of declarations.get(name) ?? []) {
         if (included.has(statement)) continue;
         included.add(statement);
@@ -392,7 +421,10 @@ function materialAt(ts: TypeScript, sourceFile: ts.SourceFile, location: SourceL
 }
 
 /** The local files a file imports for their values: type-only imports and exports, and dynamic `import()` and `require()` calls, are not followed. */
+const importedValues = new WeakMap<ts.SourceFile, string[]>();
 function valueImports(ts: TypeScript, sourceFile: ts.SourceFile): string[] {
+  const known = importedValues.get(sourceFile);
+  if (known) return known;
   const specifiers: string[] = [];
   for (const statement of sourceFile.statements) {
     if (ts.isImportDeclaration(statement) && ts.isStringLiteral(statement.moduleSpecifier)) {
@@ -407,6 +439,7 @@ function valueImports(ts: TypeScript, sourceFile: ts.SourceFile): string[] {
       specifiers.push(statement.moduleReference.expression.text);
     }
   }
+  importedValues.set(sourceFile, specifiers);
   return specifiers;
 }
 
@@ -428,6 +461,7 @@ export function dependencyClosure(
   stopAt: ReadonlySet<string>,
   scope: { depth: number; maxFiles: number; exclude: readonly string[] },
   readDependency?: (file: string) => string | undefined,
+  snapshot?: (file: string, text: string) => ts.SourceFile,
 ): { files: { file: string; text: string }[]; beyond: { file: string; why: Beyond }[]; unreadable: { file: string; message: string }[] } {
   const files: { file: string; text: string }[] = [];
   const beyond: { file: string; why: Beyond }[] = [];
@@ -441,7 +475,7 @@ export function dependencyClosure(
   };
   const importsOf = (file: string, text: string) => {
     const fileName = path.join(root, file);
-    const sourceFile = ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, false);
+    const sourceFile = snapshot?.(file, text) ?? ts.createSourceFile(fileName, text, ts.ScriptTarget.Latest, false);
     const found = new Set<string>();
     for (const specifier of valueImports(ts, sourceFile)) {
       const resolved = overlay.resolveFrom(specifier, fileName);

@@ -4,7 +4,7 @@
     {
       "module": "src",
       "contract": "Cli",
-      "fingerprint": "sha256:code-v2:6b17ba9d6bbf453ca384dd212ab73a84d020016df287672cf57fa3c7886a1199",
+      "fingerprint": "sha256:code-v2:3b2018aabc725a803669971b7d38837cb79d6f161af3569896acf00c023c1652",
       "material": {
         "contract": "sha256:f218cf15d8ca04bab475710d44b936d99dbdac799564bff475a365a080d3ed6a",
         "design src/cage.cage.mdx": "sha256:363b57677da011b2753a79e3b81324299e9291a59bb0782aca1e9bfb86189262",
@@ -16,6 +16,9 @@
         "test test/check.test.ts:check reports the whole plan fixture: 3 implementations, 8 linked invariants": "sha256:319309a0ca2e98ec21ec1866b0acd8e2aa1635c67d410e49a8bd97a02bf78571",
         "test test/cli.test.ts:invalid arguments exit 2 with a message on stderr and nothing on stdout": "sha256:72ab18b84b3c0c1d7dc828c8187ac40b96e6e2b6c8f38d27ce3a8b3b05a8de2c",
         "test test/codes.test.ts:cage codes prints one line per code, what it means and what to do, and takes no options": "sha256:a10c8cb98d3badf3abe6965e18844e762c0cc3815327867d1d0568209a358723",
+        "test test/compiler-cache.test.ts:overlay resolution reuses lookups while keeping importer directories and import/require modes distinct on TS5/6": "sha256:7589586d956bc8783aa5788495f3736b69da13471515f7034fda9497c37fd130",
+        "test test/compiler-cache.test.ts:adding virtual files invalidates successful and failed resolutions; fresh overlays observe disk edits on TS5/6": "sha256:db258956b4d9435a8f70564442fa5da98bf3bad667d4b7492068833bdf4899a1",
+        "test test/compiler-cache.test.ts:repeated package selections reuse traversal but keep selected names and fresh compiler programs independent on TS5/6": "sha256:2b496e69e2ddd23b03ea313a3e34dd7911bcc5a82f172ae59a0876dd2ea6a574",
         "test test/contract-boundaries.test.ts:memberless families share promises across different arities without inheriting extra call signatures on TS5/6": "sha256:e75e600f9d47794dc65684bb8d9ec811c7365b21401f39d15fa554e284d04dfb",
         "test test/contract-boundaries.test.ts:abstract bases bind their full API and test subclasses supply evidence without blessing every descendant on TS5/6": "sha256:31f4e61159183ddf0eb76e05899745a9ef139bac182768c64c5d48926a155a3a",
         "test test/contract-boundaries.test.ts:explicit package instances omit only inherited library methods and retain exact class arguments and declared members on TS5/6": "sha256:98bb6abcc48b3e139c2c1480b127638e3da831e2a146cd19cdd89afa7a657069",
@@ -352,6 +355,7 @@
         "test test/review-slice-edge.test.ts:retargeting an effectful re-export also retains the root initialization connection": "sha256:0bf028f2800460eeb36cf5630c0401c6561b550aa6fe5391c2914889c1a9c4f7",
         "test test/review-slice-edge.test.ts:registration titles and builders retain eagerly called helpers without retaining callback bodies": "sha256:0576e8d2fb2a1f3a9310dc2c42aff870888feabb4f9f4a2b48033d3889f92a45",
         "test test/review-slice-edge.test.ts:eager registration helpers may synchronously invoke callback arguments": "sha256:ab8116c29b3e0817d2bcd2070a01c6c1f38075680e4c714d34fd15580c7d7629",
+        "test test/review-snapshot.test.ts:contracts share parsed review snapshots without sharing dependency selections or retaining files across commands on TS5/6": "sha256:fb38c91ebef98fc43ee71512372f1153522f20279a11ce939d2ab1cfe49a9d28",
         "test test/review.test.ts:a change to the material makes the review stale, naming the file, and the old verdict cannot be recorded": "sha256:74093b5f21ca62eb34041f95803729297c27ab77c72b402d35ab184f27f353fb",
         "test test/review.test.ts:a verdict is refused when it is not about the designs as they are, and then nothing is recorded": "sha256:9be27c438ad05ad0a4774c5bcd035b351709b8f3d9ee5bf28eb460547db2f5b0",
         "test test/test-imports.test.ts:a test file whose project import names something the file does not export runs none of its tests: they are broken-import": "sha256:f7fd022f027246620cedead5eb7e91dfe2db68dfba2d86d2f27c14eee2a0138f",
@@ -372,7 +376,8 @@
         "dependency src/review-record.ts": "sha256:86dbc7631c06eb05bddfb1780fb608131bfe9c7c52cfd6d0cb8786fd6a3817d2",
         "dependency src/review.ts": "sha256:1a2c7741a56a270d37fe6be5d66eac336ce39dfdd3e74418d21c8c4169f86e67",
         "dependency test/helpers.ts": "sha256:160acc3375a8b3fe9d997d2d0838d90802267854e344e9823d7abd229f9490a1",
-        "dependency src/typescript.ts": "sha256:a0a5c118da33d3b549fa7b1cd2bd197d2c739856f8b1e1c7da9568940c459dc4",
+        "dependency src/typescript.ts": "sha256:4589db56e24823dfc18fef328b7d39f5e8983002f08dfc52b6c5280e74a04c03",
+        "dependency src/package-types.ts": "sha256:82a66fee39bba7c72145e19623a7753f6820c4c68cfa4909c0adbbb3a39125c6",
         "dependency src/contract-shape.ts": "sha256:99ca8b4a61d3746a407ec23e9dccb08fcb2f7e31370f2e952bd6eb850164a77d",
         "dependency src/contract-inheritance.ts": "sha256:6873b1b1144500b2c22627c974aad2ee9be33a90eb827d903b602ce8c7375f40",
         "dependency src/design-index.ts": "sha256:223e882fd680611985569e31b36986487f2d879ab70f5f43a2380c68790451ef",
@@ -384,12 +389,11 @@
         "dependency src/lint-config.ts": "sha256:ca3d5471e9f63fdf20579d73f7b52bf0876737b57823a3a44d429347dcbe359d",
         "dependency src/locks.ts": "sha256:3e5ec4812ed1fb750982c22bf11dd9a17034ac063368b29522521cb44b848ca2",
         "dependency src/package-diagnostics.ts": "sha256:d32e4366baa02ecb906cc9340ad43596d8f46a101d12e6d245ca1c6f13debdb7",
-        "dependency src/package-types.ts": "sha256:a10b5208d8da2250603e016a24a602465c8fc91e2f368e1594d284a4681755b7",
         "dependency src/review-references.ts": "sha256:dbabd70b11819f08e963fa55ea9cee5ed7b9683d43fdd2f49cd4f2dfa9bd7734",
         "dependency src/review-fingerprint.ts": "sha256:8735958bdf4df69162c9f87b9237233adc55b613b15951d6733f347d52ca5ca9",
         "dependency src/review-groups.ts": "sha256:6f1c6031ff66d53d9a5f815b88ec19c117c099802f6e39e2184a5a3a1a528c50",
         "dependency src/review-slice.ts": "sha256:87e2d4b574f4416d88db555314821a250189fa70b3280704c0cc77de10ced0c2",
-        "dependency src/review-material.ts": "sha256:365e80c9bdafb47926d4842a94bc42a660506bd375d0124bcfb52f8f15431ca9",
+        "dependency src/review-material.ts": "sha256:308f113b66f10b2d36648f1746fff18093458f7533df35de71de450efdb3f775",
         "dependency src/design-phase.ts": "sha256:91a5a7be31226e77d3999fc955d342925392096885b210c796c6e9b41da26b62",
         "dependency src/implementation-phase.ts": "sha256:bec548fad0a1b2f10551d735b1ae5837dcaa50df5ee1ed1e54500748612ac712",
         "dependency src/lint.ts": "sha256:f835a8849afd25f2a1c188a98e1e0e80d7fb95c159e342d62ae1619a2da46dfe",
@@ -398,12 +402,12 @@
         "dependency src/record-file.ts": "sha256:ae40dbfe809d8be681f13c279a933c4397d287df9a307e7a72093ee44b514eda",
         "dependency src/gate-report.ts": "sha256:447032edeffa10de8a13c13f29295dcc0f6501052ccab3bc7dfe3aab5db8e3f7",
         "dependency src/gherkin-migrate.ts": "sha256:b4072671d37fb1e64eeede7d72ebc665d65df22070588bdca0e4d70e56fa1879",
+        "dependency src/package-dependencies.ts": "sha256:ba7db8a5f4ddd9e937ac68ad1e3838c473860b13c41041c0309bcb42bec855bb",
         "dependency src/design-model.ts": "sha256:9b9b8a6a9317e5e4dfc4178d9b205a6a0cf992938e79a5f1a72932e8175c07e0",
         "dependency src/doc-comments.ts": "sha256:ef9b7687b1739e169b75d2bd9f90761a04cbd06ad08b97b5ada403e90530669b",
         "dependency src/graph.ts": "sha256:5005309477bfd774fce31d6e466b3715ddbdc84f25d838b40948cdf40c0a7ad5",
         "dependency src/metadata.ts": "sha256:b7af0127a543a129823d7ec77ea765f0452a25fcd2862380a5c874275295c254",
         "dependency src/gherkin.ts": "sha256:fa074b98a0546586a64cfbef5837a7dcf013a47516ce8264ad6accfdd35ccd28",
-        "dependency src/package-dependencies.ts": "sha256:ba7db8a5f4ddd9e937ac68ad1e3838c473860b13c41041c0309bcb42bec855bb",
         "dependency src/review-members.ts": "sha256:dac214253a51d98d2ace2fee89460da89b24212a787ca2ead729e5b90d6c3a72",
         "dependency src/gherkin-index.ts": "sha256:ee7655dade702b1f872148864cd9c4b41e9d7f1d87b8fa88895f2402e348b519",
         "dependency src/package-instance.ts": "sha256:8ae0f9d2eae48aa6339ed609eb8e231f3542bfe449481909d977f97f90546938",
@@ -505,8 +509,8 @@
         {
           "invariant": "exact-signatures",
           "assessment": "adequate",
-          "reason": "The Example changes a required parameter to optional and requires both a signature diagnostic and a blocking gate. Linked conformance cases check parameter counts, modifiers, setters and nested public types, with equivalent aliases passing and opaque/open comparisons rejected.",
-          "evidence": "test/contract-boundaries.test.ts:33; test/contract-conformance.test.ts:10",
+          "reason": "The Example changes a required parameter to optional and requires both a signature diagnostic and a blocking gate. Linked conformance cases check parameter counts, modifiers, setters and nested public types, with equivalent aliases passing and opaque/open comparisons rejected. The cache regression additionally checks that identical specifier text resolves independently by importer directory and import/require mode on both compilers.",
+          "evidence": "test/contract-boundaries.test.ts:33; test/contract-conformance.test.ts:10; test/compiler-cache.test.ts:12",
           "suggestedChange": null
         },
         {
@@ -750,15 +754,15 @@
         {
           "invariant": "project-vocabulary",
           "assessment": "adequate",
-          "reason": "The Example inspects the designated project alias in the review packet. Linked vocabulary cases exercise exact named allowlists, selected initializer dependencies despite zero ordinary bounds, and refusal of runtime, undesignated or unavailable project imports.",
-          "evidence": "test/contract-boundaries.test.ts:152; test/project-vocabulary-family.test.ts:38; test/project-vocabulary-family.test.ts:59",
+          "reason": "The Example inspects the designated project alias in the review packet. Linked vocabulary cases exercise exact named allowlists, selected initializer dependencies despite zero ordinary bounds, and refusal of runtime, undesignated or unavailable project imports. The cached-selection regression selects an allowed project export and then rejects a different undesignated export; package name selections stay independent and a new compiler program sees edited declarations.",
+          "evidence": "test/contract-boundaries.test.ts:152; test/project-vocabulary-family.test.ts:38; test/project-vocabulary-family.test.ts:59; test/compiler-cache.test.ts:88",
           "suggestedChange": null
         },
         {
           "invariant": "package-types",
           "assessment": "adequate",
-          "reason": "The Example uses an external node_modules link and changes the selected declaration after recording, requiring a stale review. Linked compiler-matrix fixtures retain alias/routing/global contributions and distinguish skipLibCheck recovery from syntax errors, unresolved direct imports and forbidden project dependencies.",
-          "evidence": "test/contract-boundaries.test.ts:152; test/package-skip-libcheck.test.ts:39; test/package-skip-libcheck.test.ts:106; test/package-project-globals.test.ts:28",
+          "reason": "The Example uses an external node_modules link and changes the selected declaration after recording, requiring a stale review. Linked compiler-matrix fixtures retain alias/routing/global contributions and distinguish skipLibCheck recovery from syntax errors, unresolved direct imports and forbidden project dependencies. New compiler-cache cases require no repeated filesystem probes for warm lookups, distinct import/require and importer-directory targets, invalidation after virtual additions, and fresh declaration digests in a new program. Repeated package selections retain separate named exports and still reject undesignated vocabulary.",
+          "evidence": "test/contract-boundaries.test.ts:152; test/package-skip-libcheck.test.ts:39; test/package-skip-libcheck.test.ts:106; test/package-project-globals.test.ts:28; test/compiler-cache.test.ts:12; test/compiler-cache.test.ts:59; test/compiler-cache.test.ts:88",
           "suggestedChange": null
         },
         {
@@ -806,8 +810,8 @@
         {
           "invariant": "review-packet",
           "assessment": "adequate",
-          "reason": "The Example compares changed and context output without changing fingerprints or touched sets and inspects complete requirements, selected implementation, affected tests and helpers. Linked compact/shared-output cases retain exact source ranges, full prior findings and separate test locations across file modes.",
-          "evidence": "test/review-context.test.ts:16; test/review-compact.test.ts:9; test/review-scope.test.ts:127",
+          "reason": "The Example compares changed and context output without changing fingerprints or touched sets and inspects complete requirements, selected implementation, affected tests and helpers. Linked compact/shared-output cases retain exact source ranges, full prior findings and separate test locations across file modes. The snapshot regression compares complete material parts and source ranges from shared and independent readers on TS5/TS6, while an operation count requires each original snapshot to be parsed once.",
+          "evidence": "test/review-context.test.ts:16; test/review-compact.test.ts:9; test/review-scope.test.ts:127; test/review-snapshot.test.ts:11",
           "suggestedChange": null
         },
         {
@@ -834,36 +838,36 @@
         {
           "invariant": "review-stale",
           "assessment": "adequate",
-          "reason": "The Example records an inherited package-instance contract, edits only its family promise and requires a stale-review diagnostic. Linked mutation cases separately change designs, implementations, tests and selected dependencies and assert the named changed parts.",
-          "evidence": "test/contract-boundaries.test.ts:152; test/review.test.ts:295",
+          "reason": "The Example records an inherited package-instance contract, edits only its family promise and requires a stale-review diagnostic. Linked mutation cases separately change designs, implementations, tests and selected dependencies and assert the named changed parts. The package-selection regression edits a selected declaration, constructs a fresh compiler program and requires different declaration material and digests; the cache cannot reuse the prior program's selection.",
+          "evidence": "test/contract-boundaries.test.ts:152; test/review.test.ts:295; test/compiler-cache.test.ts:88",
           "suggestedChange": null
         },
         {
           "invariant": "review-code-trivia",
           "assessment": "adequate",
-          "reason": "The Example compares declaration digests after ordinary spacing and significant compiler directives. Linked code-normalization tests distinguish inert comments from syntax, literals, annotations, ASI-sensitive changes and directive attachment while retaining authored text in packets.",
-          "evidence": "test/package-fingerprint-integrity.test.ts:251; test/review-fingerprint.test.ts:12; test/review-fingerprint.test.ts:28; test/review-fingerprint.test.ts:45",
+          "reason": "The Example compares declaration digests after ordinary spacing and significant compiler directives. Linked code-normalization tests distinguish inert comments from syntax, literals, annotations, ASI-sensitive changes and directive attachment while retaining authored text in packets. Shared and independently parsed review material is also compared under all three fingerprint algorithms, so syntax reuse must preserve the existing normalization and authored source bytes.",
+          "evidence": "test/package-fingerprint-integrity.test.ts:251; test/review-fingerprint.test.ts:12; test/review-fingerprint.test.ts:28; test/review-fingerprint.test.ts:45; test/review-snapshot.test.ts:11",
           "suggestedChange": null
         },
         {
           "invariant": "review-fingerprint-legacy",
           "assessment": "adequate",
-          "reason": "The Example constructs legacy reviews and acceptances and checks current status and unchanged record bytes. Source-text edits stale legacy records; only a fresh verdict switches to the versioned fingerprint that ignores subsequent ordinary comments.",
-          "evidence": "test/review-scope.test.ts:193",
+          "reason": "The Example constructs legacy reviews and acceptances and checks current status and unchanged record bytes. Source-text edits stale legacy records; only a fresh verdict switches to the versioned fingerprint that ignores subsequent ordinary comments. The new snapshot test compares legacy, code-v1 and code-v2 digests and packet parts against independently collected material for every contract.",
+          "evidence": "test/review-scope.test.ts:193; test/review-snapshot.test.ts:11",
           "suggestedChange": null
         },
         {
           "invariant": "review-dependency-relevant",
           "assessment": "adequate",
-          "reason": "The Example changes the selected object field and a referenced initializer and requires different fingerprints on TS5/TS6. Related member cases retain called siblings, helpers and shared mutable captures instead of dropping relevant transitive behavior.",
-          "evidence": "test/review-members.test.ts:17; test/review-members.test.ts:31; test/review-members.test.ts:62",
+          "reason": "The Example changes the selected object field and a referenced initializer and requires different fingerprints on TS5/TS6. Related member cases retain called siblings, helpers and shared mutable captures instead of dropping relevant transitive behavior. The new snapshot test changes a selected field between readers and requires its consumer fingerprint to change while other contracts remain current.",
+          "evidence": "test/review-members.test.ts:17; test/review-members.test.ts:31; test/review-members.test.ts:62; test/review-snapshot.test.ts:11",
           "suggestedChange": null
         },
         {
           "invariant": "review-dependency-isolated",
           "assessment": "adequate",
-          "reason": "The Example changes only an independent sibling field and requires an identical fingerprint on both compilers. Related method and multi-root cases check private imports and local bindings do not make unrelated selections contaminate one another.",
-          "evidence": "test/review-members.test.ts:17",
+          "reason": "The Example changes only an independent sibling field and requires an identical fingerprint on both compilers. Related method and multi-root cases check private imports and local bindings do not make unrelated selections contaminate one another. The new snapshot test checks eight independent field selections from shared syntax; an unselected field edit preserves all fingerprints and a selected edit changes only its consumer.",
+          "evidence": "test/review-members.test.ts:17; test/review-snapshot.test.ts:11",
           "suggestedChange": null
         },
         {
@@ -925,8 +929,8 @@
         {
           "invariant": "draft-candidate",
           "assessment": "adequate",
-          "reason": "The Example resolves a consumer import through the candidate target before that target exists and rejects importing a different draft. Compiler-backed cases assert authored draft positions, unchanged snapshots and reports that explicitly leave implementations, tests and reviews unchecked.",
-          "evidence": "test/draft.test.ts:256; test/draft.test.ts:297; test/draft.test.ts:331",
+          "reason": "The Example resolves a consumer import through the candidate target before that target exists and rejects importing a different draft. Compiler-backed cases assert authored draft positions, unchanged snapshots and reports that explicitly leave implementations, tests and reviews unchecked. New overlay cases first cache missing and successful imports, then add virtual files and require the new preferred targets, including type references. Fresh overlays cannot inherit candidate-only files.",
+          "evidence": "test/draft.test.ts:256; test/draft.test.ts:297; test/draft.test.ts:331; test/compiler-cache.test.ts:12; test/compiler-cache.test.ts:59",
           "suggestedChange": null
         },
         {
@@ -946,8 +950,8 @@
         {
           "invariant": "draft-activate",
           "assessment": "adequate",
-          "reason": "The Example asserts exact header-free target bytes, removal of the consumed draft and unchanged lock/review records. Linked refusal cases change the live target, candidate, configuration or protected declarations and require unchanged files; extendable additions remain unrecorded until an explicit lock command.",
-          "evidence": "test/draft.test.ts:179; test/draft.test.ts:353; test/draft.test.ts:409; test/draft.test.ts:459",
+          "reason": "The Example asserts exact header-free target bytes, removal of the consumed draft and unchanged lock/review records. Linked refusal cases change the live target, candidate, configuration or protected declarations and require unchanged files; extendable additions remain unrecorded until an explicit lock command. The overlay invalidation case confirms successful and missing resolutions are refreshed after virtual additions and a fresh command observes disk files independently of an earlier candidate.",
+          "evidence": "test/draft.test.ts:179; test/draft.test.ts:353; test/draft.test.ts:409; test/draft.test.ts:459; test/compiler-cache.test.ts:59",
           "suggestedChange": null
         }
       ]
@@ -955,7 +959,7 @@
     {
       "module": "src",
       "contract": "Codes",
-      "fingerprint": "sha256:code-v2:60aa54e43be0574c647198df653b35660839b69a20e14fb4b8a66b41bd1d6e33",
+      "fingerprint": "sha256:code-v2:8d7d8eb840e47c671754e3ec31f60f6a37dc687085cc1c3f9b511a1658e1dfe5",
       "material": {
         "contract": "sha256:99acc809e7162b9048bc90c8ffb32e6d88059f69ae0419fe99a6e051f359b07b",
         "design src/cage.cage.mdx": "sha256:363b57677da011b2753a79e3b81324299e9291a59bb0782aca1e9bfb86189262",
@@ -975,8 +979,8 @@
         "dependency src/location.ts": "sha256:68745832b1db80b8f548ee6c3f9c61a6f24e5a25ffa06861b4c10fe6e4289cf8",
         "dependency src/mdx.ts": "sha256:12316968cf8578f631fafd1d013fe4eb59c643c32c4177b03d2451c83a82917b",
         "dependency src/package-instance.ts": "sha256:8ae0f9d2eae48aa6339ed609eb8e231f3542bfe449481909d977f97f90546938",
-        "dependency src/package-types.ts": "sha256:a10b5208d8da2250603e016a24a602465c8fc91e2f368e1594d284a4681755b7",
-        "dependency src/typescript.ts": "sha256:a0a5c118da33d3b549fa7b1cd2bd197d2c739856f8b1e1c7da9568940c459dc4",
+        "dependency src/package-types.ts": "sha256:82a66fee39bba7c72145e19623a7753f6820c4c68cfa4909c0adbbb3a39125c6",
+        "dependency src/typescript.ts": "sha256:4589db56e24823dfc18fef328b7d39f5e8983002f08dfc52b6c5280e74a04c03",
         "dependency src/contract-conformance.ts": "sha256:3665ad92bac670e64c36665288590b88630968890ed79db2dcd5e40d1feb8c72",
         "dependency src/coverage.ts": "sha256:2314611bd16763158bcc98cddbe06895ea746fe9febacf726990b9e2d459efb8",
         "dependency src/example-links.ts": "sha256:62f7386ce9e4ce793d42fe38a0939e9d034eed40470efad69c9887057d43778c",
@@ -1080,7 +1084,7 @@
     {
       "module": "src",
       "contract": "ConfigLoader",
-      "fingerprint": "sha256:code-v2:e75419eea409f588946ade6d28298460d0aa571fafee6c89424b0845ab5d37d4",
+      "fingerprint": "sha256:code-v2:8d6508aca94d277b5f5c693847f53eeddbb25f0d6cab7c5e292e984632cc115d",
       "material": {
         "contract": "sha256:53429215981c659b6119697a306b00bf84e9d3be885c2574efa1ebbe7707056d",
         "design src/cage.cage.mdx": "sha256:363b57677da011b2753a79e3b81324299e9291a59bb0782aca1e9bfb86189262",
@@ -1108,8 +1112,8 @@
         "dependency src/extraction.ts": "sha256:53833e075910e2c84c2a1f405ad9d331da5e88f84f5a8006c91cb6be396a9d5f",
         "dependency src/gherkin-index.ts": "sha256:ee7655dade702b1f872148864cd9c4b41e9d7f1d87b8fa88895f2402e348b519",
         "dependency src/package-instance.ts": "sha256:8ae0f9d2eae48aa6339ed609eb8e231f3542bfe449481909d977f97f90546938",
-        "dependency src/package-types.ts": "sha256:a10b5208d8da2250603e016a24a602465c8fc91e2f368e1594d284a4681755b7",
-        "dependency src/typescript.ts": "sha256:a0a5c118da33d3b549fa7b1cd2bd197d2c739856f8b1e1c7da9568940c459dc4",
+        "dependency src/package-types.ts": "sha256:82a66fee39bba7c72145e19623a7753f6820c4c68cfa4909c0adbbb3a39125c6",
+        "dependency src/typescript.ts": "sha256:4589db56e24823dfc18fef328b7d39f5e8983002f08dfc52b6c5280e74a04c03",
         "dependency src/contract-conformance.ts": "sha256:3665ad92bac670e64c36665288590b88630968890ed79db2dcd5e40d1feb8c72",
         "dependency src/coverage.ts": "sha256:2314611bd16763158bcc98cddbe06895ea746fe9febacf726990b9e2d459efb8",
         "dependency src/implementations.ts": "sha256:c63eb2744441276ecee5a2553100d7f58a9cff5e9cbf445e9beccb122bdf51b4",

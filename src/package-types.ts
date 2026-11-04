@@ -129,6 +129,10 @@ export function createPackageTypesResolver(
   const shown = (real: string) => toProjectPath(realRoot, logicalPath(real));
   const compilerLibDirectory = path.dirname(ts.getDefaultLibFilePath(options));
   const diagnostics = createPackageDiagnostics(ts, overlay, program);
+  // Imports in different designs often select exactly the same package API.
+  // Selection is immutable for this compiler program; provenance, allowlists,
+  // diagnostics and the final file limits are still checked for each import.
+  const selections = new Map<string, PackageSelection>();
 
   /** The package.json of a directory, read once: an installed package by its name and version, or why it is none. */
   const manifestAt = (directory: string, folder?: string): Installed | string => {
@@ -464,13 +468,18 @@ export function createPackageTypesResolver(
           }
         }
       }
-      const selection = selectPackageDependencies(
-        ts, program.getTypeChecker(), program, sourceFile, names,
-        (module, from, usageMode) => overlay.resolveModuleFull(module, from, usageMode)?.resolvedFileName,
-        (name, from, usageMode) => overlay.resolveTypeReference(name, from, usageMode)?.resolvedFileName,
-        isProject,
-        isProjectFile,
-      );
+      const selectionKey = JSON.stringify([sourceFile.fileName, isProject, names]);
+      let selection = selections.get(selectionKey);
+      if (!selection) {
+        selection = selectPackageDependencies(
+          ts, program.getTypeChecker(), program, sourceFile, names,
+          (module, from, usageMode) => overlay.resolveModuleFull(module, from, usageMode)?.resolvedFileName,
+          (name, from, usageMode) => overlay.resolveTypeReference(name, from, usageMode)?.resolvedFileName,
+          isProject,
+          isProjectFile,
+        );
+        selections.set(selectionKey, selection);
+      }
       const files = closure(rootFile, entered, selection, isProject);
       if (typeof files === "string") return { problem: `is not supported: its declarations reach ${files}` };
       const invalid = diagnostics.diagnosticsFor(selection)[0];

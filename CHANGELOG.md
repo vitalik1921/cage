@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.1
+
+### Performance
+
+- Cache repeated TypeScript module and type-reference resolution within a compiler overlay; adding virtual files invalidates both successful and failed lookups.
+- Reuse identical package declaration selections across designs without bypassing import authorization, diagnostic checks or review/lock material.
+- Share parsed review snapshots and syntax indexes across contracts within one command, while retaining independent dependency scopes and legacy fingerprint behavior.
+- Add a reproducible benchmark that compares complete check output before reporting speedups.
+
+A local large-project check (97 design documents, 223 implementations, 1,246 invariants and 4,808 linked test declarations; Node 26.10.0, project TypeScript 5.9.3) improved from a 73.90 s median on 1.0.0 to 24.25 s, about 3.05× faster. Three alternating process pairs produced byte-identical complete JSON reports and exit codes. See `scripts/benchmark.mjs` to repeat the comparison on another project.
+
+### Maintenance
+
+- Complete Cage's own Gherkin migration: preserve all 69 promises, link Examples to existing tests and retain the legacy migration fixture.
+
 ## 1.0.0
 
 ### Added
